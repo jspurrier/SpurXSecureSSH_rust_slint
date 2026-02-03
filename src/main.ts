@@ -98,6 +98,19 @@ let commandFolders: string[] = ['General'];
 let sessionFolders: string[] = ['General'];
 let folderContext: 'session' | 'command' = 'command';
 
+// AI Assistant state
+let aiPanelOpen = false;
+const aiMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+let aiProvider: 'gemini' | 'grok' | 'ollama' = 'gemini';
+
+// AI Config interface matching Rust struct
+interface AiConfig {
+  gemini_api_key: string | null;
+  grok_api_key: string | null;
+  ollama_host: string;
+  ollama_model: string;
+}
+
 // ============================================
 // DOM Elements
 // ============================================
@@ -172,6 +185,33 @@ const elements = {
   statusConnection: document.getElementById('status-connection') as HTMLSpanElement,
   statusCipher: document.getElementById('status-cipher') as HTMLSpanElement,
   statusSize: document.getElementById('status-size') as HTMLSpanElement,
+
+  // AI Panel
+  aiPanel: document.getElementById('ai-panel') as HTMLDivElement,
+  aiToggleBtn: document.getElementById('btn-toggle-ai') as HTMLButtonElement,
+  aiPanelToggle: document.getElementById('ai-panel-toggle') as HTMLButtonElement,
+  aiProviderSelect: document.getElementById('ai-provider-select') as HTMLSelectElement,
+  aiSettingsBtn: document.getElementById('ai-settings-btn') as HTMLButtonElement,
+  aiMessages: document.getElementById('ai-messages') as HTMLDivElement,
+  aiInput: document.getElementById('ai-input') as HTMLTextAreaElement,
+  aiSendBtn: document.getElementById('ai-send-btn') as HTMLButtonElement,
+  aiAnalyzeBtn: document.getElementById('ai-analyze-btn') as HTMLButtonElement,
+  aiHelpBtn: document.getElementById('ai-help-btn') as HTMLButtonElement,
+
+  // AI Settings Modal
+  aiSettingsModal: document.getElementById('modal-ai-settings') as HTMLDivElement,
+  aiGeminiKey: document.getElementById('ai-gemini-key') as HTMLInputElement,
+  aiToggleKeyVisibility: document.getElementById('ai-toggle-key-visibility') as HTMLButtonElement,
+  aiTestGemini: document.getElementById('ai-test-gemini') as HTMLButtonElement,
+  aiGrokKey: document.getElementById('ai-grok-key') as HTMLInputElement,
+  aiToggleGrokVisibility: document.getElementById('ai-toggle-grok-visibility') as HTMLButtonElement,
+  aiTestGrok: document.getElementById('ai-test-grok') as HTMLButtonElement,
+  aiOllamaHost: document.getElementById('ai-ollama-host') as HTMLInputElement,
+  aiOllamaModel: document.getElementById('ai-ollama-model') as HTMLInputElement,
+  aiTestOllama: document.getElementById('ai-test-ollama') as HTMLButtonElement,
+  aiSettingsSave: document.getElementById('ai-settings-save') as HTMLButtonElement,
+  aiSettingsCancel: document.getElementById('ai-settings-cancel') as HTMLButtonElement,
+  aiSettingsClose: document.getElementById('ai-settings-close') as HTMLButtonElement,
 };
 
 // ============================================
@@ -943,7 +983,7 @@ function updateContextMenuItems(type: 'session' | 'command' | 'folder'): void {
 }
 
 function hideContextMenu(): void {
-  elements.contextMenu.classList.remove('active');
+  elements.contextMenu.classList.remove('visible');
   contextMenuTargetSessionId = null;
   contextMenuTargetCommandId = null;
   contextMenuTargetFolder = null;
@@ -982,15 +1022,13 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
   }
 
   // Position and show
-  elements.tabContextMenu.style.display = 'block';
   elements.tabContextMenu.style.left = `${x}px`;
   elements.tabContextMenu.style.top = `${y}px`;
-  elements.tabContextMenu.classList.add('active');
+  elements.tabContextMenu.classList.add('visible');
 }
 
 function hideTabContextMenu(): void {
-  elements.tabContextMenu.style.display = 'none';
-  elements.tabContextMenu.classList.remove('active');
+  elements.tabContextMenu.classList.remove('visible');
   contextMenuTargetTabId = null;
 }
 
@@ -1319,6 +1357,375 @@ async function saveMoveItemModal(): Promise<void> {
 
 
 // ============================================
+// AI Assistant
+// ============================================
+
+function toggleAiPanel(): void {
+  aiPanelOpen = !aiPanelOpen;
+  elements.aiPanel.classList.toggle('collapsed', !aiPanelOpen);
+  elements.aiToggleBtn.classList.toggle('active', aiPanelOpen);
+
+  // Resize terminal when panel toggles
+  setTimeout(() => {
+    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    if (tab) {
+      tab.fitAddon.fit();
+    }
+  }, 300); // Wait for animation
+}
+
+function renderAiMessages(): void {
+  if (aiMessages.length === 0) {
+    elements.aiMessages.innerHTML = `
+      <div class="ai-welcome">
+        <div class="ai-welcome-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />
+            <circle cx="8" cy="14" r="1" fill="currentColor" />
+            <circle cx="16" cy="14" r="1" fill="currentColor" />
+            <path d="M9 18h6" />
+          </svg>
+        </div>
+        <h3>AI Assistant</h3>
+        <p>Ask for help with commands, analyze terminal output, or get device-specific guidance.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  for (const msg of aiMessages) {
+    // Convert markdown code blocks to HTML with copy buttons
+    let content = escapeHtml(msg.content);
+
+    // Handle fenced code blocks with copy button
+    content = content.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
+      const codeId = 'code-' + Math.random().toString(36).substr(2, 9);
+      return `<div class="code-block-wrapper">
+        <button class="code-copy-btn" data-code-id="${codeId}" title="Copy to clipboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+        </button>
+        <pre><code id="${codeId}">${code.trim()}</code></pre>
+      </div>`;
+    });
+
+    // Handle inline code
+    content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+    content = content.replace(/\n/g, '<br>');
+
+    html += `
+      <div class="ai-message ${msg.role}">
+        <div class="ai-message-content">${content}</div>
+      </div>
+    `;
+  }
+
+  elements.aiMessages.innerHTML = html;
+  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
+
+  // Add click handlers for copy buttons
+  document.querySelectorAll('.code-copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const codeId = btn.getAttribute('data-code-id');
+      const codeEl = document.getElementById(codeId!);
+      if (codeEl) {
+        try {
+          await navigator.clipboard.writeText(codeEl.textContent || '');
+          btn.classList.add('copied');
+          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 6L9 17l-5-5"/>
+          </svg>`;
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>`;
+          }, 2000);
+        } catch (e) {
+          console.error('Failed to copy:', e);
+        }
+      }
+    });
+  });
+}
+
+function getTerminalContent(): string {
+  const tab = activeTabId ? tabs.get(activeTabId) : null;
+  if (!tab) return '';
+
+  // Get visible rows from terminal buffer
+  const buffer = tab.terminal.buffer.active;
+  const lines: string[] = [];
+
+  for (let i = 0; i < buffer.length; i++) {
+    const line = buffer.getLine(i);
+    if (line) {
+      lines.push(line.translateToString(true));
+    }
+  }
+
+  // Return last 100 lines to avoid too much context
+  return lines.slice(-100).join('\n').trim();
+}
+
+function showAiTyping(): void {
+  const typingHtml = `
+    <div class="ai-typing" id="ai-typing">
+      <div class="ai-typing-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+  `;
+  elements.aiMessages.insertAdjacentHTML('beforeend', typingHtml);
+  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
+}
+
+function hideAiTyping(): void {
+  document.getElementById('ai-typing')?.remove();
+}
+
+function showAiError(message: string): void {
+  const errorHtml = `
+    <div class="ai-error">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 8v4M12 16h.01" />
+      </svg>
+      <span>${escapeHtml(message)}</span>
+    </div>
+  `;
+  elements.aiMessages.insertAdjacentHTML('beforeend', errorHtml);
+  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
+}
+
+async function sendAiMessage(userMessage: string): Promise<void> {
+  if (!userMessage.trim()) return;
+
+  // Add user message
+  aiMessages.push({ role: 'user', content: userMessage });
+  renderAiMessages();
+  elements.aiInput.value = '';
+  elements.aiSendBtn.disabled = true;
+
+  showAiTyping();
+
+  try {
+    // Call backend AI chat function
+    const response = await invoke<string>('ai_chat', {
+      provider: aiProvider,
+      messages: aiMessages,
+    });
+
+    hideAiTyping();
+    aiMessages.push({ role: 'assistant', content: response });
+    renderAiMessages();
+  } catch (error) {
+    hideAiTyping();
+    showAiError(error instanceof Error ? error.message : 'Failed to get AI response. Check your API key settings.');
+  } finally {
+    elements.aiSendBtn.disabled = false;
+  }
+}
+
+async function analyzeTerminal(): Promise<void> {
+  const content = getTerminalContent();
+  if (!content) {
+    showAiError('No terminal content to analyze. Connect to a session first.');
+    return;
+  }
+
+  const prompt = `Analyze this terminal output and tell me:
+1. What type of device/system this appears to be (Cisco, Juniper, Linux, etc.)
+2. Current context or mode
+3. Any errors or notable information
+
+Terminal content:
+\`\`\`
+${content}
+\`\`\``;
+
+  await sendAiMessage(prompt);
+}
+
+async function showCommandHelp(): Promise<void> {
+  // Just add a starter message with context hint
+  aiMessages.push({
+    role: 'assistant',
+    content: 'I can help you find the right commands. What are you trying to do? For example:\n- "How do I show interfaces on Cisco?"\n- "Show ARP table for VLAN 100"\n- "Check routing table on Juniper"'
+  });
+  renderAiMessages();
+}
+
+// ============================================
+// AI Settings Modal
+// ============================================
+
+async function showAiSettingsModal(): Promise<void> {
+  // Load current config from backend
+  try {
+    const config = await invoke<AiConfig>('get_ai_config');
+    elements.aiGeminiKey.value = config.gemini_api_key || '';
+    elements.aiGrokKey.value = config.grok_api_key || '';
+    elements.aiOllamaHost.value = config.ollama_host || 'http://localhost:11434';
+    elements.aiOllamaModel.value = config.ollama_model || 'llama3.2';
+  } catch (e) {
+    // Use defaults
+    elements.aiGeminiKey.value = '';
+    elements.aiGrokKey.value = '';
+    elements.aiOllamaHost.value = 'http://localhost:11434';
+    elements.aiOllamaModel.value = 'llama3.2';
+  }
+
+  elements.aiSettingsModal.classList.add('show');
+}
+
+function hideAiSettingsModal(): void {
+  elements.aiSettingsModal.classList.remove('show');
+  // Reset test button states
+  elements.aiTestGemini.classList.remove('success', 'error');
+  elements.aiTestGrok.classList.remove('success', 'error');
+  elements.aiTestOllama.classList.remove('success', 'error');
+}
+
+async function saveAiSettings(): Promise<void> {
+  const config: AiConfig = {
+    gemini_api_key: elements.aiGeminiKey.value.trim() || null,
+    grok_api_key: elements.aiGrokKey.value.trim() || null,
+    ollama_host: elements.aiOllamaHost.value.trim() || 'http://localhost:11434',
+    ollama_model: elements.aiOllamaModel.value.trim() || 'llama3.2',
+  };
+
+  try {
+    await invoke('save_ai_config', { config });
+    hideAiSettingsModal();
+  } catch (e) {
+    alert('Failed to save AI settings: ' + (e instanceof Error ? e.message : e));
+  }
+}
+
+function toggleApiKeyVisibility(): void {
+  const input = elements.aiGeminiKey;
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function testGeminiConnection(): Promise<void> {
+  const btn = elements.aiTestGemini;
+  const errorDiv = document.getElementById('ai-gemini-error');
+  btn.textContent = 'Testing...';
+  btn.classList.remove('success', 'error');
+  if (errorDiv) errorDiv.textContent = '';
+
+  const apiKey = elements.aiGeminiKey.value.trim();
+  if (!apiKey) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> No API Key';
+    btn.classList.add('error');
+    return;
+  }
+
+  try {
+    // Temporarily save and test
+    await invoke('save_ai_config', {
+      config: {
+        gemini_api_key: apiKey,
+        grok_api_key: elements.aiGrokKey.value.trim() || null,
+        ollama_host: elements.aiOllamaHost.value.trim() || 'http://localhost:11434',
+        ollama_model: elements.aiOllamaModel.value.trim() || 'llama3.2',
+      }
+    });
+
+    await invoke<string>('ai_chat', {
+      provider: 'gemini',
+      messages: [{ role: 'user', content: 'Hello, respond with just "OK" to confirm connection.' }],
+    });
+
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Connected!';
+    btn.classList.add('success');
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error('Gemini test failed:', errorMsg);
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Failed';
+    btn.classList.add('error');
+    if (errorDiv) errorDiv.textContent = errorMsg;
+  }
+}
+
+async function testOllamaConnection(): Promise<void> {
+  const btn = elements.aiTestOllama;
+  btn.textContent = 'Testing...';
+  btn.classList.remove('success', 'error');
+
+  try {
+    // Temporarily save and test
+    await invoke('save_ai_config', {
+      config: {
+        gemini_api_key: elements.aiGeminiKey.value.trim() || null,
+        grok_api_key: elements.aiGrokKey.value.trim() || null,
+        ollama_host: elements.aiOllamaHost.value.trim() || 'http://localhost:11434',
+        ollama_model: elements.aiOllamaModel.value.trim() || 'llama3.2',
+      }
+    });
+
+    await invoke<string>('ai_chat', {
+      provider: 'ollama',
+      messages: [{ role: 'user', content: 'Hello, respond with just "OK" to confirm connection.' }],
+    });
+
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Connected!';
+    btn.classList.add('success');
+  } catch (e) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Failed';
+    btn.classList.add('error');
+  }
+}
+
+async function testGrokConnection(): Promise<void> {
+  const btn = elements.aiTestGrok;
+  const errorDiv = document.getElementById('ai-grok-error');
+  btn.textContent = 'Testing...';
+  btn.classList.remove('success', 'error');
+  if (errorDiv) errorDiv.textContent = '';
+
+  const apiKey = elements.aiGrokKey.value.trim();
+  if (!apiKey) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> No API Key';
+    btn.classList.add('error');
+    return;
+  }
+
+  try {
+    // Temporarily save and test
+    await invoke('save_ai_config', {
+      config: {
+        gemini_api_key: elements.aiGeminiKey.value.trim() || null,
+        grok_api_key: apiKey,
+        ollama_host: elements.aiOllamaHost.value.trim() || 'http://localhost:11434',
+        ollama_model: elements.aiOllamaModel.value.trim() || 'llama3.2',
+      }
+    });
+
+    await invoke<string>('ai_chat', {
+      provider: 'grok',
+      messages: [{ role: 'user', content: 'Hello, respond with just "OK" to confirm connection.' }],
+    });
+
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Connected!';
+    btn.classList.add('success');
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.error('Grok test failed:', errorMsg);
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Failed';
+    btn.classList.add('error');
+    if (errorDiv) errorDiv.textContent = errorMsg;
+  }
+}
+
+// ============================================
 // Login Modal
 // ============================================
 
@@ -1395,6 +1802,59 @@ function setupEventListeners(): void {
       }
     }, 300);
   });
+
+  // ============================================
+  // AI Panel Event Listeners
+  // ============================================
+
+  // Toggle AI panel from toolbar button
+  elements.aiToggleBtn?.addEventListener('click', toggleAiPanel);
+
+  // Toggle AI panel from panel header button
+  elements.aiPanelToggle?.addEventListener('click', toggleAiPanel);
+
+  // AI Provider selection
+  elements.aiProviderSelect?.addEventListener('change', () => {
+    aiProvider = elements.aiProviderSelect.value as 'gemini' | 'ollama';
+  });
+
+  // AI Send button
+  elements.aiSendBtn?.addEventListener('click', () => {
+    const message = elements.aiInput.value.trim();
+    if (message) {
+      sendAiMessage(message);
+    }
+  });
+
+  // AI Input - Enter to send, Shift+Enter for newline
+  elements.aiInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const message = elements.aiInput.value.trim();
+      if (message) {
+        sendAiMessage(message);
+      }
+    }
+  });
+
+  // AI Quick Actions
+  elements.aiAnalyzeBtn?.addEventListener('click', analyzeTerminal);
+  elements.aiHelpBtn?.addEventListener('click', showCommandHelp);
+
+  // AI Settings button - open settings modal
+  elements.aiSettingsBtn?.addEventListener('click', showAiSettingsModal);
+
+  // AI Settings Modal controls
+  elements.aiSettingsClose?.addEventListener('click', hideAiSettingsModal);
+  elements.aiSettingsCancel?.addEventListener('click', hideAiSettingsModal);
+  elements.aiSettingsSave?.addEventListener('click', saveAiSettings);
+  elements.aiToggleKeyVisibility?.addEventListener('click', toggleApiKeyVisibility);
+  elements.aiTestGemini?.addEventListener('click', testGeminiConnection);
+  elements.aiToggleGrokVisibility?.addEventListener('click', () => {
+    elements.aiGrokKey.type = elements.aiGrokKey.type === 'password' ? 'text' : 'password';
+  });
+  elements.aiTestGrok?.addEventListener('click', testGrokConnection);
+  elements.aiTestOllama?.addEventListener('click', testOllamaConnection);
 
   // Sidebar tab switching
   document.querySelectorAll('.sidebar-tab').forEach((tabBtn) => {

@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
 
-pub mod ssh;
+pub mod ai;
+pub mod command_storage;
 pub mod commands;
 pub mod session;
-pub mod command_storage;
+pub mod ssh;
 
 /// Application state shared across Tauri commands
 pub struct AppState {
@@ -61,7 +62,13 @@ pub struct SavedSession {
 }
 
 impl SavedSession {
-    pub fn new(name: String, host: String, port: u16, folder: Option<String>, username: Option<String>) -> Self {
+    pub fn new(
+        name: String,
+        host: String,
+        port: u16,
+        folder: Option<String>,
+        username: Option<String>,
+    ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             name,
@@ -86,7 +93,7 @@ pub struct QuickCommand {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = Arc::new(AppState::new());
-    
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
@@ -100,6 +107,9 @@ pub fn run() {
             commands::get_quick_commands,
             commands::save_quick_command,
             commands::delete_quick_command,
+            commands::ai_chat,
+            commands::get_ai_config,
+            commands::save_ai_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

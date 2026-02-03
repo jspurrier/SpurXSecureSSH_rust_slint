@@ -70,6 +70,15 @@
             d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       </button>
+      <button class="toolbar-btn ai-toggle-btn" id="btn-toggle-ai" title="Toggle AI Assistant">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path
+            d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />
+          <circle cx="8" cy="14" r="1" fill="currentColor" />
+          <circle cx="16" cy="14" r="1" fill="currentColor" />
+          <path d="M9 18h6" />
+        </svg>
+      </button>
     </div>
 
     <!-- Main Content -->
@@ -144,6 +153,71 @@
         </div>
         <!-- Terminal Viewport -->
         <div class="terminal-viewport" id="terminal-viewport"></div>
+      </div>
+
+      <!-- AI Assistant Panel -->
+      <div class="ai-panel collapsed" id="ai-panel">
+        <div class="ai-panel-header">
+          <button class="ai-panel-toggle" id="ai-panel-toggle" title="Collapse AI Panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </button>
+          <span class="ai-panel-title">AI Assistant</span>
+          <select class="ai-provider-select" id="ai-provider-select" title="Select AI Provider">
+            <option value="gemini">Gemini</option>
+            <option value="grok">Grok</option>
+            <option value="ollama">Ollama</option>
+          </select>
+          <button class="ai-settings-btn" id="ai-settings-btn" title="AI Settings">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          </button>
+        </div>
+        <div class="ai-messages" id="ai-messages">
+          <div class="ai-welcome">
+            <div class="ai-welcome-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path
+                  d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />
+                <circle cx="8" cy="14" r="1" fill="currentColor" />
+                <circle cx="16" cy="14" r="1" fill="currentColor" />
+                <path d="M9 18h6" />
+              </svg>
+            </div>
+            <h3>AI Assistant</h3>
+            <p>Ask for help with commands, analyze terminal output, or get device-specific guidance.</p>
+          </div>
+        </div>
+        <div class="ai-input-area">
+          <div class="ai-quick-actions">
+            <button class="ai-action-btn" id="ai-analyze-btn" title="Analyze current terminal output">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              Analyze Terminal
+            </button>
+            <button class="ai-action-btn" id="ai-help-btn" title="Get command help">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01" />
+              </svg>
+              Command Help
+            </button>
+          </div>
+          <div class="ai-input-row">
+            <textarea id="ai-input" placeholder="Ask about commands, syntax, or paste output to analyze..."
+              rows="2"></textarea>
+            <button class="ai-send-btn" id="ai-send-btn" title="Send message">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -436,6 +510,119 @@
           <line x1="6" y1="6" x2="18" y2="18"></line>
         </svg>
         <span>Close Tab</span>
+      </div>
+    </div>
+
+    <!-- AI Settings Modal -->
+    <div class="modal-overlay" id="modal-ai-settings">
+      <div class="modal modal-ai-settings">
+        <div class="modal-header">
+          <h2>AI Assistant Settings</h2>
+          <button class="modal-close" id="ai-settings-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="ai-settings-section">
+            <h3>Gemini (Google AI)</h3>
+            <p class="ai-settings-hint">
+              Get your free API key from <a href="https://ai.google.dev" target="_blank">ai.google.dev</a>
+            </p>
+            <p class="ai-settings-note ai-settings-note-safe">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              Free API keys cannot be charged. If you hit the limit (1,500 requests/day), just wait or use Ollama.
+            </p>
+            <div class="form-group">
+              <label for="ai-gemini-key">API Key:</label>
+              <div class="input-with-button">
+                <input type="password" id="ai-gemini-key" placeholder="Enter your Gemini API key" />
+                <button class="btn btn-icon" id="ai-toggle-key-visibility" title="Show/Hide">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-test" id="ai-test-gemini">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              Test Connection
+            </button>
+            <div class="ai-test-error" id="ai-gemini-error"></div>
+          </div>
+
+          <div class="ai-settings-divider"></div>
+
+          <!-- Grok Section -->
+          <div class="ai-settings-section">
+            <h3>Grok (xAI)</h3>
+            <p class="ai-settings-hint">
+              Get your API key from <a href="https://console.x.ai" target="_blank">console.x.ai</a>
+            </p>
+            <div class="form-group">
+              <label for="ai-grok-key">API Key</label>
+              <div class="input-with-button">
+                <input type="password" id="ai-grok-key" placeholder="xai-..." autocomplete="off" />
+                <button class="btn btn-icon" id="ai-toggle-grok-visibility" title="Show/Hide">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <button class="btn btn-secondary btn-test" id="ai-test-grok">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              Test Connection
+            </button>
+            <div class="ai-test-error" id="ai-grok-error"></div>
+          </div>
+
+          <div class="ai-settings-divider"></div>
+
+          <div class="ai-settings-section">
+            <h3>Ollama (Local LLM) — Recommended</h3>
+            <p class="ai-settings-hint">
+              100% free, private, works offline. Runs AI locally on your computer.
+            </p>
+            <div class="ai-ollama-setup">
+              <p class="ai-settings-note ai-settings-note-info">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 16v-4M12 8h.01" />
+                </svg>
+                <strong>Quick Setup:</strong>
+                <a href="https://ollama.com/download" target="_blank">Download Ollama</a>,
+                install it, then run: <code>ollama pull llama3.2</code>
+              </p>
+            </div>
+            <div class="form-group">
+              <label for="ai-ollama-host">Host URL:</label>
+              <input type="text" id="ai-ollama-host" placeholder="http://localhost:11434" />
+            </div>
+            <div class="form-group">
+              <label for="ai-ollama-model">Model:</label>
+              <input type="text" id="ai-ollama-model" placeholder="llama3.2" />
+            </div>
+            <button class="btn btn-secondary btn-test" id="ai-test-ollama">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                <polyline points="22 4 12 14.01 9 11.01" />
+              </svg>
+              Test Connection
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="ai-settings-cancel">Cancel</button>
+          <button class="btn btn-primary" id="ai-settings-save">Save Settings</button>
+        </div>
       </div>
     </div>
   </div>
