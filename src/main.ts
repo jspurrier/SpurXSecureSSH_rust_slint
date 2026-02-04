@@ -733,15 +733,6 @@ function renderTreeHtml(
 ): string {
   let html = '';
 
-  // Render root items first (if any)
-  if (rootItems.length > 0) {
-    if (type === 'session') {
-      html += rootItems.map(item => renderSessionItem(item as SavedSession)).join('');
-    } else {
-      html += rootItems.map(item => renderCommandItem(item as QuickCommand)).join('');
-    }
-  }
-
   // Render folders (sorted)
   const sortedKeys = Array.from(nodes.keys()).sort();
 
@@ -770,6 +761,15 @@ function renderTreeHtml(
       </div>
     `;
   });
+
+  // Render root items LAST (if any)
+  if (rootItems.length > 0) {
+    if (type === 'session') {
+      html += rootItems.map(item => renderSessionItem(item as SavedSession)).join('');
+    } else {
+      html += rootItems.map(item => renderCommandItem(item as QuickCommand)).join('');
+    }
+  }
 
   return html;
 }
