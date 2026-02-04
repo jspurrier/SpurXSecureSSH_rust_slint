@@ -1065,19 +1065,26 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
   const reconnectItem = elements.tabContextMenu.querySelector('[data-action="reconnect"]') as HTMLElement;
   const saveItem = elements.tabContextMenu.querySelector('[data-action="save"]') as HTMLElement;
 
+  const cloneItem = elements.tabContextMenu.querySelector('[data-action="clone"]') as HTMLElement;
+  const sftpItem = elements.tabContextMenu.querySelector('[data-action="sftp"]') as HTMLElement;
+
   if (tab.connected) {
     disconnectItem.style.display = 'flex';
     reconnectItem.style.display = 'none';
+    if (sftpItem) sftpItem.style.display = 'flex';
   } else {
     disconnectItem.style.display = 'none';
     reconnectItem.style.display = 'flex';
+    if (sftpItem) sftpItem.style.display = 'none';
   }
 
-  // Can only save if we have connection details
+  // Can only save/clone if we have connection details
   if (tab.connectionParams) {
     saveItem.style.display = 'flex';
+    if (cloneItem) cloneItem.style.display = 'flex';
   } else {
     saveItem.style.display = 'none';
+    if (cloneItem) cloneItem.style.display = 'none';
   }
 
   // Position and show
@@ -1135,6 +1142,71 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
     case 'close':
       closeTab(tabId);
+      break;
+
+    case 'rename':
+      const newName = prompt('Enter new tab name:', tab.title);
+      if (newName) {
+        tab.title = newName;
+        renderTabs();
+      }
+      break;
+
+    case 'reset-name':
+      if (tab.connectionParams) {
+        tab.title = `${tab.connectionParams.username}@${tab.connectionParams.host}`;
+      } else {
+        tab.title = 'New Tab';
+      }
+      renderTabs();
+      break;
+
+    case 'close-disconnected':
+      const disconnectedIds: string[] = [];
+      tabs.forEach((t) => {
+        if (!t.connected) disconnectedIds.push(t.id);
+      });
+      for (const id of disconnectedIds) await closeTab(id);
+      break;
+
+    case 'close-others':
+      const otherIds: string[] = [];
+      tabs.forEach((t) => {
+        if (t.id !== tabId) otherIds.push(t.id);
+      });
+      for (const id of otherIds) await closeTab(id);
+      break;
+
+    case 'close-right':
+      const ids = Array.from(tabs.keys());
+      const currentIndex = ids.indexOf(tabId);
+      if (currentIndex !== -1) {
+        const rightIds = ids.slice(currentIndex + 1);
+        for (const id of rightIds) await closeTab(id);
+      }
+      break;
+
+    case 'close-all':
+      const allIds = Array.from(tabs.keys());
+      for (const id of allIds) await closeTab(id);
+      break;
+
+    case 'clone':
+      if (tab.connectionParams) {
+        const { host, port, username, password } = tab.connectionParams;
+        await createTab(host); // Create new tab
+        await connect(host, port, username, password, false); // Connect in new tab
+      }
+      break;
+
+    case 'sftp':
+      if (activeTabId !== tabId) switchToTab(tabId);
+      openSftpBrowser();
+      break;
+
+    case 'close-group':
+    case 'add-group':
+      // NYI - No op
       break;
   }
 }
