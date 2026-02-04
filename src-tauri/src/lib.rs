@@ -7,7 +7,11 @@ use uuid::Uuid;
 pub mod ai;
 pub mod command_storage;
 pub mod commands;
+pub mod import_export;
+pub mod known_hosts;
 pub mod session;
+pub mod settings;
+pub mod sftp;
 pub mod ssh;
 
 /// Application state shared across Tauri commands
@@ -90,12 +94,33 @@ pub struct QuickCommand {
     pub icon: Option<String>,
 }
 
+/// Get the standardized application configuration directory.
+///
+/// - Windows: %APPDATA%/SpurXSecureSSH
+/// - Linux/macOS: ~/.spurx-secure-ssh
+pub fn get_app_config_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("SpurXSecureSSH")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".spurx-secure-ssh")
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = Arc::new(AppState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::ssh_connect,
@@ -104,12 +129,32 @@ pub fn run() {
             commands::get_saved_sessions,
             commands::save_session,
             commands::delete_session,
+            commands::save_session_password,
+            commands::get_session_password,
+            commands::delete_session_password,
             commands::get_quick_commands,
             commands::save_quick_command,
             commands::delete_quick_command,
             commands::ai_chat,
             commands::get_ai_config,
             commands::save_ai_config,
+            commands::get_settings,
+            commands::save_settings,
+            commands::import_sessions,
+            commands::export_sessions,
+            commands::write_log,
+            commands::get_log_directory,
+            commands::sftp_connect,
+            commands::sftp_disconnect,
+            commands::sftp_list,
+            commands::sftp_download,
+            commands::sftp_upload,
+            commands::sftp_mkdir,
+            commands::sftp_delete_file,
+            commands::sftp_delete_dir,
+            commands::sftp_rename,
+            commands::get_known_hosts,
+            commands::delete_known_host,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

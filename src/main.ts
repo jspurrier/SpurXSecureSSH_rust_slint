@@ -59,6 +59,15 @@ interface QuickCommand {
   icon?: string;
 }
 
+interface SftpFileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;
+  modified?: number;
+  permissions?: number;
+}
+
 interface TabInfo {
   id: string;
   sessionId?: string;
@@ -98,6 +107,12 @@ let commandFolders: string[] = ['General'];
 let sessionFolders: string[] = ['General'];
 let folderContext: 'session' | 'command' = 'command';
 
+// SFTP state
+let sftpSessionId: string | null = null;
+let sftpCurrentPath = '/';
+let sftpSelectedFile: SftpFileEntry | null = null;
+let sftpConnectionParams: ConnectRequest | null = null;
+
 // AI Assistant state
 let aiPanelOpen = false;
 const aiMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
@@ -109,6 +124,12 @@ interface AiConfig {
   grok_api_key: string | null;
   ollama_host: string;
   ollama_model: string;
+}
+
+interface KnownHostEntry {
+  name: string;
+  key_type: string;
+  fingerprint: string;
 }
 
 // ============================================
@@ -177,6 +198,7 @@ const elements = {
 
   // Session User Input
   sessionUsername: document.getElementById('session-username') as HTMLInputElement,
+  sessionPassword: document.getElementById('session-password') as HTMLInputElement,
 
   // Sidebar Title
   sidebarTitle: document.getElementById('sidebar-title') as HTMLSpanElement,
@@ -212,6 +234,39 @@ const elements = {
   aiSettingsSave: document.getElementById('ai-settings-save') as HTMLButtonElement,
   aiSettingsCancel: document.getElementById('ai-settings-cancel') as HTMLButtonElement,
   aiSettingsClose: document.getElementById('ai-settings-close') as HTMLButtonElement,
+
+  // Settings Modal
+  settingsModal: document.getElementById('modal-settings') as HTMLDivElement,
+  settingsFontFamily: document.getElementById('settings-font-family') as HTMLInputElement,
+  settingsFontSize: document.getElementById('settings-font-size') as HTMLInputElement,
+  settingsScrollback: document.getElementById('settings-scrollback') as HTMLInputElement,
+  settingsCursorStyle: document.getElementById('settings-cursor-style') as HTMLSelectElement,
+  settingsCursorBlink: document.getElementById('settings-cursor-blink') as HTMLInputElement,
+  settingsTheme: document.getElementById('settings-theme') as HTMLSelectElement,
+  settingsColorScheme: document.getElementById('settings-color-scheme') as HTMLSelectElement,
+  settingsDefaultPort: document.getElementById('settings-default-port') as HTMLInputElement,
+  settingsTimeout: document.getElementById('settings-timeout') as HTMLInputElement,
+  settingsKeepalive: document.getElementById('settings-keepalive') as HTMLInputElement,
+  settingsConfirmClose: document.getElementById('settings-confirm-close') as HTMLInputElement,
+  settingsSaveWindowSize: document.getElementById('settings-save-window-size') as HTMLInputElement,
+  settingsRestoreSessions: document.getElementById('settings-restore-sessions') as HTMLInputElement,
+  settingsDownloadDir: document.getElementById('settings-download-dir') as HTMLInputElement,
+
+  // Import Sessions Modal
+  importModal: document.getElementById('modal-import-sessions') as HTMLDivElement,
+  importFormat: document.getElementById('import-format') as HTMLSelectElement,
+  importFilePath: document.getElementById('import-file-path') as HTMLInputElement,
+  importPreview: document.getElementById('import-preview') as HTMLDivElement,
+
+  // Export Sessions Modal
+  exportModal: document.getElementById('modal-export-sessions') as HTMLDivElement,
+  exportFormat: document.getElementById('export-format') as HTMLSelectElement,
+  exportSessionCount: document.getElementById('export-session-count') as HTMLSpanElement,
+
+  // Host Keys Manager
+  hostKeysSearch: document.getElementById('host-keys-search') as HTMLInputElement,
+  hostKeysList: document.getElementById('host-keys-list') as HTMLDivElement,
+  btnRefreshKeys: document.getElementById('btn-refresh-keys') as HTMLButtonElement,
 };
 
 // ============================================
@@ -871,6 +926,10 @@ function closeModal(modal: HTMLElement): void {
   modal.classList.remove('show');
 }
 
+function showModal(modal: HTMLElement): void {
+  modal.classList.add('show');
+}
+
 // ============================================
 // Context Menu
 // ============================================
@@ -1149,18 +1208,31 @@ function showAddSessionModal(): void {
   elements.sessionHost.value = '';
   elements.sessionPort.value = '22';
   elements.sessionUsername.value = '';
+  elements.sessionPassword.value = '';
   populateFolderSelect(elements.sessionFolder, 'session');
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
 }
 
-function showEditSessionModal(session: SavedSession): void {
+async function showEditSessionModal(session: SavedSession): Promise<void> {
   editingSessionId = session.id;
   elements.sessionModalTitle.textContent = 'Edit Session';
   elements.sessionName.value = session.name || '';
   elements.sessionHost.value = session.host;
   elements.sessionPort.value = session.port.toString();
   elements.sessionUsername.value = session.username || '';
+  elements.sessionPassword.value = ''; // Clear initially
+
+  // Try to load password securely
+  try {
+    const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
+    if (password) {
+      elements.sessionPassword.value = password;
+    }
+  } catch (e) {
+    console.error('Failed to load session password:', e);
+  }
+
   populateFolderSelect(elements.sessionFolder, 'session', session.folder);
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
@@ -1192,7 +1264,15 @@ async function saveSessionModal(): Promise<void> {
   }
 
   try {
+    const sessionId = session.id;
     await invoke('save_session', { session });
+
+    // Save password if provided
+    const password = elements.sessionPassword.value;
+    if (password) {
+      await invoke('save_session_password', { sessionId, password });
+    }
+
     await loadSavedSessions();
     closeModal(elements.addSessionModal);
   } catch (error) {
@@ -1729,11 +1809,21 @@ async function testGrokConnection(): Promise<void> {
 // Login Modal
 // ============================================
 
-function showLoginModal(session: SavedSession): void {
+async function showLoginModal(session: SavedSession): Promise<void> {
   loginSession = session;
   elements.loginModalTitle.textContent = `Connect to ${session.name}`;
   elements.loginUsername.value = session.username || '';
   elements.loginPassword.value = '';
+
+  // Try to load password securely
+  try {
+    const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
+    if (password) {
+      elements.loginPassword.value = password;
+    }
+  } catch (e) {
+    console.error('Failed to load session password:', e);
+  }
 
   elements.loginModal.classList.add('show');
 
@@ -2164,11 +2254,873 @@ function populateFolderSelect(select: HTMLSelectElement, type: 'session' | 'comm
 // Initialize
 // ============================================
 
+// Settings interface
+interface AppSettings {
+  font_family: string;
+  font_size: number;
+  cursor_style: string;
+  cursor_blink: boolean;
+  scrollback_lines: number;
+  theme: string;
+  color_scheme: string;
+  default_port: number;
+  connection_timeout: number;
+  keepalive_interval: number;
+  confirm_on_close: boolean;
+  save_window_size: boolean;
+  restore_sessions: boolean;
+  download_directory: string | null;
+  log_directory: string | null;
+  // Logging settings
+  logging_enabled: boolean;
+  log_format: string;
+  log_timestamps: boolean;
+}
+
+// Current app settings
+let currentSettings: AppSettings | null = null;
+
+// Sessions pending import
+let pendingImportSessions: SavedSession[] = [];
+
+// Load application settings
+async function loadAppSettings(): Promise<void> {
+  try {
+    currentSettings = await invoke<AppSettings>('get_settings');
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+}
+
+// Populate settings form from current settings
+function populateSettingsForm(): void {
+  if (!currentSettings) return;
+
+  elements.settingsFontFamily.value = currentSettings.font_family;
+  elements.settingsFontSize.value = currentSettings.font_size.toString();
+  elements.settingsScrollback.value = currentSettings.scrollback_lines.toString();
+  elements.settingsCursorStyle.value = currentSettings.cursor_style;
+  elements.settingsCursorBlink.checked = currentSettings.cursor_blink;
+  elements.settingsTheme.value = currentSettings.theme;
+  elements.settingsColorScheme.value = currentSettings.color_scheme;
+  elements.settingsDefaultPort.value = currentSettings.default_port.toString();
+  elements.settingsTimeout.value = currentSettings.connection_timeout.toString();
+  elements.settingsKeepalive.value = currentSettings.keepalive_interval.toString();
+  elements.settingsConfirmClose.checked = currentSettings.confirm_on_close;
+  elements.settingsSaveWindowSize.checked = currentSettings.save_window_size;
+  elements.settingsRestoreSessions.checked = currentSettings.restore_sessions;
+  elements.settingsDownloadDir.value = currentSettings.download_directory || '';
+
+  // Logging settings
+  const logDirInput = document.getElementById('settings-log-dir') as HTMLInputElement;
+  const logFormatInput = document.getElementById('settings-log-format') as HTMLInputElement;
+  const logEnabledInput = document.getElementById('settings-logging-enabled') as HTMLInputElement;
+  const logTimestampsInput = document.getElementById('settings-log-timestamps') as HTMLInputElement;
+
+  if (logDirInput) logDirInput.value = currentSettings.log_directory || '';
+  if (logFormatInput) logFormatInput.value = currentSettings.log_format || '{session}_{date}_{time}.log';
+  if (logEnabledInput) logEnabledInput.checked = currentSettings.logging_enabled || false;
+  if (logTimestampsInput) logTimestampsInput.checked = currentSettings.log_timestamps ?? true;
+}
+
+// Save settings from form
+async function saveAppSettings(): Promise<void> {
+  const logDirInput = document.getElementById('settings-log-dir') as HTMLInputElement;
+  const logFormatInput = document.getElementById('settings-log-format') as HTMLInputElement;
+  const logEnabledInput = document.getElementById('settings-logging-enabled') as HTMLInputElement;
+  const logTimestampsInput = document.getElementById('settings-log-timestamps') as HTMLInputElement;
+
+  const settings: AppSettings = {
+    font_family: elements.settingsFontFamily.value,
+    font_size: parseInt(elements.settingsFontSize.value) || 14,
+    cursor_style: elements.settingsCursorStyle.value,
+    cursor_blink: elements.settingsCursorBlink.checked,
+    scrollback_lines: parseInt(elements.settingsScrollback.value) || 10000,
+    theme: elements.settingsTheme.value,
+    color_scheme: elements.settingsColorScheme.value,
+    default_port: parseInt(elements.settingsDefaultPort.value) || 22,
+    connection_timeout: parseInt(elements.settingsTimeout.value) || 30,
+    keepalive_interval: parseInt(elements.settingsKeepalive.value) || 60,
+    confirm_on_close: elements.settingsConfirmClose.checked,
+    save_window_size: elements.settingsSaveWindowSize.checked,
+    restore_sessions: elements.settingsRestoreSessions.checked,
+    download_directory: elements.settingsDownloadDir.value || null,
+    log_directory: logDirInput?.value || null,
+    logging_enabled: logEnabledInput?.checked || false,
+    log_format: logFormatInput?.value || '{session}_{date}_{time}.log',
+    log_timestamps: logTimestampsInput?.checked ?? true,
+  };
+
+  try {
+    await invoke('save_settings', { settings });
+    currentSettings = settings;
+    closeModal(elements.settingsModal);
+  } catch (e) {
+    console.error('Failed to save settings:', e);
+    alert('Failed to save settings: ' + e);
+  }
+}
+
+// ============================================
+// Host Key Manager
+// ============================================
+
+async function refreshHostKeys(): Promise<void> {
+  if (!elements.hostKeysList) return;
+
+  elements.hostKeysList.innerHTML = '<div class="host-key-empty">Loading keys...</div>';
+
+  try {
+    const keys = await invoke<KnownHostEntry[]>('get_known_hosts');
+    renderHostKeys(keys);
+  } catch (e) {
+    console.error('Failed to load host keys:', e);
+    elements.hostKeysList.innerHTML = `<div class="host-key-empty">Failed to load keys: ${e}</div>`;
+  }
+}
+
+function renderHostKeys(keys: KnownHostEntry[]): void {
+  const container = elements.hostKeysList;
+  if (!container) return;
+
+  const search = elements.hostKeysSearch?.value.toLowerCase() || '';
+  const filtered = keys.filter(k => k.name.toLowerCase().includes(search));
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="host-key-empty">No host keys found</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+
+  filtered.forEach(key => {
+    const item = document.createElement('div');
+    item.className = 'host-key-item';
+
+    // Truncate fingerprint if too long or use what we have
+    const fp = key.fingerprint.length > 50 ? key.fingerprint.substring(0, 50) + '...' : key.fingerprint;
+
+    item.innerHTML = `
+      <div class="host-key-info">
+        <span class="host-key-name">${escapeHtml(key.name)}</span>
+        <span class="host-key-meta">${escapeHtml(key.key_type)} • ${escapeHtml(fp)}</span>
+      </div>
+      <div class="host-key-actions">
+        <button class="btn btn-secondary btn-sm btn-delete-key" title="Delete Key">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    `;
+
+    // Bind delete event
+    const delBtn = item.querySelector('.btn-delete-key');
+    delBtn?.addEventListener('click', () => deleteHostKey(key.name));
+
+    container.appendChild(item);
+  });
+}
+
+async function deleteHostKey(host: string): Promise<void> {
+  if (!confirm(`Are you sure you want to delete the host key for "${host}"?`)) return;
+
+  try {
+    await invoke('delete_known_host', { host });
+    await refreshHostKeys(); // Reload list
+  } catch (e) {
+    alert('Failed to delete host key: ' + e);
+  }
+}
+
+// Setup settings modal event listeners
+function setupSettingsListeners(): void {
+  // Settings cog button opens modal
+  document.getElementById('btn-settings')?.addEventListener('click', () => {
+    populateSettingsForm();
+    showModal(elements.settingsModal);
+  });
+
+  // Settings tabs
+  document.querySelectorAll('.settings-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabId = (tab as HTMLElement).dataset.tab;
+      if (!tabId) return;
+
+      // Update active tab
+      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Update active panel
+      document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById(`settings-${tabId}`)?.classList.add('active');
+
+      // Load host keys if security tab
+      if (tabId === 'security') {
+        refreshHostKeys();
+      }
+    });
+  });
+
+  // Host Keys Search
+  elements.hostKeysSearch?.addEventListener('input', () => {
+    // We need to re-fetch or store keys locally. For simplicity, just refresh which re-renders.
+    // Better: separate fetch from render.
+    // Let's implement client-side filter in renderHostKeys properly by storing keys?
+    // Current refreshHostKeys re-fetches. Let's just re-trigger refresh for MVP, 
+    // or modify refreshHostKeys to use global if performance issue.
+    // Actually, refreshHostKeys calls renderHostKeys which uses the input value.
+    refreshHostKeys();
+  });
+
+  // Refresh Keys Button
+  elements.btnRefreshKeys?.addEventListener('click', refreshHostKeys);
+
+  // Close button
+  document.getElementById('settings-modal-close')?.addEventListener('click', () => {
+    closeModal(elements.settingsModal);
+  });
+
+  // Cancel button
+  document.getElementById('btn-settings-cancel')?.addEventListener('click', () => {
+    closeModal(elements.settingsModal);
+  });
+
+  // Save button
+  document.getElementById('btn-settings-save')?.addEventListener('click', saveAppSettings);
+
+  // Import/Export buttons in settings
+  document.getElementById('btn-settings-import')?.addEventListener('click', () => {
+    closeModal(elements.settingsModal);
+    resetImportModal();
+    showModal(elements.importModal);
+  });
+
+  document.getElementById('btn-settings-export')?.addEventListener('click', () => {
+    closeModal(elements.settingsModal);
+    showExportModal();
+  });
+
+  // Browse log directory button
+  document.getElementById('btn-browse-log-dir')?.addEventListener('click', async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({ directory: true });
+      if (selected && typeof selected === 'string') {
+        const logDirInput = document.getElementById('settings-log-dir') as HTMLInputElement;
+        if (logDirInput) logDirInput.value = selected;
+      }
+    } catch (e) {
+      console.error('Failed to open directory picker:', e);
+    }
+  });
+}
+
+// Setup import modal event listeners
+function setupImportListeners(): void {
+  // File Menu: Open Connection
+  document.getElementById('menu-file-open')?.addEventListener('click', () => {
+    showQuickConnectModal();
+  });
+
+  // File Menu: Import Sessions
+  document.getElementById('menu-file-import')?.addEventListener('click', () => {
+    resetImportModal();
+    showModal(elements.importModal);
+  });
+
+  // File Menu: Export Sessions
+  document.getElementById('menu-file-export')?.addEventListener('click', () => {
+    showExportModal();
+  });
+
+  // File Menu: Exit
+  document.getElementById('menu-file-exit')?.addEventListener('click', async () => {
+    const { exit } = await import('@tauri-apps/plugin-process');
+    await exit(0);
+  });
+
+  // Edit Menu: Copy
+  document.getElementById('menu-edit-copy')?.addEventListener('click', async () => {
+    if (!activeTabId) return;
+    const tab = tabs.get(activeTabId);
+    if (tab?.terminal) {
+      const selection = tab.terminal.getSelection();
+      if (selection) {
+        await navigator.clipboard.writeText(selection);
+      }
+    }
+  });
+
+  // Edit Menu: Paste
+  document.getElementById('menu-edit-paste')?.addEventListener('click', async () => {
+    if (!activeTabId) return;
+    const tab = tabs.get(activeTabId);
+    if (tab?.terminal && tab.sessionId) {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        await invoke('ssh_write', { sessionId: tab.sessionId, data: text });
+      }
+    }
+  });
+
+  // Edit Menu: Select All
+  document.getElementById('menu-edit-select-all')?.addEventListener('click', () => {
+    if (!activeTabId) return;
+    const tab = tabs.get(activeTabId);
+    if (tab?.terminal) {
+      tab.terminal.selectAll();
+    }
+  });
+
+  // Edit Menu: Clear Terminal
+  document.getElementById('menu-edit-clear')?.addEventListener('click', () => {
+    if (!activeTabId) return;
+    const tab = tabs.get(activeTabId);
+    if (tab?.terminal) {
+      tab.terminal.clear();
+    }
+  });
+
+  // Help Menu: Guide - Opens GitHub
+  document.getElementById('menu-help-guide')?.addEventListener('click', async () => {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri#readme');
+  });
+
+  // Help Menu: About - Shows About Modal
+  document.getElementById('menu-help-about')?.addEventListener('click', () => {
+    const aboutModal = document.getElementById('modal-about');
+    if (aboutModal) showModal(aboutModal);
+  });
+
+  // About modal close handlers
+  document.getElementById('about-modal-close')?.addEventListener('click', () => {
+    const aboutModal = document.getElementById('modal-about');
+    if (aboutModal) closeModal(aboutModal);
+  });
+  document.getElementById('btn-about-close')?.addEventListener('click', () => {
+    const aboutModal = document.getElementById('modal-about');
+    if (aboutModal) closeModal(aboutModal);
+  });
+
+  // About modal GitHub link
+  document.getElementById('about-github')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri');
+  });
+
+  // About modal License link
+  document.getElementById('about-license')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/blob/main/LICENSE');
+  });
+
+  // F1 keyboard shortcut for Help Guide
+  document.addEventListener('keydown', async (e) => {
+    if (e.key === 'F1') {
+      e.preventDefault();
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri#readme');
+    }
+  });
+
+  // Options Menu: Settings
+  document.getElementById('menu-options-settings')?.addEventListener('click', () => {
+    populateSettingsForm();
+    showModal(elements.settingsModal);
+  });
+
+  // Transfer Menu: SFTP Browser
+  document.getElementById('menu-transfer-sftp')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    console.log('SFTP Browser clicked');
+    openSftpBrowser();
+  });
+
+  // SFTP modal close handlers
+  document.getElementById('sftp-modal-close')?.addEventListener('click', closeSftpBrowser);
+  document.getElementById('btn-sftp-close')?.addEventListener('click', closeSftpBrowser);
+
+  // SFTP navigation
+  document.getElementById('sftp-btn-up')?.addEventListener('click', () => {
+    if (sftpCurrentPath === '/') return;
+    const parts = sftpCurrentPath.split('/').filter(p => p);
+    parts.pop();
+    sftpCurrentPath = '/' + parts.join('/');
+    loadSftpDirectory(sftpCurrentPath);
+  });
+
+  document.getElementById('sftp-btn-refresh')?.addEventListener('click', () => {
+    loadSftpDirectory(sftpCurrentPath);
+  });
+
+  // SFTP actions
+  document.getElementById('sftp-btn-upload')?.addEventListener('click', uploadSftpFile);
+  document.getElementById('sftp-btn-download')?.addEventListener('click', downloadSftpFile);
+  document.getElementById('sftp-btn-newfolder')?.addEventListener('click', createSftpFolder);
+  document.getElementById('sftp-btn-delete')?.addEventListener('click', deleteSftpFile);
+
+  // Import button in sidebar opens modal
+  document.getElementById('btn-import-sessions')?.addEventListener('click', () => {
+    resetImportModal();
+    showModal(elements.importModal);
+  });
+
+  // Also add to File menu
+  document.getElementById('menu-file')?.addEventListener('click', () => {
+    // Menu dropdown handling could be added here
+  });
+
+  // Close button
+  document.getElementById('import-modal-close')?.addEventListener('click', () => {
+    closeModal(elements.importModal);
+  });
+
+  // Cancel button
+  document.getElementById('btn-import-cancel')?.addEventListener('click', () => {
+    closeModal(elements.importModal);
+  });
+
+  // Browse button - using file input fallback
+  document.getElementById('btn-import-browse')?.addEventListener('click', async () => {
+    // Create a hidden file input for file selection
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = elements.importFormat.value === 'securecrt' ? '.xml' : '.reg';
+
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+
+      elements.importFilePath.value = file.name;
+
+      // Read and preview
+      const reader = new FileReader();
+      reader.onload = async () => {
+
+        // Create a temporary file path to pass to backend
+        // For now, we'll show a message that direct file reading is needed
+        try {
+          // Use Tauri's file dialog if available
+          const { open } = await import('@tauri-apps/plugin-dialog');
+          const selected = await open({
+            filters: [{
+              name: elements.importFormat.value === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry',
+              extensions: elements.importFormat.value === 'securecrt' ? ['xml'] : ['reg']
+            }]
+          });
+
+          if (selected && typeof selected === 'string') {
+            elements.importFilePath.value = selected;
+            await previewImport(selected);
+          }
+        } catch {
+          // Fallback: show hint about file path
+          elements.importPreview.innerHTML = '<p class="import-hint">Please enter the full file path manually or use native file dialog.</p>';
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    // Try using Tauri dialog first
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        filters: [{
+          name: elements.importFormat.value === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry',
+          extensions: elements.importFormat.value === 'securecrt' ? ['xml'] : ['reg']
+        }]
+      });
+
+      if (selected && typeof selected === 'string') {
+        elements.importFilePath.value = selected;
+        await previewImport(selected);
+      }
+    } catch {
+      // Fall back to HTML file input
+      input.click();
+    }
+  });
+
+  // Import confirm button
+  document.getElementById('btn-import-confirm')?.addEventListener('click', async () => {
+    if (pendingImportSessions.length === 0) return;
+
+    try {
+      // Save each session
+      for (const session of pendingImportSessions) {
+        await invoke('save_session', { session });
+      }
+
+      // Refresh session list
+      await loadSavedSessions();
+      closeModal(elements.importModal);
+    } catch (e) {
+      console.error('Failed to import sessions:', e);
+      alert('Failed to import sessions: ' + e);
+    }
+  });
+
+  // Export modal handlers
+  document.getElementById('export-modal-close')?.addEventListener('click', () => {
+    closeModal(elements.exportModal);
+  });
+
+  document.getElementById('btn-export-cancel')?.addEventListener('click', () => {
+    closeModal(elements.exportModal);
+  });
+
+  document.getElementById('btn-export-confirm')?.addEventListener('click', async () => {
+    try {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      const format = elements.exportFormat.value;
+      const ext = format === 'securecrt' ? 'xml' : 'reg';
+      const name = format === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry';
+
+      const filePath = await save({
+        filters: [{ name, extensions: [ext] }],
+        defaultPath: `sessions.${ext}`
+      });
+
+      if (filePath) {
+        await invoke('export_sessions', {
+          path: filePath,
+          format,
+          sessions: savedSessions
+        });
+        closeModal(elements.exportModal);
+        alert(`Successfully exported ${savedSessions.length} sessions!`);
+      }
+    } catch (e) {
+      console.error('Failed to export sessions:', e);
+      alert('Failed to export sessions: ' + e);
+    }
+  });
+}
+
+// Show export modal
+function showExportModal(): void {
+  elements.exportSessionCount.textContent = savedSessions.length.toString();
+  showModal(elements.exportModal);
+}
+
+// Reset import modal
+function resetImportModal(): void {
+  elements.importFilePath.value = '';
+  elements.importPreview.innerHTML = '<p class="import-hint">Select a file to preview sessions</p>';
+  pendingImportSessions = [];
+  (document.getElementById('btn-import-confirm') as HTMLButtonElement).disabled = true;
+}
+
+// Preview sessions from file
+async function previewImport(filePath: string): Promise<void> {
+  try {
+    const format = elements.importFormat.value;
+    pendingImportSessions = await invoke<SavedSession[]>('import_sessions', { path: filePath, format });
+
+    if (pendingImportSessions.length === 0) {
+      elements.importPreview.innerHTML = '<p class="import-hint">No sessions found in this file</p>';
+      return;
+    }
+
+    // Build preview HTML
+    let html = '';
+    pendingImportSessions.forEach(session => {
+      html += `
+        <div class="import-session-item">
+          <svg class="import-session-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          <div class="import-session-info">
+            <div class="import-session-name">${escapeHtml(session.name)}</div>
+            <div class="import-session-host">${escapeHtml(session.host)}:${session.port}</div>
+          </div>
+          ${session.folder ? `<span class="import-session-folder">${escapeHtml(session.folder)}</span>` : ''}
+        </div>
+      `;
+    });
+
+    html += `
+      <div class="import-stats">
+        <span>Found <span class="import-stats-count">${pendingImportSessions.length}</span> session(s)</span>
+        <span>Ready to import</span>
+      </div>
+    `;
+
+    elements.importPreview.innerHTML = html;
+    (document.getElementById('btn-import-confirm') as HTMLButtonElement).disabled = false;
+  } catch (e) {
+    elements.importPreview.innerHTML = `<p class="import-hint" style="color: var(--accent-danger);">Error: ${e}</p>`;
+    pendingImportSessions = [];
+  }
+}
+
+// ============================================
+// SFTP Browser Functions
+// ============================================
+
+async function openSftpBrowser(): Promise<void> {
+  // Check if we have an active connection
+  if (!activeTabId) {
+    alert('No active connection. Please connect to a server first.');
+    return;
+  }
+
+  const tab = tabs.get(activeTabId);
+  if (!tab?.sessionId || !tab.connectionParams) {
+    alert('No active SSH connection. Please connect to a server first.');
+    return;
+  }
+
+  // Store connection params for SFTP
+  sftpConnectionParams = tab.connectionParams;
+  sftpSessionId = 'sftp-' + tab.sessionId;
+
+  try {
+    // Connect SFTP
+    await invoke('sftp_connect', {
+      sessionId: sftpSessionId,
+      host: sftpConnectionParams.host,
+      port: sftpConnectionParams.port,
+      username: sftpConnectionParams.username,
+      password: sftpConnectionParams.password,
+    });
+
+    // Show modal and load root directory
+    const sftpModal = document.getElementById('modal-sftp');
+    if (sftpModal) {
+      showModal(sftpModal);
+      sftpCurrentPath = '/home/' + sftpConnectionParams.username;
+      await loadSftpDirectory(sftpCurrentPath);
+    }
+  } catch (e) {
+    console.error('SFTP connect failed:', e);
+    alert('Failed to connect SFTP: ' + e);
+  }
+}
+
+async function closeSftpBrowser(): Promise<void> {
+  const sftpModal = document.getElementById('modal-sftp');
+  if (sftpModal) closeModal(sftpModal);
+
+  // Disconnect SFTP
+  if (sftpSessionId) {
+    try {
+      await invoke('sftp_disconnect', { sessionId: sftpSessionId });
+    } catch (e) {
+      console.error('SFTP disconnect error:', e);
+    }
+    sftpSessionId = null;
+  }
+
+  sftpSelectedFile = null;
+  sftpConnectionParams = null;
+}
+
+async function loadSftpDirectory(path: string): Promise<void> {
+  const fileList = document.getElementById('sftp-file-list');
+  const pathInput = document.getElementById('sftp-current-path') as HTMLInputElement;
+
+  if (!fileList || !sftpSessionId) return;
+
+  fileList.innerHTML = '<div class="sftp-empty">Loading...</div>';
+  pathInput.value = path;
+  sftpCurrentPath = path;
+  sftpSelectedFile = null;
+  updateSftpButtons();
+
+  try {
+    const entries = await invoke<SftpFileEntry[]>('sftp_list', {
+      sessionId: sftpSessionId,
+      path: path,
+    });
+
+    if (entries.length === 0) {
+      fileList.innerHTML = '<div class="sftp-empty">Empty directory</div>';
+      return;
+    }
+
+    // Sort: directories first, then alphabetically
+    entries.sort((a, b) => {
+      if (a.is_dir && !b.is_dir) return -1;
+      if (!a.is_dir && b.is_dir) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    fileList.innerHTML = entries.map(entry => `
+      <div class="sftp-file-item" data-path="${escapeHtml(entry.path)}" data-is-dir="${entry.is_dir}" data-name="${escapeHtml(entry.name)}">
+        <svg class="sftp-file-icon ${entry.is_dir ? 'folder' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          ${entry.is_dir
+        ? '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z"/>'
+        : '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>'
+      }
+        </svg>
+        <span class="sftp-file-name">${escapeHtml(entry.name)}</span>
+        <span class="sftp-file-size">${entry.is_dir ? '' : formatFileSize(entry.size)}</span>
+      </div>
+    `).join('');
+
+    // Add click handlers
+    fileList.querySelectorAll('.sftp-file-item').forEach(item => {
+      item.addEventListener('click', () => {
+        // Deselect others
+        fileList.querySelectorAll('.sftp-file-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+
+        const el = item as HTMLElement;
+        sftpSelectedFile = {
+          name: el.dataset.name || '',
+          path: el.dataset.path || '',
+          is_dir: el.dataset.isDir === 'true',
+          size: 0,
+        };
+        updateSftpButtons();
+      });
+
+      item.addEventListener('dblclick', () => {
+        const el = item as HTMLElement;
+        if (el.dataset.isDir === 'true') {
+          loadSftpDirectory(el.dataset.path || '');
+        }
+      });
+    });
+  } catch (e) {
+    console.error('SFTP list failed:', e);
+    fileList.innerHTML = `<div class="sftp-empty" style="color: var(--accent-danger);">Error: ${e}</div>`;
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+function updateSftpButtons(): void {
+  const downloadBtn = document.getElementById('sftp-btn-download') as HTMLButtonElement;
+  const deleteBtn = document.getElementById('sftp-btn-delete') as HTMLButtonElement;
+
+  if (downloadBtn) downloadBtn.disabled = !sftpSelectedFile || sftpSelectedFile.is_dir;
+  if (deleteBtn) deleteBtn.disabled = !sftpSelectedFile;
+}
+
+async function uploadSftpFile(): Promise<void> {
+  if (!sftpSessionId) return;
+
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const file = await open({ multiple: false });
+
+  if (!file) return;
+
+  try {
+    const remotePath = sftpCurrentPath + '/' + (file as string).split(/[/\\]/).pop();
+    await invoke('sftp_upload', {
+      sessionId: sftpSessionId,
+      localPath: file as string,
+      remotePath: remotePath,
+    });
+    await loadSftpDirectory(sftpCurrentPath);
+  } catch (e) {
+    console.error('SFTP upload failed:', e);
+    alert('Upload failed: ' + e);
+  }
+}
+
+async function downloadSftpFile(): Promise<void> {
+  if (!sftpSessionId || !sftpSelectedFile || sftpSelectedFile.is_dir) return;
+
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  const file = await save({ defaultPath: sftpSelectedFile.name });
+
+  if (!file) return;
+
+  try {
+    await invoke('sftp_download', {
+      sessionId: sftpSessionId,
+      remotePath: sftpSelectedFile.path,
+      localPath: file,
+    });
+    alert('Download complete!');
+  } catch (e) {
+    console.error('SFTP download failed:', e);
+    alert('Download failed: ' + e);
+  }
+}
+
+async function createSftpFolder(): Promise<void> {
+  if (!sftpSessionId) return;
+
+  const name = prompt('Enter folder name:');
+  if (!name) return;
+
+  try {
+    await invoke('sftp_mkdir', {
+      sessionId: sftpSessionId,
+      path: sftpCurrentPath + '/' + name,
+    });
+    await loadSftpDirectory(sftpCurrentPath);
+  } catch (e) {
+    console.error('SFTP mkdir failed:', e);
+    alert('Failed to create folder: ' + e);
+  }
+}
+
+async function deleteSftpFile(): Promise<void> {
+  if (!sftpSessionId || !sftpSelectedFile) return;
+
+  if (!confirm(`Delete "${sftpSelectedFile.name}"?`)) return;
+
+  try {
+    if (sftpSelectedFile.is_dir) {
+      await invoke('sftp_delete_dir', {
+        sessionId: sftpSessionId,
+        path: sftpSelectedFile.path,
+      });
+    } else {
+      await invoke('sftp_delete_file', {
+        sessionId: sftpSessionId,
+        path: sftpSelectedFile.path,
+      });
+    }
+    await loadSftpDirectory(sftpCurrentPath);
+  } catch (e) {
+    console.error('SFTP delete failed:', e);
+    alert('Delete failed: ' + e);
+  }
+}
+
 async function init(): Promise<void> {
+  setupOsShortcuts();
   setupEventListeners();
+  setupSettingsListeners();
+  setupImportListeners();
+  await loadAppSettings();
   await loadQuickCommands();
   await loadSavedSessions();
   await createTab();
+}
+
+// Detect OS and update keyboard shortcut display
+function setupOsShortcuts(): void {
+  const isMac = navigator.platform.toLowerCase().includes('mac') ||
+    navigator.userAgent.toLowerCase().includes('mac');
+
+  if (isMac) {
+    // Update all shortcut labels to show Mac shortcuts
+    document.querySelectorAll('.menu-shortcut[data-shortcut-mac]').forEach(el => {
+      const macShortcut = (el as HTMLElement).dataset.shortcutMac;
+      if (macShortcut) {
+        el.textContent = macShortcut;
+      }
+    });
+  }
 }
 
 // Wait for DOM to be ready

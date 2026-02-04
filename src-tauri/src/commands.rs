@@ -145,6 +145,24 @@ pub async fn delete_session(session_id: String) -> Result<(), String> {
     session::delete_session(&session_id)
 }
 
+/// Save session password securely
+#[command]
+pub async fn save_session_password(session_id: String, password: String) -> Result<(), String> {
+    session::save_password(&session_id, &password)
+}
+
+/// Get session password securely
+#[command]
+pub async fn get_session_password(session_id: String) -> Result<Option<String>, String> {
+    session::get_password(&session_id)
+}
+
+/// Delete session password securely
+#[command]
+pub async fn delete_session_password(session_id: String) -> Result<(), String> {
+    session::delete_password(&session_id)
+}
+
 /// Get list of quick commands
 #[command]
 pub async fn get_quick_commands() -> Result<Vec<QuickCommand>, String> {
@@ -185,4 +203,195 @@ pub async fn get_ai_config() -> Result<AiConfig, String> {
 #[command]
 pub async fn save_ai_config(config: AiConfig) -> Result<(), String> {
     ai::save_config(&config)
+}
+
+// ============================================
+// Settings Commands
+// ============================================
+
+use crate::settings::{self, AppSettings};
+
+/// Get application settings
+#[command]
+pub async fn get_settings() -> Result<AppSettings, String> {
+    Ok(settings::load_settings())
+}
+
+/// Save application settings
+#[command]
+pub async fn save_settings(settings: AppSettings) -> Result<(), String> {
+    settings::save_settings(&settings)
+}
+
+use crate::known_hosts::{self, KnownHostEntry};
+
+/// Get known hosts
+#[command]
+pub async fn get_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
+    known_hosts::get_known_hosts()
+}
+
+/// Delete a known host
+#[command]
+pub async fn delete_known_host(host: String) -> Result<(), String> {
+    known_hosts::delete_known_host(&host)
+}
+
+// ============================================
+// Import/Export Commands
+// ============================================
+
+use crate::import_export;
+
+/// Import sessions from a file
+#[command]
+pub async fn import_sessions(path: String, format: String) -> Result<Vec<SavedSession>, String> {
+    import_export::import_sessions(&path, &format)
+}
+
+/// Export sessions to a file
+#[command]
+pub async fn export_sessions(
+    path: String,
+    format: String,
+    sessions: Vec<SavedSession>,
+) -> Result<(), String> {
+    import_export::export_sessions(&path, &format, &sessions)
+}
+
+// ============================================
+// Logging Commands
+// ============================================
+
+use std::fs::OpenOptions;
+use std::io::Write;
+
+/// Write data to a log file (appends to existing file)
+#[command]
+pub async fn write_log(
+    file_path: String,
+    data: String,
+    with_timestamp: bool,
+) -> Result<(), String> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file_path)
+        .map_err(|e| format!("Failed to open log file: {}", e))?;
+
+    let content = if with_timestamp {
+        let now = chrono::Local::now();
+        format!("[{}] {}", now.format("%Y-%m-%d %H:%M:%S"), data)
+    } else {
+        data
+    };
+
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to write to log file: {}", e))?;
+
+    Ok(())
+}
+
+/// Get the default log directory
+#[command]
+pub async fn get_log_directory() -> Result<String, String> {
+    let docs_dir =
+        dirs::document_dir().ok_or_else(|| "Could not find documents directory".to_string())?;
+
+    let log_dir = docs_dir.join("SpurXSecureSSH").join("logs");
+
+    // Ensure directory exists
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir)
+            .map_err(|e| format!("Failed to create log directory: {}", e))?;
+    }
+
+    Ok(log_dir.to_string_lossy().to_string())
+}
+
+// ============================================
+// SFTP Commands
+// ============================================
+
+use crate::sftp::{SftpFileEntry, SFTP_MANAGER};
+
+/// Connect SFTP session
+#[command]
+pub async fn sftp_connect(
+    session_id: String,
+    host: String,
+    port: u16,
+    username: String,
+    password: String,
+) -> Result<(), String> {
+    SFTP_MANAGER
+        .lock()
+        .connect(&session_id, &host, port, &username, &password)
+}
+
+/// Disconnect SFTP session
+#[command]
+pub async fn sftp_disconnect(session_id: String) -> Result<(), String> {
+    SFTP_MANAGER.lock().disconnect(&session_id);
+    Ok(())
+}
+
+/// List directory contents
+#[command]
+pub async fn sftp_list(session_id: String, path: String) -> Result<Vec<SftpFileEntry>, String> {
+    SFTP_MANAGER.lock().list_dir(&session_id, &path)
+}
+
+/// Download file from remote to local
+#[command]
+pub async fn sftp_download(
+    session_id: String,
+    remote_path: String,
+    local_path: String,
+) -> Result<u64, String> {
+    SFTP_MANAGER
+        .lock()
+        .download(&session_id, &remote_path, &local_path)
+}
+
+/// Upload file from local to remote
+#[command]
+pub async fn sftp_upload(
+    session_id: String,
+    local_path: String,
+    remote_path: String,
+) -> Result<u64, String> {
+    SFTP_MANAGER
+        .lock()
+        .upload(&session_id, &local_path, &remote_path)
+}
+
+/// Create directory
+#[command]
+pub async fn sftp_mkdir(session_id: String, path: String) -> Result<(), String> {
+    SFTP_MANAGER.lock().mkdir(&session_id, &path)
+}
+
+/// Delete file
+#[command]
+pub async fn sftp_delete_file(session_id: String, path: String) -> Result<(), String> {
+    SFTP_MANAGER.lock().delete_file(&session_id, &path)
+}
+
+/// Delete directory
+#[command]
+pub async fn sftp_delete_dir(session_id: String, path: String) -> Result<(), String> {
+    SFTP_MANAGER.lock().delete_dir(&session_id, &path)
+}
+
+/// Rename file or directory
+#[command]
+pub async fn sftp_rename(
+    session_id: String,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    SFTP_MANAGER
+        .lock()
+        .rename(&session_id, &old_path, &new_path)
 }

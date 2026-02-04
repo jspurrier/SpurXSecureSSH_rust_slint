@@ -55,10 +55,9 @@ When suggesting commands:
 The user may share terminal output for context. Analyze it to understand the device type and current configuration mode."#;
 
 /// Get the AI config file path
+/// Get the AI config file path
 fn get_config_path() -> PathBuf {
-    let config_dir = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("spurx-secure-ssh");
+    let config_dir = crate::get_app_config_dir();
     std::fs::create_dir_all(&config_dir).ok();
     config_dir.join("ai_config.json")
 }

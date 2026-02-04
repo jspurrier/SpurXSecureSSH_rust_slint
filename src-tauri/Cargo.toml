@@ -1,6 +1,6 @@
 [package]
 name = "spurx-secure-ssh"
-version = "0.1.0"
+version = "1.0.0"
 description = "SpurX Secure SSH - A Modern SSH Client"
 authors = ["John Spurrier"]
 edition = "2021"
@@ -35,3 +35,9 @@ futures = "0.3"
 
 # HTTP client for AI APIs
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+quick-xml = { version = "0.39.0", features = ["serialize"] }
+tauri-plugin-dialog = "2.6.0"
+tauri-plugin-process = "2.3.1"
+chrono = "0.4.43"
+lazy_static = "1.5.0"
+keyring = "2"
