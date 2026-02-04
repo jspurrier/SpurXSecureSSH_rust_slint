@@ -691,7 +691,7 @@ function buildFolderTree(
           path: currentPath,
           children: new Map(),
           items: [],
-          isOpen: true // Default open for now
+          isOpen: false // Default closed as requested
         });
       }
 
@@ -738,7 +738,7 @@ function renderTreeHtml(
 
   sortedKeys.forEach(key => {
     const node = nodes.get(key)!;
-    const isExpanded = true; // TODO: State tracking
+    const isExpanded = node.isOpen; // Use node state
 
     html += `
       <div class="folder-container" data-path="${escapeHtml(node.path)}" data-type="${type}">
