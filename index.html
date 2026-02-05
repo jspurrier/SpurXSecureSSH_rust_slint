@@ -443,6 +443,15 @@
             <label for="command-text">Command:</label>
             <input type="text" id="command-text" placeholder="show interfaces" />
           </div>
+          <div class="form-group">
+            <label for="command-description">Description (Optional):</label>
+            <input type="text" id="command-description" placeholder="Brief description of what this command does" />
+          </div>
+          <div class="form-group">
+            <label for="command-example">Example (Optional):</label>
+            <textarea id="command-example" placeholder="Example usage or output" rows="2"
+              style="font-family: monospace;"></textarea>
+          </div>
           <div class="form-row">
             <div class="form-group">
               <label for="command-folder">Folder:</label>
@@ -705,6 +714,22 @@
           <button class="btn btn-primary" id="ai-settings-save">Save Settings</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Command Tooltip -->
+  <div id="command-tooltip" class="command-tooltip hidden">
+    <div class="tooltip-header">
+      <span id="tooltip-name" class="tooltip-name"></span>
+    </div>
+    <div id="tooltip-description" class="tooltip-description"></div>
+    <div id="tooltip-example-container" class="tooltip-example-container hidden">
+      <div class="tooltip-chk-label">Example:</div>
+      <pre id="tooltip-example" class="tooltip-example"></pre>
+    </div>
+    <div id="tooltip-command-container" class="tooltip-command-container">
+      <div class="tooltip-chk-label">Command:</div>
+      <pre id="tooltip-command" class="tooltip-command"></pre>
     </div>
   </div>
 

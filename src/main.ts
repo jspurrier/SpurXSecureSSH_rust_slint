@@ -57,6 +57,8 @@ interface QuickCommand {
   command: string;
   folder: string;
   icon?: string;
+  description?: string;
+  example?: string;
 }
 
 interface SftpFileEntry {
@@ -77,6 +79,7 @@ interface TabInfo {
   connected: boolean;
   unlisteners: Array<() => void>;
   connectionParams: ConnectRequest | null;
+  container: HTMLDivElement;
 }
 
 // ============================================
@@ -105,7 +108,11 @@ let contextMenuTargetTabId: string | null = null;
 // Command folders
 let commandFolders: string[] = ['General'];
 let sessionFolders: string[] = ['General'];
+// Track expanded folders for persistence
+const expandedSessionFolders: Set<string> = new Set();
+const expandedCommandFolders: Set<string> = new Set();
 let folderContext: 'session' | 'command' = 'command';
+let tooltipHideTimer: number | null = null;
 
 // SFTP state
 let sftpSessionId: string | null = null;
@@ -177,6 +184,8 @@ const elements = {
   // Form inputs - Add/Edit Command
   commandName: document.getElementById('command-name') as HTMLInputElement,
   commandText: document.getElementById('command-text') as HTMLInputElement,
+  commandDescription: document.getElementById('command-description') as HTMLInputElement,
+  commandExample: document.getElementById('command-example') as HTMLTextAreaElement,
   commandFolder: document.getElementById('command-folder') as HTMLSelectElement,
   commandColor: document.getElementById('command-color') as HTMLSelectElement,
   commandModalTitle: document.getElementById('command-modal-title') as HTMLHeadingElement,
@@ -309,6 +318,14 @@ function createTerminal(): { terminal: Terminal; fitAddon: FitAddon } {
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
 
+  // Load WebGL addon
+  try {
+    const webglAddon = new WebglAddon();
+    terminal.loadAddon(webglAddon);
+  } catch (e) {
+    console.warn('WebGL addon could not be loaded:', e);
+  }
+
   return { terminal, fitAddon };
 }
 
@@ -320,6 +337,15 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
   const tabId = generateTabId();
   const { terminal, fitAddon } = createTerminal();
 
+  // Create container
+  const container = document.createElement('div');
+  container.className = 'tab-container';
+  container.id = `container-${tabId}`;
+  elements.terminalViewport.appendChild(container);
+
+  // Open terminal in container immediately
+  terminal.open(container);
+
   const tabInfo: TabInfo = {
     id: tabId,
     title,
@@ -328,6 +354,7 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
     connected: false,
     unlisteners: [],
     connectionParams: null,
+    container,
   };
 
   tabs.set(tabId, tabInfo);
@@ -391,27 +418,23 @@ function switchToTab(tabId: string): void {
   const tab = tabs.get(tabId);
   if (!tab) return;
 
-  // Update active state
   activeTabId = tabId;
   renderTabs();
 
-  // Clear viewport and attach terminal
-  elements.terminalViewport.innerHTML = '';
-  tab.terminal.open(elements.terminalViewport);
+  // Hide all containers
+  tabs.forEach(t => {
+    t.container.classList.remove('active');
+  });
 
-  // Load WebGL addon if not already loaded
-  try {
-    const webglAddon = new WebglAddon();
-    tab.terminal.loadAddon(webglAddon);
-  } catch (e) {
-    console.warn('WebGL addon could not be loaded:', e);
-  }
+  // Show active container
+  tab.container.classList.add('active');
 
   // Fit terminal to viewport
   setTimeout(() => {
     tab.fitAddon.fit();
+    tab.terminal.focus();
     updateStatusBar(tab);
-  }, 0);
+  }, 50); // Small delay to ensure layout is applied
 }
 
 async function closeTab(tabId: string): Promise<void> {
@@ -428,6 +451,9 @@ async function closeTab(tabId: string): Promise<void> {
 
   // Dispose terminal
   tab.terminal.dispose();
+
+  // Remove container from DOM
+  tab.container.remove();
 
   // Remove from tabs
   tabs.delete(tabId);
@@ -577,6 +603,12 @@ async function connect(
 async function loadSavedSessions(): Promise<void> {
   try {
     savedSessions = await invoke<SavedSession[]>('get_saved_sessions');
+
+    // Sync folders
+    savedSessions.forEach(s => {
+      if (s.folder && !sessionFolders.includes(s.folder)) sessionFolders.push(s.folder);
+    });
+
     renderSessionsList();
     renderSessionsTree();
   } catch (error) {
@@ -672,6 +704,7 @@ interface FolderNode {
 function buildFolderTree(
   folders: string[],
   items: (SavedSession | QuickCommand)[],
+  expandedPaths: Set<string> = new Set()
 ): Map<string, FolderNode> {
   const root = new Map<string, FolderNode>();
 
@@ -691,7 +724,7 @@ function buildFolderTree(
           path: currentPath,
           children: new Map(),
           items: [],
-          isOpen: false // Default closed as requested
+          isOpen: expandedPaths.has(currentPath)
         });
       }
 
@@ -791,7 +824,9 @@ function renderSessionItem(session: SavedSession): string {
 
 function renderCommandItem(cmd: QuickCommand): string {
   return `
-    <div class="command-item" data-command-id="${cmd.id}">
+    <div class="command-item" data-command-id="${cmd.id}"
+         onmouseenter="showCommandTooltip(event, '${cmd.id}')"
+         onmouseleave="hideCommandTooltip()">
       <div class="command-icon ${cmd.icon || 'cyan'}"></div>
       <div class="command-info">
         <div class="command-name">${escapeHtml(cmd.name)}</div>
@@ -801,25 +836,111 @@ function renderCommandItem(cmd: QuickCommand): string {
   `;
 }
 
+
+
+// Tooltip functions
+(window as any).showCommandTooltip = (e: MouseEvent, commandId: string) => {
+  if (tooltipHideTimer) {
+    window.clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = null;
+  }
+  const cmd = quickCommands.find(c => c.id === commandId);
+  if (!cmd) return;
+
+  const tooltip = document.getElementById('command-tooltip');
+  const nameEl = document.getElementById('tooltip-name');
+  const descEl = document.getElementById('tooltip-description');
+  const exampleContainer = document.getElementById('tooltip-example-container');
+  const exampleEl = document.getElementById('tooltip-example');
+  const commandEl = document.getElementById('tooltip-command');
+
+  if (!tooltip || !nameEl || !descEl || !exampleEl || !commandEl || !exampleContainer) return;
+
+  nameEl.textContent = cmd.name;
+  descEl.textContent = cmd.description || '';
+
+  if (cmd.example) {
+    exampleContainer.classList.remove('hidden');
+    exampleEl.textContent = cmd.example;
+  } else {
+    exampleContainer.classList.add('hidden');
+  }
+
+  commandEl.textContent = cmd.command;
+
+  // Position
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  tooltip.style.top = `${rect.top}px`;
+  tooltip.style.left = `${rect.right + 10}px`; // Show to the right
+
+  // Check bounds
+  if (rect.right + 310 > window.innerWidth) {
+    tooltip.style.left = `${rect.left - 310}px`; // Show to left if no space
+  }
+
+  tooltip.classList.remove('hidden');
+};
+
+(window as any).hideCommandTooltip = () => {
+  if (tooltipHideTimer) window.clearTimeout(tooltipHideTimer);
+  tooltipHideTimer = window.setTimeout(() => {
+    const tooltip = document.getElementById('command-tooltip');
+    if (tooltip) tooltip.classList.add('hidden');
+  }, 300); // 300ms delay to allow moving mouse into tooltip
+};
+
 // Updated render functions
 function renderCommandTree(): void {
-  // Separate root items (empty folder or 'General' top level if desired)
-  // For now, treat 'General' as just another folder
-  const rootItems = quickCommands.filter(c => !c.folder);
-  const folders = buildFolderTree(commandFolders, quickCommands.filter(c => c.folder));
+  const filterInput = document.getElementById('command-search') as HTMLInputElement;
+  const filter = filterInput?.value.toLowerCase().trim() || '';
+
+  let items = quickCommands;
+  if (filter) {
+    items = quickCommands.filter(c =>
+      c.name.toLowerCase().includes(filter) ||
+      c.command.toLowerCase().includes(filter) ||
+      (c.description && c.description.toLowerCase().includes(filter)) ||
+      (c.example && c.example.toLowerCase().includes(filter))
+    );
+  }
+
+  const rootItems = items.filter(c => !c.folder);
+  const folders = buildFolderTree(commandFolders, items.filter(c => c.folder), expandedCommandFolders);
 
   elements.commandTree.innerHTML = renderTreeHtml(folders, 'command', rootItems);
 
   attachTreeListeners(elements.commandTree, 'command');
+
+  // Expand all folders if filtering
+  if (filter) {
+    elements.commandTree.querySelectorAll('.folder-header').forEach(header => header.classList.add('expanded'));
+  }
 }
 
 function renderSessionsTree(): void {
-  const rootItems = savedSessions.filter(s => !s.folder);
-  const folders = buildFolderTree(sessionFolders, savedSessions.filter(s => s.folder));
+  const filterInput = document.querySelector('.sidebar-search') as HTMLInputElement;
+  const filter = filterInput?.value.toLowerCase().trim() || '';
+
+  let items = savedSessions;
+  if (filter) {
+    items = savedSessions.filter(s =>
+      s.name.toLowerCase().includes(filter) ||
+      s.host.toLowerCase().includes(filter) ||
+      (s.username && s.username.toLowerCase().includes(filter))
+    );
+  }
+
+  const rootItems = items.filter(s => !s.folder);
+  const folders = buildFolderTree(sessionFolders, items.filter(s => s.folder), expandedSessionFolders);
 
   elements.sessionsTree.innerHTML = renderTreeHtml(folders, 'session', rootItems);
 
   attachTreeListeners(elements.sessionsTree, 'session');
+
+  // Expand all folders if filtering
+  if (filter) {
+    elements.sessionsTree.querySelectorAll('.folder-header').forEach(header => header.classList.add('expanded'));
+  }
 }
 
 function attachTreeListeners(container: HTMLElement, type: 'session' | 'command'): void {
@@ -828,6 +949,16 @@ function attachTreeListeners(container: HTMLElement, type: 'session' | 'command'
     header.addEventListener('click', () => {
       // Don't toggle if clicking actions (if added later)
       header.classList.toggle('expanded');
+
+      const path = (header.parentElement as HTMLElement).dataset.path;
+      if (path) {
+        const expandedSet = type === 'session' ? expandedSessionFolders : expandedCommandFolders;
+        if (header.classList.contains('expanded')) {
+          expandedSet.add(path);
+        } else {
+          expandedSet.delete(path);
+        }
+      }
     });
 
     // Folder context menu
@@ -1361,6 +1492,8 @@ function showAddCommandModal(): void {
   elements.commandModalTitle.textContent = 'Add Command';
   elements.commandName.value = '';
   elements.commandText.value = '';
+  elements.commandDescription.value = '';
+  elements.commandExample.value = '';
   populateFolderSelect(elements.commandFolder, 'command');
   elements.commandColor.value = 'cyan';
   elements.addCommandModal.classList.add('show');
@@ -1372,6 +1505,8 @@ async function saveCommandModal(): Promise<void> {
   const command = elements.commandText.value.trim();
   const folder = elements.commandFolder.value.trim() || 'General';
   const color = elements.commandColor.value;
+  const description = elements.commandDescription.value.trim();
+  const example = elements.commandExample.value.trim();
 
   if (!name || !command) {
     if (!name) elements.commandName.focus();
@@ -1385,6 +1520,8 @@ async function saveCommandModal(): Promise<void> {
     command,
     folder,
     icon: color,
+    description: description || undefined,
+    example: example || undefined,
   };
 
   // Track the folder
@@ -1398,6 +1535,7 @@ async function saveCommandModal(): Promise<void> {
     closeModal(elements.addCommandModal);
   } catch (error) {
     console.error('Failed to save command:', error);
+    alert('Failed to save command: ' + error);
   }
 }
 
@@ -2017,6 +2155,27 @@ function setupEventListeners(): void {
   });
   elements.aiTestGrok?.addEventListener('click', testGrokConnection);
   elements.aiTestOllama?.addEventListener('click', testOllamaConnection);
+
+  // Filtering
+  document.querySelector('.sidebar-search')?.addEventListener('input', () => {
+    renderSessionsTree();
+  });
+
+  document.getElementById('command-search')?.addEventListener('input', () => {
+    renderCommandTree();
+  });
+
+  // Tooltip interaction
+  const tooltip = document.getElementById('command-tooltip');
+  tooltip?.addEventListener('mouseenter', () => {
+    if (tooltipHideTimer) {
+      window.clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = null;
+    }
+  });
+  tooltip?.addEventListener('mouseleave', () => {
+    (window as any).hideCommandTooltip();
+  });
 
   // Sidebar tab switching
   document.querySelectorAll('.sidebar-tab').forEach((tabBtn) => {

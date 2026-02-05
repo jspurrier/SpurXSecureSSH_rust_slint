@@ -738,6 +738,16 @@ body {
   overflow-y: auto !important;
 }
 
+.tab-container {
+  width: 100%;
+  height: 100%;
+  display: none;
+}
+
+.tab-container.active {
+  display: block;
+}
+
 /* ============================================
    Status Bar
    ============================================ */
@@ -2491,4 +2501,73 @@ body {
 .context-menu-item.danger .shortcut {
   color: inherit;
   opacity: 0.8;
+}
+
+/* Command Tooltip */
+.command-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  width: 300px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.command-tooltip.hidden {
+  display: none;
+  opacity: 0;
+}
+
+.tooltip-header {
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+
+.tooltip-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.tooltip-description {
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-style: italic;
+}
+
+.tooltip-chk-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.tooltip-example,
+.tooltip-command {
+  background-color: var(--bg-tertiary);
+  padding: 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-cmd);
+  border: 1px solid var(--border-color);
+}
+
+.tooltip-example-container {
+  margin-bottom: 8px;
+}
+
+.tooltip-example-container.hidden {
+  display: none;
 }

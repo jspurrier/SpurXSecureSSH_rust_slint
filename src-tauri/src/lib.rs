@@ -92,6 +92,8 @@ pub struct QuickCommand {
     pub command: String,
     pub folder: String,
     pub icon: Option<String>,
+    pub description: Option<String>,
+    pub example: Option<String>,
 }
 
 /// Get the standardized application configuration directory.
