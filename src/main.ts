@@ -6,6 +6,8 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import '@xterm/xterm/css/xterm.css';
 
 // Tauri API
@@ -3327,6 +3329,52 @@ async function deleteSftpFile(): Promise<void> {
   }
 }
 
+// ============================================
+// Auto Updater
+// ============================================
+
+async function initializeUpdater() {
+  try {
+    const update = await check();
+    if (update && update.available) {
+      console.log(`Update checked: ${update.version} is available`);
+      const notification = document.getElementById('update-notification');
+      const versionSpan = document.getElementById('update-version');
+      const restartBtn = document.getElementById('btn-update-restart');
+      const closeBtn = document.getElementById('btn-update-close');
+
+      if (notification && versionSpan && restartBtn) {
+        versionSpan.textContent = `v${update.version}`;
+        notification.classList.remove('hidden');
+
+        restartBtn.addEventListener('click', async () => {
+          restartBtn.textContent = 'Updating...';
+          restartBtn.setAttribute('disabled', 'true');
+          try {
+            await update.downloadAndInstall();
+            await relaunch();
+          } catch (e) {
+            console.error('Update failed:', e);
+            restartBtn.textContent = 'Failed';
+            setTimeout(() => {
+              restartBtn.textContent = 'Restart to Update';
+              restartBtn.removeAttribute('disabled');
+            }, 3000);
+          }
+        });
+
+        closeBtn?.addEventListener('click', () => {
+          notification.classList.add('hidden');
+        });
+      }
+    } else {
+      console.log('Update checked: App is up to date');
+    }
+  } catch (e) {
+    console.error('Failed to check for updates:', e);
+  }
+}
+
 async function init(): Promise<void> {
   setupOsShortcuts();
   setupEventListeners();
@@ -3336,6 +3384,9 @@ async function init(): Promise<void> {
   await loadQuickCommands();
   await loadSavedSessions();
   await createTab();
+
+  // Check for updates
+  await initializeUpdater();
 }
 
 // Detect OS and update keyboard shortcut display

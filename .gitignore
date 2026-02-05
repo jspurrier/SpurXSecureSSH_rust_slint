@@ -27,3 +27,6 @@ dist-ssr
 target/
 src-tauri/target/
 **/*.rs.bk
+
+# Security keys
+spurx_private.key

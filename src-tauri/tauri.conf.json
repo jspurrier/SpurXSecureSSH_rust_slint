@@ -1,13 +1,21 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SpurX Secure SSH",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "identifier": "com.spurx.securessh",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGMjJFNDg2QjU4NDZEODQKUldTRWJZUzFodVFpVDRTazlORjNWZjVWVVBkTzdQVTByWkhJRlAyM0dJSnAwVmJ4SkdhWGwzbDAK"
+    }
   },
   "app": {
     "withGlobalTauri": true,

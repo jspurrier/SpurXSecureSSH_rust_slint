@@ -11,6 +11,21 @@
 
 <body>
   <div id="app">
+    <!-- Update Notification -->
+    <div id="update-notification" class="update-notification hidden">
+      <div class="update-content">
+        <span class="update-icon">🚀</span>
+        <div class="update-text">
+          <span class="update-title">Update Available</span>
+          <span class="update-version" id="update-version">v1.5.0</span>
+        </div>
+      </div>
+      <div class="update-actions">
+        <button id="btn-update-restart" class="btn btn-sm btn-primary">Restart to Update</button>
+        <button id="btn-update-close" class="btn btn-sm btn-ghost">&times;</button>
+      </div>
+    </div>
+
     <!-- Menu Bar -->
     <div class="menu-bar">
       <div class="menu-item-wrapper">

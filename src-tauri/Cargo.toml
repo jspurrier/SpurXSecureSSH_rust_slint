@@ -1,6 +1,6 @@
 [package]
 name = "spurx-secure-ssh"
-version = "1.0.0"
+version = "1.5.0"
 description = "SpurX Secure SSH - A Modern SSH Client"
 authors = ["John Spurrier"]
 edition = "2021"
@@ -41,3 +41,6 @@ tauri-plugin-process = "2.3.1"
 chrono = "0.4.43"
 lazy_static = "1.5.0"
 keyring = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
