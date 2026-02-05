@@ -49,6 +49,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "shortDescription": "SpurX Secure SSH Client",
+    "longDescription": "A modern, secure, and cross-platform SSH client built with Rust and Tauri.",
+    "copyright": "Copyright © 2026 John Spurrier",
+    "category": "Utility",
     "windows": {
       "nsis": {
         "installMode": "currentUser"
