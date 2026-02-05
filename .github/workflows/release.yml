@@ -14,8 +14,6 @@ jobs:
         include:
           - platform: "macos-latest" # Apple Silicon (M1/M2/M3)
             args: "--target aarch64-apple-darwin"
-          - platform: "macos-latest" # Intel via Rosetta 2
-            args: "--target x86_64-apple-darwin"
           - platform: "ubuntu-22.04"
             args: ""
           - platform: "windows-latest"
@@ -29,12 +27,12 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev rpm
+          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev rpm libfuse2
 
       - name: install rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || contains(matrix.args, 'x86_64') && 'x86_64-apple-darwin' || '' }}
+          targets: ${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || '' }}
 
       - name: install frontend dependencies
         run: npm install
