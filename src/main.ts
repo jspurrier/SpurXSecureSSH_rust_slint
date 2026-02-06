@@ -2535,8 +2535,32 @@ async function loadAppVersion(): Promise<void> {
     if (versionEl) {
       versionEl.textContent = `Version ${version}`;
     }
+
+    const checkBtn = document.getElementById('about-update-check');
+    if (checkBtn) {
+      checkBtn.onclick = checkForUpdatesManual;
+    }
   } catch (e) {
     console.error('Failed to load app version:', e);
+  }
+}
+
+async function checkForUpdatesManual(): Promise<void> {
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check();
+    if (update) {
+      const yes = await confirm(`Update available: ${update.version}\n\nDo you want to download and install it now?`);
+      if (yes) {
+        await update.downloadAndInstall();
+        await import('@tauri-apps/plugin-process').then(({ relaunch }) => relaunch());
+      }
+    } else {
+      alert('You are on the latest version.');
+    }
+  } catch (e) {
+    console.error('Manual update check failed:', e);
+    alert('Update check failed: ' + e);
   }
 }
 
