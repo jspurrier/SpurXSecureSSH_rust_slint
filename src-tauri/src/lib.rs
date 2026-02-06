@@ -158,6 +158,7 @@ pub fn run() {
             commands::sftp_rename,
             commands::get_known_hosts,
             commands::delete_known_host,
+            commands::check_latest_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

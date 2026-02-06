@@ -2543,22 +2543,54 @@ async function loadAppVersion(): Promise<void> {
   }
 }
 
+
+interface VersionCheckResponse {
+  update_available: boolean;
+  latest_version: string;
+  current_version: string;
+  url: string;
+  error?: string;
+}
+
 async function checkForUpdatesManual(): Promise<void> {
+  const btn = document.getElementById('about-update-check') as HTMLButtonElement;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+  }
+
   try {
-    const { check } = await import('@tauri-apps/plugin-updater');
-    const update = await check();
-    if (update) {
-      const yes = await confirm(`Update available: ${update.version}\n\nDo you want to download and install it now?`);
-      if (yes) {
-        await update.downloadAndInstall();
-        await import('@tauri-apps/plugin-process').then(({ relaunch }) => relaunch());
+    const response = await invoke<VersionCheckResponse>('check_latest_version');
+
+    if (response.error) {
+      alert('Update check failed: ' + response.error);
+    } else if (response.update_available) {
+      const yes = await confirm(
+        `Update available: v${response.latest_version}\n` +
+        `Current version: v${response.current_version}\n\n` +
+        `Do you want to visit the download page?`
+      );
+
+      if (yes && response.url) {
+        try {
+          const { openUrl } = await import('@tauri-apps/plugin-opener');
+          await openUrl(response.url);
+        } catch (e) {
+          // Fallback if plugin fails or not loaded
+          window.open(response.url, '_blank');
+        }
       }
     } else {
-      alert('You are on the latest version.');
+      alert(`You are on the latest version (v${response.current_version}).`);
     }
   } catch (e) {
     console.error('Manual update check failed:', e);
     alert('Update check failed: ' + e);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Check for Updates';
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 //! Tauri command handlers for SSH operations and session management
 
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{command, AppHandle, Emitter, State};
 use tokio::sync::mpsc;
@@ -221,6 +222,85 @@ pub async fn save_ai_config(config: AiConfig) -> Result<(), String> {
 // ============================================
 
 use crate::settings::{self, AppSettings};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionCheckResponse {
+    pub update_available: bool,
+    pub latest_version: String,
+    pub current_version: String,
+    pub url: String,
+    pub error: Option<String>,
+}
+
+/// Check for latest version on GitHub
+#[command]
+pub async fn check_latest_version(app: AppHandle) -> Result<VersionCheckResponse, String> {
+    let current_version = app.package_info().version.to_string();
+    let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_tauri/tags";
+
+    let client = reqwest::Client::builder()
+        .user_agent("spurx-secure-ssh")
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch tags: {}", e))?;
+
+    if !response.status().is_success() {
+        return Ok(VersionCheckResponse {
+            update_available: false,
+            latest_version: "".to_string(),
+            current_version: current_version,
+            url: "".to_string(),
+            error: Some(format!("GitHub API returned error: {}", response.status())),
+        });
+    }
+
+    let tags: Vec<serde_json::Value> = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+    let mut max_version = semver::Version::new(0, 0, 0);
+    let mut max_tag_name = "".to_string();
+
+    for tag in tags {
+        if let Some(name) = tag.get("name").and_then(|n| n.as_str()) {
+            // Strip 'v' prefix if present
+            let clean_name = name.strip_prefix('v').unwrap_or(name);
+            if let Ok(version) = semver::Version::parse(clean_name) {
+                if version > max_version {
+                    max_version = version;
+                    max_tag_name = name.to_string();
+                }
+            }
+        }
+    }
+
+    let current_semver = semver::Version::parse(&current_version)
+        .map_err(|e| format!("Failed to parse current version: {}", e))?;
+
+    let update_available = max_version > current_semver;
+    let release_url = if update_available {
+        format!(
+            "https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/tag/{}",
+            max_tag_name
+        )
+    } else {
+        "".to_string()
+    };
+
+    Ok(VersionCheckResponse {
+        update_available,
+        latest_version: max_version.to_string(),
+        current_version,
+        url: release_url,
+        error: None,
+    })
+}
 
 /// Get application settings
 #[command]
