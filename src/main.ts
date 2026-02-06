@@ -2526,6 +2526,20 @@ async function loadAppSettings(): Promise<void> {
   }
 }
 
+// Load application version for About modal
+async function loadAppVersion(): Promise<void> {
+  try {
+    const { getVersion } = await import('@tauri-apps/api/app');
+    const version = await getVersion();
+    const versionEl = document.getElementById('about-version');
+    if (versionEl) {
+      versionEl.textContent = `Version ${version}`;
+    }
+  } catch (e) {
+    console.error('Failed to load app version:', e);
+  }
+}
+
 // Populate settings form from current settings
 function populateSettingsForm(): void {
   if (!currentSettings) return;
@@ -3389,6 +3403,7 @@ async function init(): Promise<void> {
   await loadAppSettings();
   await loadQuickCommands();
   await loadSavedSessions();
+  await loadAppVersion();
   await createTab();
 
   // Check for updates
