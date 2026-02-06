@@ -116,10 +116,10 @@ const date = new Date().toISOString();
 
 // Construct JSON
 // Note: The URL must be the public URL where this will be hosted.
-// We are hosting on GitHub Releases.
-// URL pattern: https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/download/v${version}/${filename}
+// We are hosting on GitHub Releases in the PUBLIC repo.
+// URL pattern: https://github.com/jspurrier/SpurXSecureSSH_rust_Public/releases/download/v${version}/${filename}
 const filename = path.basename(artifactToSign);
-const url = `https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/download/v${version}/${encodeURIComponent(filename)}`;
+const url = `https://github.com/jspurrier/SpurXSecureSSH_rust_Public/releases/download/v${version}/${encodeURIComponent(filename)}`;
 
 const manifest = {
     version: version,

@@ -4342,7 +4342,7 @@ dependencies = [
 
 [[package]]
 name = "spurx-secure-ssh"
-version = "1.5.0"
+version = "1.6.3"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4353,6 +4353,7 @@ dependencies = [
  "parking_lot",
  "quick-xml 0.39.0",
  "reqwest 0.12.28",
+ "semver",
  "serde",
  "serde_json",
  "ssh2",

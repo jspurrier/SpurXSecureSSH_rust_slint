@@ -236,7 +236,7 @@ pub struct VersionCheckResponse {
 #[command]
 pub async fn check_latest_version(app: AppHandle) -> Result<VersionCheckResponse, String> {
     let current_version = app.package_info().version.to_string();
-    let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_tauri/tags";
+    let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_Public/tags";
 
     let client = reqwest::Client::builder()
         .user_agent("spurx-secure-ssh")
@@ -286,7 +286,7 @@ pub async fn check_latest_version(app: AppHandle) -> Result<VersionCheckResponse
     let update_available = max_version > current_semver;
     let release_url = if update_available {
         format!(
-            "https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/tag/{}",
+            "https://github.com/jspurrier/SpurXSecureSSH_rust_Public/releases/tag/{}",
             max_tag_name
         )
     } else {

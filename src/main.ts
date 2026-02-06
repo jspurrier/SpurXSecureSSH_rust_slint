@@ -2916,7 +2916,7 @@ function setupImportListeners(): void {
   document.getElementById('about-github')?.addEventListener('click', async (e) => {
     e.preventDefault();
     const { openUrl } = await import('@tauri-apps/plugin-opener');
-    await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri');
+    await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_Public');
   });
 
   // About modal License link
@@ -2931,7 +2931,7 @@ function setupImportListeners(): void {
     if (e.key === 'F1') {
       e.preventDefault();
       const { openUrl } = await import('@tauri-apps/plugin-opener');
-      await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri#readme');
+      await openUrl('https://github.com/jspurrier/SpurXSecureSSH_rust_Public#readme');
     }
   });
 
