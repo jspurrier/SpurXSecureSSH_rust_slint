@@ -13,13 +13,13 @@ jobs:
       matrix:
         include:
           - platform: "macos-latest" # Apple Silicon (M1/M2/M3)
-            args: "--target aarch64-apple-darwin --bundles app,dmg,updater"
+            args: "--target aarch64-apple-darwin"
             targetName: "aarch64-apple-darwin"
           - platform: "ubuntu-22.04"
-            args: "--bundles appimage,deb,rpm,updater"
+            args: "--bundles appimage,deb,rpm"
             targetName: "x86_64-unknown-linux-gnu"
           - platform: "windows-latest"
-            args: "--bundles nsis,updater"
+            args: ""
             targetName: "x86_64-pc-windows-msvc"
 
     runs-on: ${{ matrix.platform }}
@@ -45,14 +45,6 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: npm run tauri build -- ${{ matrix.args }}
 
-      - name: generate updater artifacts
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "Generating manifest for version $VERSION"
-          node .github/scripts/generate-manifest.js "${{ matrix.targetName }}" "$VERSION"
-
       - name: upload release assets
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -63,49 +55,11 @@ jobs:
           prerelease: false
           files: |
             src-tauri/target/${{ matrix.targetName }}/release/bundle/dmg/*.dmg
-            src-tauri/target/${{ matrix.targetName }}/release/bundle/macos/*.app.tar.gz
-            src-tauri/target/${{ matrix.targetName }}/release/bundle/appimage/*.AppImage.tar.gz
+            src-tauri/target/${{ matrix.targetName }}/release/bundle/appimage/*.AppImage
             src-tauri/target/${{ matrix.targetName }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.targetName }}/release/bundle/rpm/*.rpm
             src-tauri/target/${{ matrix.targetName }}/release/bundle/nsis/*.exe
-            src-tauri/target/${{ matrix.targetName }}/release/bundle/nsis/*.zip
             src-tauri/target/${{ matrix.targetName }}/release/bundle/msi/*.msi
 
-      - name: upload updater json
-        uses: actions/upload-artifact@v4
-        with:
-          name: updater-json-${{ matrix.targetName }}
-          path: latest-${{ matrix.targetName }}.json
-          retention-days: 1
 
 
-  update-manifests:
-    needs: publish-tauri
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: updaters
-          fetch-depth: 0
-        continue-on-error: true
-
-      - name: configure git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          # Initialize branch if checkout failed
-          git checkout updaters 2>/dev/null || git checkout -b updaters
-
-      - name: download updater jsons
-        uses: actions/download-artifact@v4
-        with:
-          pattern: updater-json-*
-          merge-multiple: true
-
-      - name: commit and push
-        run: |
-          git add latest-*.json
-          git commit -m "chore: update release manifests" || echo "No changes to commit"
-          git push origin updaters

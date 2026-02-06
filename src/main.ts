@@ -6,8 +6,6 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
 import '@xterm/xterm/css/xterm.css';
 
 // Tauri API
@@ -3377,45 +3375,68 @@ async function deleteSftpFile(): Promise<void> {
 // Auto Updater
 // ============================================
 
-async function initializeUpdater() {
+async function checkGitHubUpdate() {
   try {
-    const update = await check();
-    if (update && update.available) {
-      console.log(`Update checked: ${update.version} is available`);
-      const notification = document.getElementById('update-notification');
-      const versionSpan = document.getElementById('update-version');
-      const restartBtn = document.getElementById('btn-update-restart');
-      const closeBtn = document.getElementById('btn-update-close');
+    // Fetch package.json from master branch
+    const response = await fetch('https://raw.githubusercontent.com/jspurrier/SpurXSecureSSH_rust_tauri/master/package.json');
+    if (!response.ok) return;
 
-      if (notification && versionSpan && restartBtn) {
-        versionSpan.textContent = `v${update.version}`;
-        notification.classList.remove('hidden');
+    const pkg = await response.json();
+    const remoteVersion = pkg.version;
 
-        restartBtn.addEventListener('click', async () => {
-          restartBtn.textContent = 'Updating...';
-          restartBtn.setAttribute('disabled', 'true');
-          try {
-            await update.downloadAndInstall();
-            await relaunch();
-          } catch (e) {
-            console.error('Update failed:', e);
-            restartBtn.textContent = 'Failed';
-            setTimeout(() => {
-              restartBtn.textContent = 'Restart to Update';
-              restartBtn.removeAttribute('disabled');
-            }, 3000);
-          }
-        });
+    // Get local version
+    const { getVersion } = await import('@tauri-apps/api/app');
+    const currentVersion = await getVersion();
 
-        closeBtn?.addEventListener('click', () => {
-          notification.classList.add('hidden');
-        });
-      }
+    console.log(`Checking updates: Local v${currentVersion}, Remote v${remoteVersion}`);
+
+    if (remoteVersion !== currentVersion && compareVersions(remoteVersion, currentVersion) > 0) {
+      showUpdateNotification(remoteVersion);
     } else {
-      console.log('Update checked: App is up to date');
+      console.log('App is up to date.');
     }
   } catch (e) {
     console.error('Failed to check for updates:', e);
+  }
+}
+
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
+}
+
+function showUpdateNotification(version: string) {
+  const notification = document.getElementById('update-notification');
+  const versionSpan = document.getElementById('update-version');
+  const restartBtn = document.getElementById('btn-update-restart');
+  const closeBtn = document.getElementById('btn-update-close');
+
+  if (notification && versionSpan && restartBtn) {
+    versionSpan.textContent = `v${version}`;
+    notification.classList.remove('hidden');
+
+    // Update button to "Download"
+    restartBtn.textContent = 'Download Update';
+    restartBtn.removeAttribute('disabled');
+
+    // Replace element to remove old listeners
+    const newBtn = restartBtn.cloneNode(true);
+    restartBtn.parentNode?.replaceChild(newBtn, restartBtn);
+
+    newBtn.addEventListener('click', async () => {
+      await open('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest');
+    });
+
+    closeBtn?.addEventListener('click', () => {
+      notification.classList.add('hidden');
+    });
   }
 }
 
@@ -3431,7 +3452,7 @@ async function init(): Promise<void> {
   await createTab();
 
   // Check for updates
-  await initializeUpdater();
+  await checkGitHubUpdate();
 }
 
 // Detect OS and update keyboard shortcut display
