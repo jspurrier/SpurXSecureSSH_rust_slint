@@ -3431,7 +3431,7 @@ function showUpdateNotification(version: string) {
     restartBtn.parentNode?.replaceChild(newBtn, restartBtn);
 
     newBtn.addEventListener('click', async () => {
-      await open('https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest');
+      await invoke('plugin:opener|open', { path: 'https://github.com/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest' });
     });
 
     closeBtn?.addEventListener('click', () => {
