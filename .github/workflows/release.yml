@@ -59,16 +59,22 @@ jobs:
         run: |
           TARGET="${{ matrix.targetName }}"
           
-          echo "Looking for latest.json for target: $TARGET"
-          find . -name "latest.json" -type f -print -exec cp {} latest-${TARGET}.json \;
+          echo "Debug: Listing bundle directories:"
+          find . -type d -name "bundle" -exec ls -R {} + || echo "No bundle dir found"
           
-          if [ -f "latest-${TARGET}.json" ]; then
-            echo "Found and renamed to latest-${TARGET}.json"
+          echo "Debug: Listing all JSON files (excluding node_modules):"
+          find . -name "*.json" -not -path "*/node_modules/*"
+          
+          echo "Looking for latest.json for target: $TARGET"
+          FOUND=$(find . -name "latest.json" -type f -not -path "*/node_modules/*" | head -n 1)
+          
+          if [ -n "$FOUND" ]; then
+            echo "Found at: $FOUND"
+            cp "$FOUND" latest-${TARGET}.json
+            echo "Renamed to latest-${TARGET}.json"
             cat latest-${TARGET}.json
           else
-            echo "Error: latest-${TARGET}.json not found."
-            echo "Listing src-tauri/target:"
-            ls -R src-tauri/target || echo "target dir not found"
+            echo "Error: latest.json not found anywhere."
             exit 1
           fi
 
