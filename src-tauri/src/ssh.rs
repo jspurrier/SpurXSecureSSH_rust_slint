@@ -45,6 +45,7 @@ pub fn connect_ssh_blocking(
     password: &str,
     output_tx: mpsc::Sender<Vec<u8>>,
     input_rx: &mut std::sync::mpsc::Receiver<Vec<u8>>,
+    debug_mode: bool,
 ) -> Result<(), String> {
     // Send connection status
     let _ =
@@ -56,19 +57,31 @@ pub fn connect_ssh_blocking(
     let addr = format!("{}:{}", host, port);
     let tcp = TcpStream::connect(&addr).map_err(|e| format!("TCP connection failed: {}", e))?;
 
-    // Set non-blocking for reads (with timeout)
-    tcp.set_read_timeout(Some(std::time::Duration::from_millis(100)))
+    // Set initial timeout for handshake/auth (10 seconds)
+    tcp.set_read_timeout(Some(std::time::Duration::from_secs(10)))
         .map_err(|e| format!("Failed to set read timeout: {}", e))?;
+
+    let tcp_config_clone = tcp
+        .try_clone()
+        .map_err(|e| format!("Failed to clone TCP stream: {}", e))?;
 
     // Create SSH session
     let mut sess = Session::new().map_err(|e| format!("Failed to create SSH session: {}", e))?;
 
+    // Enable trace logging for debugging (prints to stderr)
+    sess.set_compress(true);
+    // Note: ssh2-rs trace output goes to stderr by default
+    // We can try to enable it if the feature is available or just rely on our own logs
+    // sess.trace(ssh2::TraceFlags::all());
+
     sess.set_tcp_stream(tcp);
 
     // Perform SSH handshake
-    let _ = futures::executor::block_on(
-        output_tx.send(b"\x1b[36mPerforming SSH handshake...\x1b[0m\r\n".to_vec()),
-    );
+    if debug_mode {
+        let _ = futures::executor::block_on(
+            output_tx.send(b"\x1b[36mPerforming SSH handshake...\x1b[0m\r\n".to_vec()),
+        );
+    }
 
     sess.handshake()
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
@@ -96,16 +109,6 @@ pub fn connect_ssh_blocking(
                 );
             }
             ssh2::CheckResult::NotFound => {
-                // For now, in "strict" mode, we might want to fail.
-                // But typically for a new client we want to allow it or prompt.
-                // Since we can't strict verify without a UI prompt here yet,
-                // and the user requested "verify security", we will WARN loudly but proceed
-                // OR fail if we want to be super strict.
-                // Given the prompt "verify security... but also ensure keeping ability to connect",
-                // completely blocking new hosts would break connectivity.
-                // A middle ground: Warn and add to session known_hosts (not saved to disk automatically yet).
-                // Ideally this returns a specific error code the frontend handles.
-                // For this iteration:
                 let fingerprint = sess
                     .host_key_hash(ssh2::HashType::Sha1)
                     .map(|h| h.iter().map(|b| format!("{:02x}", b)).collect::<String>());
@@ -120,8 +123,6 @@ pub fn connect_ssh_blocking(
                     let msg = format!("\x1b[33mSHA1 Fingerprint: {}\x1b[0m\r\n", fp);
                     let _ = futures::executor::block_on(output_tx.send(msg.into_bytes()));
                 }
-
-                // Proceed, but usually this is where we'd require a "Trust" action.
             }
             ssh2::CheckResult::Mismatch => {
                 let _ = futures::executor::block_on(
@@ -144,17 +145,84 @@ pub fn connect_ssh_blocking(
         }
     }
 
-    let _ = futures::executor::block_on(
-        output_tx.send(b"\x1b[36mAuthenticating...\x1b[0m\r\n".to_vec()),
-    );
+    if debug_mode {
+        let _ = futures::executor::block_on(
+            output_tx.send(b"\x1b[36mAuthenticating...\x1b[0m\r\n".to_vec()),
+        );
+    }
 
-    // Authenticate with password
-    sess.userauth_password(username, password)
-        .map_err(|e| format!("Authentication failed: {}", e))?;
+    // Try Password Authentication first
+    let mut auth_success = false;
+
+    // Check if we can use password auth
+    let auth_methods = sess.auth_methods(username).unwrap_or_default();
+    if debug_mode {
+        let _ = futures::executor::block_on(
+            output_tx.send(
+                format!(
+                    "\x1b[30;1mDebug: Supported auth methods: {}\x1b[0m\r\n",
+                    auth_methods
+                )
+                .into_bytes(),
+            ),
+        );
+    }
+
+    if auth_methods.contains("password") {
+        match sess.userauth_password(username, password) {
+            Ok(_) => auth_success = true,
+            Err(e) => {
+                let _ =
+                    futures::executor::block_on(output_tx.send(
+                        format!("\x1b[33mPassword auth failed: {}\x1b[0m\r\n", e).into_bytes(),
+                    ));
+            }
+        }
+    }
+
+    // fallback to keyboard-interactive if password failed or not supported
+    if !auth_success && auth_methods.contains("keyboard-interactive") {
+        if debug_mode {
+            let _ = futures::executor::block_on(
+                output_tx.send(b"\x1b[36mTrying keyboard-interactive auth...\x1b[0m\r\n".to_vec()),
+            );
+        }
+
+        struct Prompter {
+            password: String,
+        }
+
+        impl ssh2::KeyboardInteractivePrompt for Prompter {
+            fn prompt(
+                &mut self,
+                _username: &str,
+                _instructions: &str,
+                prompts: &[ssh2::Prompt],
+            ) -> Vec<String> {
+                prompts.iter().map(|_| self.password.clone()).collect()
+            }
+        }
+
+        let mut prompter = Prompter {
+            password: password.to_string(),
+        };
+
+        match sess.userauth_keyboard_interactive(username, &mut prompter) {
+            Ok(_) => {} // Success handled by sess.authenticated() check
+            Err(e) => {
+                let _ = futures::executor::block_on(
+                    output_tx.send(
+                        format!("\x1b[33mKeyboard-interactive auth failed: {}\x1b[0m\r\n", e)
+                            .into_bytes(),
+                    ),
+                );
+            }
+        }
+    }
 
     if !sess.authenticated() {
         let _ = futures::executor::block_on(
-            output_tx.send(b"\x1b[31mAuthentication failed!\x1b[0m\r\n".to_vec()),
+            output_tx.send(b"\x1b[31mAuthentication failed (all methods)!\x1b[0m\r\n".to_vec()),
         );
         return Err("Authentication failed".to_string());
     }
@@ -183,6 +251,9 @@ pub fn connect_ssh_blocking(
     );
 
     // Set channel to non-blocking
+    // Restore short timeout for interactive loop to trigger WouldBlock and allow polling
+    let _ = tcp_config_clone.set_read_timeout(Some(std::time::Duration::from_millis(100)));
+    drop(tcp_config_clone);
     sess.set_blocking(false);
 
     let mut buf = [0u8; 4096];

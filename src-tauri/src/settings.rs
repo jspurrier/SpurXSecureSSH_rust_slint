@@ -37,6 +37,7 @@ pub struct AppSettings {
     pub logging_enabled: bool,
     pub log_format: String,
     pub log_timestamps: bool,
+    pub debug_mode: bool,
 }
 
 impl Default for AppSettings {
@@ -72,6 +73,7 @@ impl Default for AppSettings {
             logging_enabled: false,
             log_format: "{session}_{date}_{time}.log".to_string(),
             log_timestamps: true,
+            debug_mode: false,
         }
     }
 }

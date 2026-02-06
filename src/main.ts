@@ -2508,6 +2508,7 @@ interface AppSettings {
   logging_enabled: boolean;
   log_format: string;
   log_timestamps: boolean;
+  debug_mode: boolean;
 }
 
 // Current app settings
@@ -2554,6 +2555,9 @@ function populateSettingsForm(): void {
   if (logFormatInput) logFormatInput.value = currentSettings.log_format || '{session}_{date}_{time}.log';
   if (logEnabledInput) logEnabledInput.checked = currentSettings.logging_enabled || false;
   if (logTimestampsInput) logTimestampsInput.checked = currentSettings.log_timestamps ?? true;
+
+  const debugModeInput = document.getElementById('settings-debug-mode') as HTMLInputElement;
+  if (debugModeInput) debugModeInput.checked = currentSettings.debug_mode || false;
 }
 
 // Save settings from form
@@ -2562,6 +2566,7 @@ async function saveAppSettings(): Promise<void> {
   const logFormatInput = document.getElementById('settings-log-format') as HTMLInputElement;
   const logEnabledInput = document.getElementById('settings-logging-enabled') as HTMLInputElement;
   const logTimestampsInput = document.getElementById('settings-log-timestamps') as HTMLInputElement;
+  const debugModeInput = document.getElementById('settings-debug-mode') as HTMLInputElement;
 
   const settings: AppSettings = {
     font_family: elements.settingsFontFamily.value,
@@ -2582,6 +2587,7 @@ async function saveAppSettings(): Promise<void> {
     logging_enabled: logEnabledInput?.checked || false,
     log_format: logFormatInput?.value || '{session}_{date}_{time}.log',
     log_timestamps: logTimestampsInput?.checked ?? true,
+    debug_mode: debugModeInput?.checked || false,
   };
 
   try {

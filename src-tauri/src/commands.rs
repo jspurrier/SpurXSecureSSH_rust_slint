@@ -69,8 +69,19 @@ pub async fn ssh_connect(
     let sid_for_ssh = sid.clone();
     std::thread::spawn(move || {
         let mut input_rx = input_rx;
+        // Load settings to check debug mode
+        let settings = crate::settings::load_settings();
+        let debug_mode = settings.debug_mode;
 
-        match connect_ssh_blocking(&host, port, &username, &password, output_tx, &mut input_rx) {
+        match connect_ssh_blocking(
+            &host,
+            port,
+            &username,
+            &password,
+            output_tx,
+            &mut input_rx,
+            debug_mode,
+        ) {
             Ok(_) => {
                 connection_for_task.set_connected(false);
                 // Can't easily emit from std thread, connection is closed
