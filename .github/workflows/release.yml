@@ -45,6 +45,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
         run: npm run tauri build -- ${{ matrix.args }}
 
+      - name: generate updater artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Generating manifest for version $VERSION"
+          node .github/scripts/generate-manifest.js "${{ matrix.targetName }}" "$VERSION"
+
       - name: upload release assets
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
@@ -55,33 +63,13 @@ jobs:
           prerelease: false
           files: |
             src-tauri/target/${{ matrix.targetName }}/release/bundle/dmg/*.dmg
-            src-tauri/target/${{ matrix.targetName }}/release/bundle/macos/*.app
-            src-tauri/target/${{ matrix.targetName }}/release/bundle/appimage/*.AppImage
+            src-tauri/target/${{ matrix.targetName }}/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/${{ matrix.targetName }}/release/bundle/appimage/*.AppImage.tar.gz
             src-tauri/target/${{ matrix.targetName }}/release/bundle/deb/*.deb
             src-tauri/target/${{ matrix.targetName }}/release/bundle/rpm/*.rpm
             src-tauri/target/${{ matrix.targetName }}/release/bundle/nsis/*.exe
+            src-tauri/target/${{ matrix.targetName }}/release/bundle/nsis/*.zip
             src-tauri/target/${{ matrix.targetName }}/release/bundle/msi/*.msi
-
-      - name: locate and rename updater json
-        shell: bash
-        run: |
-          TARGET="${{ matrix.targetName }}"
-          
-          echo "Debug: Listing bundle directories:"
-          find src-tauri/target -type d -name "bundle" -exec ls -R {} + || echo "No bundle dir found"
-          
-          echo "Looking for latest.json for target: $TARGET"
-          # Search specifically inside target folder
-          FOUND=$(find src-tauri/target -name "latest.json" -type f | head -n 1)
-          
-          if [ -n "$FOUND" ]; then
-            echo "Found at: $FOUND"
-            cp "$FOUND" latest-${TARGET}.json
-            echo "Renamed to latest-${TARGET}.json"
-          else
-            echo "Error: latest.json not found."
-            exit 1
-          fi
 
       - name: upload updater json
         uses: actions/upload-artifact@v4
