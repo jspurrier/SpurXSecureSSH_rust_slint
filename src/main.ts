@@ -567,12 +567,30 @@ async function connect(
       });
 
       // Handle resize
-      tab.terminal.onResize(() => {
+      tab.terminal.onResize((size) => {
         updateStatusBar(tab!);
-        // TODO: Send resize to backend
+        if (tab!.sessionId && tab!.connected) {
+          invoke('ssh_resize', {
+            sessionId: tab!.sessionId,
+            rows: size.rows,
+            cols: size.cols,
+          });
+        }
       });
 
       updateStatusBar(tab);
+
+      // Perform initial fit and resize
+      setTimeout(() => {
+        tab!.fitAddon.fit();
+        if (tab!.terminal.rows > 0 && tab!.terminal.cols > 0) {
+          invoke('ssh_resize', {
+            sessionId: tab!.sessionId,
+            rows: tab!.terminal.rows,
+            cols: tab!.terminal.cols,
+          });
+        }
+      }, 100);
 
       // Save session if requested
       if (saveSession) {

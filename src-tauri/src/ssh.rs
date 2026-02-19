@@ -2,11 +2,18 @@
 //! Handles SSH connections using the ssh2 library with PTY support
 
 use parking_lot::Mutex;
-use ssh2::Session;
+use ssh2::{PtyModeOpcode, PtyModes, Session};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// SSH input events from frontend
+#[derive(Debug, Clone)]
+pub enum SshInput {
+    Data(Vec<u8>),
+    Resize { rows: u16, cols: u16 },
+}
 
 /// SSH connection handler using ssh2 (libssh2)
 pub struct SshConnection {
@@ -44,7 +51,7 @@ pub fn connect_ssh_blocking(
     username: &str,
     password: &str,
     output_tx: mpsc::Sender<Vec<u8>>,
-    input_rx: &mut std::sync::mpsc::Receiver<Vec<u8>>,
+    input_rx: &mut std::sync::mpsc::Receiver<SshInput>,
     debug_mode: bool,
 ) -> Result<(), String> {
     // Send connection status
@@ -238,7 +245,11 @@ pub fn connect_ssh_blocking(
 
     // Request PTY
     channel
-        .request_pty("xterm-256color", None, Some((80, 24, 0, 0)))
+        .request_pty(
+            "xterm-256color",
+            Some(build_standard_pty_modes()),
+            Some((80, 24, 0, 0)),
+        )
         .map_err(|e| format!("Failed to request PTY: {}", e))?;
 
     // Start shell
@@ -294,16 +305,26 @@ pub fn connect_ssh_blocking(
 
         // Check for input from user (non-blocking)
         match input_rx.try_recv() {
-            Ok(data) => {
-                if let Err(e) = channel.write_all(&data) {
-                    let _ =
-                        futures::executor::block_on(output_tx.send(
+            Ok(input) => match input {
+                SshInput::Data(data) => {
+                    if let Err(e) = channel.write_all(&data) {
+                        let _ = futures::executor::block_on(output_tx.send(
                             format!("\r\n\x1b[31mWrite error: {}\x1b[0m\r\n", e).into_bytes(),
                         ));
-                    break;
+                        break;
+                    }
+                    let _ = channel.flush();
                 }
-                let _ = channel.flush();
-            }
+                SshInput::Resize { rows, cols } => {
+                    if let Err(e) = channel.request_pty_size(cols.into(), rows.into(), None, None) {
+                        if debug_mode {
+                            let _ = futures::executor::block_on(output_tx.send(
+                                format!("\r\n\x1b[33mResize failed: {}\x1b[0m\r\n", e).into_bytes(),
+                            ));
+                        }
+                    }
+                }
+            },
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 // No input, continue
             }
@@ -331,4 +352,22 @@ pub fn connect_ssh_blocking(
     let _ = channel.wait_close();
 
     Ok(())
+}
+
+/// Build standard PTY modes (RFC 4254)
+/// Configures Echo, Canonical mode, Signals, etc. to ensure consistent behavior.
+fn build_standard_pty_modes() -> PtyModes {
+    let mut modes = PtyModes::new();
+
+    // Standard modes
+    modes.set_boolean(PtyModeOpcode::ECHO, true);
+    modes.set_boolean(PtyModeOpcode::ECHOE, true);
+    modes.set_boolean(PtyModeOpcode::ECHOK, true);
+    modes.set_boolean(PtyModeOpcode::ICANON, true);
+    modes.set_boolean(PtyModeOpcode::ISIG, true);
+    modes.set_boolean(PtyModeOpcode::IEXTEN, true);
+    modes.set_boolean(PtyModeOpcode::OPOST, true);
+    modes.set_boolean(PtyModeOpcode::ONLCR, true);
+
+    modes
 }

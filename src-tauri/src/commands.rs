@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::command_storage;
 use crate::session;
-use crate::ssh::{connect_ssh_blocking, SshConnection};
+use crate::ssh::{connect_ssh_blocking, SshConnection, SshInput};
 use crate::{AppState, ConnectRequest, ConnectResponse, QuickCommand, SavedSession};
 
 /// Connect to an SSH server
@@ -24,7 +24,7 @@ pub async fn ssh_connect(
     let (output_tx, mut output_rx) = mpsc::channel::<Vec<u8>>(1024);
 
     // Create input channel for user input (std sync for blocking ssh2)
-    let (input_tx, input_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (input_tx, input_rx) = std::sync::mpsc::channel::<SshInput>();
 
     // Store input sender in state (wrapped for async compatibility)
     {
@@ -133,8 +133,25 @@ pub async fn ssh_write(
     let senders = state.input_senders.read();
     if let Some(sender) = senders.get(&session_id) {
         sender
-            .send(data)
+            .send(SshInput::Data(data))
             .map_err(|e| format!("Failed to send data: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Resize the SSH PTY
+#[command]
+pub async fn ssh_resize(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+    rows: u16,
+    cols: u16,
+) -> Result<(), String> {
+    let senders = state.input_senders.read();
+    if let Some(sender) = senders.get(&session_id) {
+        sender
+            .send(SshInput::Resize { rows, cols })
+            .map_err(|e| format!("Failed to send resize command: {}", e))?;
     }
     Ok(())
 }

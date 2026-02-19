@@ -19,7 +19,7 @@ pub struct AppState {
     /// Active SSH connections indexed by session ID
     pub connections: RwLock<HashMap<String, Arc<ssh::SshConnection>>>,
     /// Channel senders for terminal input, indexed by session ID (std::sync for blocking ssh2)
-    pub input_senders: RwLock<HashMap<String, std::sync::mpsc::Sender<Vec<u8>>>>,
+    pub input_senders: RwLock<HashMap<String, std::sync::mpsc::Sender<ssh::SshInput>>>,
 }
 
 impl AppState {
@@ -129,6 +129,7 @@ pub fn run() {
             commands::ssh_connect,
             commands::ssh_disconnect,
             commands::ssh_write,
+            commands::ssh_resize,
             commands::get_saved_sessions,
             commands::save_session,
             commands::delete_session,
