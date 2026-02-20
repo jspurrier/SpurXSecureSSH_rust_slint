@@ -80,6 +80,7 @@ interface TabInfo {
   unlisteners: Array<() => void>;
   connectionParams: ConnectRequest | null;
   container: HTMLDivElement;
+  onDataDisposable?: { dispose: () => void }; // Track to prevent duplicate listeners on reconnect
 }
 
 // ============================================
@@ -556,7 +557,14 @@ async function connect(
       tab.unlisteners.push(unlistenError);
 
       // Send terminal input to backend
-      tab.terminal.onData((data) => {
+      // Dispose any previous onData listener before registering a new one.
+      // xterm.js onData() is additive — without this, reconnecting the same tab
+      // stacks a second listener and every keystroke is sent twice.
+      if (tab.onDataDisposable) {
+        tab.onDataDisposable.dispose();
+        tab.onDataDisposable = undefined;
+      }
+      tab.onDataDisposable = tab.terminal.onData((data) => {
         if (tab!.sessionId) {
           const encoder = new TextEncoder();
           invoke('ssh_write', {
@@ -1780,24 +1788,6 @@ function getTerminalContent(): string {
   return lines.slice(-100).join('\n').trim();
 }
 
-// Get the current command the user is typing (last non-empty line in the terminal buffer)
-function getCurrentTerminalCommand(): string {
-  const tab = activeTabId ? tabs.get(activeTabId) : null;
-  if (!tab) return '';
-
-  const buffer = tab.terminal.buffer.active;
-
-  // Walk backwards to find the last non-empty line
-  for (let i = buffer.length - 1; i >= 0; i--) {
-    const line = buffer.getLine(i);
-    if (line) {
-      const text = line.translateToString(true).trim();
-      if (text) return text;
-    }
-  }
-  return '';
-}
-
 function showAiTyping(): void {
   const typingHtml = `
     <div class="ai-typing" id="ai-typing">
@@ -1881,10 +1871,9 @@ ${content}
 
 async function showCommandHelp(): Promise<void> {
   const terminalContent = getTerminalContent();
-  const currentCommand = getCurrentTerminalCommand();
 
   // No active terminal session — show a helpful starter prompt
-  if (!terminalContent && !currentCommand) {
+  if (!terminalContent) {
     aiMessages.push({
       role: 'assistant',
       content: 'Connect to a session and I can read your terminal to suggest commands.\n\nOr just ask me anything, for example:\n- "How do I show interfaces on Cisco?"\n- "Show ARP table for VLAN 100"\n- "Check routing table on Juniper"\n- "What is the Juniper equivalent of `show ip bgp sum`?"'
@@ -1893,26 +1882,19 @@ async function showCommandHelp(): Promise<void> {
     return;
   }
 
-  // Build a rich, context-aware prompt from what is currently on screen
-  let prompt = 'I need help with the next CLI command in my SSH terminal.\n\n';
+  // Single direct prompt — tell AI the output is already here, read it, don't ask user for more
+  const prompt = `Here is the current terminal output from my SSH session. The device output is already captured below — do NOT ask me to type anything or show you more output, it is all here.
 
-  if (currentCommand) {
-    prompt += `The current line in my terminal (prompt + what I have typed so far) is:\n\`\`\`\n${currentCommand}\n\`\`\`\n\n`;
-  }
+\`\`\`
+${terminalContent}
+\`\`\`
 
-  if (terminalContent) {
-    // Limit to last 50 lines for Command Help to keep context tight
-    const lines = terminalContent.split('\n');
-    const recentOutput = lines.slice(-50).join('\n');
-    prompt += `Here is the recent terminal output for context:\n\`\`\`\n${recentOutput}\n\`\`\`\n\n`;
-  }
-
-  prompt += `Please do the following:\n`;
-  prompt += `1. Identify the device type, OS version (if visible), and current CLI mode (e.g. Cisco IOS privileged EXEC, Juniper operational, Linux bash, etc.)\n`;
-  prompt += `2. If there is a tab-completion list visible in the output (a list of subcommand options the device showed after I pressed Tab or ?), explain each option briefly\n`;
-  prompt += `3. If the device showed an error (e.g. \'% Invalid input\', \'Ambiguous command\', or similar), diagnose what went wrong and suggest the correct command for this specific device version\n`;
-  prompt += `4. Suggest the best next step — what should I type to complete my goal? If the device version uses a different subcommand than you might normally suggest, say so and use what the device actually shows as available\n`;
-  prompt += `5. If I haven\'t typed anything yet, ask me what I am trying to accomplish so you can suggest the right commands for this device`;
+Based ONLY on what you can see above:
+- What device type and CLI mode am I in?
+- If the device has already shown a tab-completion list or help output (from Tab or ?), list and explain each option that the device showed.
+- If there is an error message (like % Invalid input or % Ambiguous command), diagnose it and give me the corrected command for THIS specific device and version.
+- What is the single best command I should type next, and why?
+- If this device version uses different subcommands than you'd normally expect, use what the device actually shows — not your general knowledge.`;
 
   await sendAiMessage(prompt);
 }

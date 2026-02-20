@@ -4342,7 +4342,7 @@ dependencies = [
 
 [[package]]
 name = "spurx-secure-ssh"
-version = "1.6.6"
+version = "1.6.7"
 dependencies = [
  "async-trait",
  "chrono",
