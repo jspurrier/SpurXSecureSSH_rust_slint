@@ -1780,6 +1780,24 @@ function getTerminalContent(): string {
   return lines.slice(-100).join('\n').trim();
 }
 
+// Get the current command the user is typing (last non-empty line in the terminal buffer)
+function getCurrentTerminalCommand(): string {
+  const tab = activeTabId ? tabs.get(activeTabId) : null;
+  if (!tab) return '';
+
+  const buffer = tab.terminal.buffer.active;
+
+  // Walk backwards to find the last non-empty line
+  for (let i = buffer.length - 1; i >= 0; i--) {
+    const line = buffer.getLine(i);
+    if (line) {
+      const text = line.translateToString(true).trim();
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
 function showAiTyping(): void {
   const typingHtml = `
     <div class="ai-typing" id="ai-typing">
@@ -1862,12 +1880,41 @@ ${content}
 }
 
 async function showCommandHelp(): Promise<void> {
-  // Just add a starter message with context hint
-  aiMessages.push({
-    role: 'assistant',
-    content: 'I can help you find the right commands. What are you trying to do? For example:\n- "How do I show interfaces on Cisco?"\n- "Show ARP table for VLAN 100"\n- "Check routing table on Juniper"'
-  });
-  renderAiMessages();
+  const terminalContent = getTerminalContent();
+  const currentCommand = getCurrentTerminalCommand();
+
+  // No active terminal session — show a helpful starter prompt
+  if (!terminalContent && !currentCommand) {
+    aiMessages.push({
+      role: 'assistant',
+      content: 'Connect to a session and I can read your terminal to suggest commands.\n\nOr just ask me anything, for example:\n- "How do I show interfaces on Cisco?"\n- "Show ARP table for VLAN 100"\n- "Check routing table on Juniper"\n- "What is the Juniper equivalent of `show ip bgp sum`?"'
+    });
+    renderAiMessages();
+    return;
+  }
+
+  // Build a rich, context-aware prompt from what is currently on screen
+  let prompt = 'I need help with the next CLI command in my SSH terminal.\n\n';
+
+  if (currentCommand) {
+    prompt += `The current line in my terminal (prompt + what I have typed so far) is:\n\`\`\`\n${currentCommand}\n\`\`\`\n\n`;
+  }
+
+  if (terminalContent) {
+    // Limit to last 50 lines for Command Help to keep context tight
+    const lines = terminalContent.split('\n');
+    const recentOutput = lines.slice(-50).join('\n');
+    prompt += `Here is the recent terminal output for context:\n\`\`\`\n${recentOutput}\n\`\`\`\n\n`;
+  }
+
+  prompt += `Please do the following:\n`;
+  prompt += `1. Identify the device type, OS version (if visible), and current CLI mode (e.g. Cisco IOS privileged EXEC, Juniper operational, Linux bash, etc.)\n`;
+  prompt += `2. If there is a tab-completion list visible in the output (a list of subcommand options the device showed after I pressed Tab or ?), explain each option briefly\n`;
+  prompt += `3. If the device showed an error (e.g. \'% Invalid input\', \'Ambiguous command\', or similar), diagnose what went wrong and suggest the correct command for this specific device version\n`;
+  prompt += `4. Suggest the best next step — what should I type to complete my goal? If the device version uses a different subcommand than you might normally suggest, say so and use what the device actually shows as available\n`;
+  prompt += `5. If I haven\'t typed anything yet, ask me what I am trying to accomplish so you can suggest the right commands for this device`;
+
+  await sendAiMessage(prompt);
 }
 
 // ============================================
