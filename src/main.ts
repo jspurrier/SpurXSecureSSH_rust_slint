@@ -1681,6 +1681,10 @@ function toggleAiPanel(): void {
   elements.aiPanel.classList.toggle('collapsed', !aiPanelOpen);
   elements.aiToggleBtn.classList.toggle('active', aiPanelOpen);
 
+  if (aiPanelOpen) {
+    updatePrivacyBanner();
+  }
+
   // Resize terminal when panel toggles
   setTimeout(() => {
     const tab = activeTabId ? tabs.get(activeTabId) : null;
@@ -1688,6 +1692,15 @@ function toggleAiPanel(): void {
       tab.fitAddon.fit();
     }
   }, 300); // Wait for animation
+}
+
+// Show/hide the privacy banner based on the current AI provider.
+// Cloud providers (Gemini, Grok) may train on submitted data.
+function updatePrivacyBanner(): void {
+  const banner = document.getElementById('ai-privacy-banner');
+  if (!banner) return;
+  const isCloud = aiProvider === 'gemini' || aiProvider === 'grok';
+  banner.classList.toggle('hidden', !isCloud);
 }
 
 function renderAiMessages(): void {
@@ -2163,6 +2176,13 @@ function setupEventListeners(): void {
   // AI Provider selection
   elements.aiProviderSelect?.addEventListener('change', () => {
     aiProvider = elements.aiProviderSelect.value as 'gemini' | 'ollama';
+    updatePrivacyBanner();
+  });
+
+  // Dismiss privacy banner for the session
+  document.getElementById('ai-privacy-dismiss')?.addEventListener('click', () => {
+    const banner = document.getElementById('ai-privacy-banner');
+    if (banner) banner.classList.add('hidden');
   });
 
   // AI Send button
