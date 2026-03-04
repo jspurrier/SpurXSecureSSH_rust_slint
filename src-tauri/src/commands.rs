@@ -68,6 +68,7 @@ pub async fn ssh_connect(
 
     // Spawn blocking SSH connection in a separate thread
     let sid_for_ssh = sid.clone();
+    let app_for_ssh = app_handle.clone();
     std::thread::spawn(move || {
         let mut input_rx = input_rx;
         // Load settings to check debug mode
@@ -85,10 +86,12 @@ pub async fn ssh_connect(
         ) {
             Ok(_) => {
                 connection_for_task.set_connected(false);
-                // Can't easily emit from std thread, connection is closed
+                let _ = app_for_ssh.emit(&format!("session-closed-{}", sid_for_ssh), ());
             }
             Err(e) => {
                 eprintln!("SSH error for session {}: {}", sid_for_ssh, e);
+                connection_for_task.set_connected(false);
+                let _ = app_for_ssh.emit(&format!("session-closed-{}", sid_for_ssh), ());
             }
         }
     });

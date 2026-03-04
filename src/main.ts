@@ -598,6 +598,7 @@ async function connect(
             cols: tab!.terminal.cols,
           });
         }
+        tab!.terminal.focus();
       }, 100);
 
       // Save session if requested
