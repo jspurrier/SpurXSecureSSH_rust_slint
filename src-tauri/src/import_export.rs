@@ -175,6 +175,7 @@ impl SessionBuilder {
             port: self.port.unwrap_or(22),
             folder,
             username: self.username,
+            log_directory: None,
         })
     }
 }
@@ -289,6 +290,7 @@ fn build_putty_session(name: &str, props: &HashMap<String, String>) -> Option<Sa
         port,
         folder: Some("PuTTY Import".to_string()),
         username,
+        log_directory: None,
     })
 }
 
