@@ -44,6 +44,7 @@ pub struct ConnectRequest {
     pub port: u16,
     pub username: String,
     pub password: String,
+    pub log_directory: Option<String>,
 }
 
 /// SSH connection response
@@ -63,6 +64,7 @@ pub struct SavedSession {
     pub port: u16,
     pub folder: Option<String>,
     pub username: Option<String>,
+    pub log_directory: Option<String>,
 }
 
 impl SavedSession {
@@ -72,6 +74,7 @@ impl SavedSession {
         port: u16,
         folder: Option<String>,
         username: Option<String>,
+        log_directory: Option<String>,
     ) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -80,6 +83,7 @@ impl SavedSession {
             port,
             folder,
             username,
+            log_directory,
         }
     }
 }

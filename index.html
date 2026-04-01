@@ -166,6 +166,12 @@
           <path d="M12 8v8M8 12h8" />
         </svg>
       </button>
+      <div class="toolbar-separator"></div>
+      <button class="toolbar-btn toolbar-btn-broadcast" id="btn-broadcast" title="Broadcast Command to All Sessions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      </button>
       <div class="toolbar-spacer"></div>
       <button class="toolbar-btn" id="btn-settings" title="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -448,6 +454,10 @@
               <select id="session-folder"></select>
             </div>
           </div>
+          <div class="form-group">
+            <label for="session-log-directory">Log Directory (Optional):</label>
+            <input type="text" id="session-log-directory" placeholder="Leave blank for global default" />
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" id="btn-session-cancel">Cancel</button>
@@ -622,12 +632,16 @@
       <div class="context-menu-item" data-action="close-disconnected">Close Disconnected Tabs</div>
       <div class="context-menu-item" data-action="close-others">Close Other Tabs</div>
       <div class="context-menu-item" data-action="close-right">Close Tabs to the Right</div>
-      <div class="context-menu-item" data-action="close-group">Close Tab Group <span class="nyi">(NYI)</span></div>
+      <div class="context-menu-item" data-action="close-group">Close Tab Group</div>
       <div class="context-menu-item" data-action="close-all">Close All Tabs</div>
       <div class="context-menu-separator"></div>
       <div class="context-menu-item" data-action="clone">Clone Session</div>
       <div class="context-menu-item" data-action="sftp">Connect SFTP Session</div>
-      <div class="context-menu-item" data-action="add-group">Send to New Tab Group <span class="nyi">(NYI)</span></div>
+      <div class="context-menu-separator"></div>
+      <div class="context-menu-item" data-action="add-group">Send to New Tab Group</div>
+      <div class="context-menu-item" data-action="move-to-group">Move to Group...</div>
+      <div class="context-menu-item" data-action="remove-from-group">Remove from Group</div>
+      <div class="context-menu-item" data-action="broadcast-to-group">Broadcast Command to Group...</div>
       <div class="context-menu-separator"></div>
       <div class="context-menu-item" data-action="save">Save Session...</div>
     </div>
@@ -742,6 +756,44 @@
           <button class="btn btn-secondary" id="ai-settings-cancel">Cancel</button>
           <button class="btn btn-primary" id="ai-settings-save">Save Settings</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Broadcast Command Modal -->
+  <div class="modal-overlay" id="modal-broadcast">
+    <div class="modal modal-broadcast">
+      <div class="modal-header">
+        <h2 id="broadcast-modal-title">Broadcast Command</h2>
+        <button class="modal-close" id="broadcast-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="broadcast-scope">Send To:</label>
+          <select id="broadcast-scope">
+            <option value="all">All Connected Sessions</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="broadcast-command-input">Command:</label>
+          <textarea id="broadcast-command-input" rows="3" placeholder="Enter command to broadcast..."></textarea>
+        </div>
+        <div class="broadcast-info">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 16v-4M12 8h.01" />
+          </svg>
+          <span id="broadcast-target-info">Will send to all connected sessions</span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-broadcast-cancel">Cancel</button>
+        <button class="btn btn-primary btn-broadcast-send" id="btn-broadcast-send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+          Broadcast
+        </button>
       </div>
     </div>
   </div>

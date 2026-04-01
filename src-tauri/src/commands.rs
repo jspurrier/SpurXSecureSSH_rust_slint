@@ -59,8 +59,62 @@ pub async fn ssh_connect(
     // Forward output to frontend in async task
     let app_for_output = app_handle.clone();
     let sid_for_output = sid.clone();
+
+    // Setup logging
+    let settings = crate::settings::load_settings();
+    let mut log_file = None;
+    if settings.logging_enabled {
+        let log_dir_str = request
+            .log_directory
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| settings.log_directory.clone())
+            .unwrap_or_else(|| {
+                let docs_dir = dirs::document_dir().unwrap_or_default();
+                docs_dir
+                    .join("SpurXSecureSSH")
+                    .join("logs")
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+        let log_dir = std::path::Path::new(&log_dir_str);
+        let _ = std::fs::create_dir_all(log_dir);
+
+        let now = chrono::Local::now();
+        let date = now.format("%Y%m%d").to_string();
+        let time = now.format("%H%M%S").to_string();
+
+        let file_name = settings
+            .log_format
+            .replace("{session}", &request.host)
+            .replace("{date}", &date)
+            .replace("{time}", &time);
+
+        let file_path = log_dir.join(&file_name);
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .ok();
+
+        if let Some(ref mut f) = file {
+            if settings.log_timestamps {
+                let start_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+                use std::io::Write;
+                let _ =
+                    f.write_all(format!("\n--- Session Started: {} ---\n", start_time).as_bytes());
+            }
+        }
+        log_file = file;
+    }
+
     tokio::spawn(async move {
+        use std::io::Write;
         while let Some(data) = output_rx.recv().await {
+            if let Some(ref mut file) = log_file {
+                let _ = file.write_all(&data);
+            }
             // Emit terminal data to frontend
             let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), data);
         }

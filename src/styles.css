@@ -722,7 +722,261 @@ body {
   color: var(--accent-primary);
 }
 
-/* Terminal Viewport */
+/* ============================================
+   Tab Groups
+   ============================================ */
+
+/* Group color palette slots */
+:root {
+  --group-color-0: #00d4ff;
+  --group-color-1: #10b981;
+  --group-color-2: #f59e0b;
+  --group-color-3: #f97316;
+  --group-color-4: #8b5cf6;
+  --group-color-5: #ec4899;
+}
+
+/* Group header strip in the tab bar */
+.tab-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px 6px 0 0;
+  margin-right: 2px;
+  border-left-width: 3px;
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tab-group-header .group-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tab-group-header .group-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 20px;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  padding: 1px 3px;
+  border-radius: 3px;
+  transition: all var(--transition-fast);
+}
+
+.tab-group-header .group-name:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tab-group-header .group-name:focus {
+  outline: 1px solid var(--accent-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: 60px;
+}
+
+.tab-group-header .group-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.tab-group-header .group-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tab-group-header .group-btn.btn-broadcast:hover {
+  background: rgba(0, 212, 255, 0.15);
+  color: var(--accent-primary);
+}
+
+.tab-group-header .group-btn.btn-close:hover {
+  background: var(--accent-danger);
+  color: white;
+}
+
+.tab-group-header .group-btn svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.tab-group-header .group-chevron {
+  transition: transform var(--transition-fast);
+}
+
+/* Collapsed: rotate chevron, hide member tabs via JS class toggle */
+.tab-group-header.collapsed .group-chevron {
+  transform: rotate(-90deg);
+}
+
+/* Grouped tabs get a colored left accent */
+.tab.in-group {
+  border-left-width: 3px;
+  padding-left: 9px;
+}
+
+/* Color variants — applied via data-group-color on both header and tab */
+.tab-group-header[data-group-color="0"] {
+  border-left-color: var(--group-color-0);
+}
+
+.tab-group-header[data-group-color="1"] {
+  border-left-color: var(--group-color-1);
+}
+
+.tab-group-header[data-group-color="2"] {
+  border-left-color: var(--group-color-2);
+}
+
+.tab-group-header[data-group-color="3"] {
+  border-left-color: var(--group-color-3);
+}
+
+.tab-group-header[data-group-color="4"] {
+  border-left-color: var(--group-color-4);
+}
+
+.tab-group-header[data-group-color="5"] {
+  border-left-color: var(--group-color-5);
+}
+
+.tab.in-group[data-group-color="0"] {
+  border-left-color: var(--group-color-0);
+}
+
+.tab.in-group[data-group-color="1"] {
+  border-left-color: var(--group-color-1);
+}
+
+.tab.in-group[data-group-color="2"] {
+  border-left-color: var(--group-color-2);
+}
+
+.tab.in-group[data-group-color="3"] {
+  border-left-color: var(--group-color-3);
+}
+
+.tab.in-group[data-group-color="4"] {
+  border-left-color: var(--group-color-4);
+}
+
+.tab.in-group[data-group-color="5"] {
+  border-left-color: var(--group-color-5);
+}
+
+.tab-group-header[data-group-color="0"] .group-color-dot {
+  background: var(--group-color-0);
+}
+
+.tab-group-header[data-group-color="1"] .group-color-dot {
+  background: var(--group-color-1);
+}
+
+.tab-group-header[data-group-color="2"] .group-color-dot {
+  background: var(--group-color-2);
+}
+
+.tab-group-header[data-group-color="3"] .group-color-dot {
+  background: var(--group-color-3);
+}
+
+.tab-group-header[data-group-color="4"] .group-color-dot {
+  background: var(--group-color-4);
+}
+
+.tab-group-header[data-group-color="5"] .group-color-dot {
+  background: var(--group-color-5);
+}
+
+/* Broadcast toolbar button highlight when sessions are grouped */
+.toolbar-btn-broadcast.has-groups {
+  color: var(--accent-primary);
+}
+
+/* ============================================
+   Broadcast Modal
+   ============================================ */
+
+.modal-broadcast {
+  min-width: 420px;
+  max-width: 520px;
+}
+
+.modal-broadcast textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.modal-broadcast textarea:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
+}
+
+.broadcast-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  background: rgba(0, 212, 255, 0.06);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.broadcast-info svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.btn-broadcast-send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-broadcast-send svg {
+  width: 14px;
+  height: 14px;
+}
+
+
 .terminal-viewport {
   flex: 1;
   background: #0d1117;

@@ -34,6 +34,7 @@ interface ConnectRequest {
   port: number;
   username: string;
   password: string;
+  log_directory?: string;
 }
 
 interface ConnectResponse {
@@ -49,6 +50,7 @@ interface SavedSession {
   port: number;
   folder?: string;
   username?: string;
+  log_directory?: string;
 }
 
 interface QuickCommand {
@@ -81,6 +83,15 @@ interface TabInfo {
   connectionParams: ConnectRequest | null;
   container: HTMLDivElement;
   onDataDisposable?: { dispose: () => void }; // Track to prevent duplicate listeners on reconnect
+  groupId?: string; // Tab group membership
+}
+
+interface TabGroup {
+  id: string;
+  name: string;
+  colorIndex: number; // 0-5, indexes into CSS group color palette
+  collapsed: boolean;
+  tabIds: string[]; // ordered list
 }
 
 // ============================================
@@ -88,6 +99,7 @@ interface TabInfo {
 // ============================================
 
 const tabs: Map<string, TabInfo> = new Map();
+const tabGroups: Map<string, TabGroup> = new Map();
 let activeTabId: string | null = null;
 let savedSessions: SavedSession[] = [];
 let quickCommands: QuickCommand[] = [];
@@ -180,6 +192,7 @@ const elements = {
   sessionHost: document.getElementById('session-host') as HTMLInputElement,
   sessionPort: document.getElementById('session-port') as HTMLInputElement,
   sessionFolder: document.getElementById('session-folder') as HTMLSelectElement,
+  sessionLogDirectory: document.getElementById('session-log-directory') as HTMLInputElement,
   sessionModalTitle: document.getElementById('session-modal-title') as HTMLHeadingElement,
 
   // Form inputs - Add/Edit Command
@@ -334,6 +347,10 @@ function generateTabId(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function generateGroupId(): string {
+  return `group-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
 async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
   const tabId = generateTabId();
   const { terminal, fitAddon } = createTerminal();
@@ -365,40 +382,237 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
   return tabInfo;
 }
 
+// ============================================
+// Tab Group Management
+// ============================================
+
+const GROUP_COLORS = ['#00d4ff', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#ec4899'];
+
+function createTabGroup(name: string, initialTabIds: string[] = []): TabGroup {
+  const groupId = generateGroupId();
+  const colorIndex = tabGroups.size % GROUP_COLORS.length;
+  const group: TabGroup = { id: groupId, name, colorIndex, collapsed: false, tabIds: [] };
+  tabGroups.set(groupId, group);
+  for (const tabId of initialTabIds) addTabToGroup(tabId, groupId);
+  renderTabs();
+  return group;
+}
+
+function addTabToGroup(tabId: string, groupId: string): void {
+  const tab = tabs.get(tabId);
+  const group = tabGroups.get(groupId);
+  if (!tab || !group) return;
+  // Remove from old group if needed
+  if (tab.groupId && tab.groupId !== groupId) removeTabFromGroup(tabId);
+  if (!group.tabIds.includes(tabId)) group.tabIds.push(tabId);
+  tab.groupId = groupId;
+}
+
+function removeTabFromGroup(tabId: string): void {
+  const tab = tabs.get(tabId);
+  if (!tab || !tab.groupId) return;
+  const group = tabGroups.get(tab.groupId);
+  if (group) {
+    group.tabIds = group.tabIds.filter(id => id !== tabId);
+    if (group.tabIds.length === 0) tabGroups.delete(group.id);
+  }
+  tab.groupId = undefined;
+  renderTabs();
+}
+
+function renameTabGroup(groupId: string, name: string): void {
+  const group = tabGroups.get(groupId);
+  if (!group) return;
+  group.name = name;
+  renderTabs();
+}
+
+function collapseTabGroup(groupId: string): void {
+  const group = tabGroups.get(groupId);
+  if (!group) return;
+  group.collapsed = !group.collapsed;
+  renderTabs();
+}
+
+async function closeTabGroup(groupId: string): Promise<void> {
+  const group = tabGroups.get(groupId);
+  if (!group) return;
+  const ids = [...group.tabIds];
+  tabGroups.delete(groupId);
+  for (const tabId of ids) {
+    const tab = tabs.get(tabId);
+    if (tab) tab.groupId = undefined;
+    await closeTab(tabId);
+  }
+  renderTabs();
+}
+
+function broadcastCommand(command: string, groupId?: string): void {
+  const encoder = new TextEncoder();
+  const data = Array.from(encoder.encode(command + '\r'));
+  let sent = 0;
+  tabs.forEach(tab => {
+    if (!tab.connected || !tab.sessionId) return;
+    if (groupId) {
+      const group = tabGroups.get(groupId);
+      if (!group || !group.tabIds.includes(tab.id)) return;
+    }
+    invoke('ssh_write', { sessionId: tab.sessionId, data });
+    // Visual echo in terminal
+    tab.terminal.write(`\x1b[36m[Broadcast]\x1b[0m `);
+    sent++;
+  });
+  return;
+}
+
+function showBroadcastModal(groupId?: string): void {
+  const modal = document.getElementById('modal-broadcast') as HTMLDivElement;
+  const scopeSelect = document.getElementById('broadcast-scope') as HTMLSelectElement;
+  const commandInput = document.getElementById('broadcast-command-input') as HTMLTextAreaElement;
+  const titleEl = document.getElementById('broadcast-modal-title') as HTMLHeadingElement;
+
+  // Rebuild scope options
+  scopeSelect.innerHTML = '<option value="all">All Connected Sessions</option>';
+  tabGroups.forEach(group => {
+    const opt = document.createElement('option');
+    opt.value = group.id;
+    opt.textContent = `Group: ${group.name}`;
+    scopeSelect.appendChild(opt);
+  });
+
+  if (groupId && tabGroups.has(groupId)) {
+    scopeSelect.value = groupId;
+    const group = tabGroups.get(groupId)!;
+    titleEl.textContent = `Broadcast to "${group.name}"`;
+  } else {
+    scopeSelect.value = 'all';
+    titleEl.textContent = 'Broadcast Command';
+  }
+
+  updateBroadcastInfo();
+  commandInput.value = '';
+  modal.classList.add('show');
+  commandInput.focus();
+}
+
+function updateBroadcastInfo(): void {
+  const scopeSelect = document.getElementById('broadcast-scope') as HTMLSelectElement;
+  const targetInfo = document.getElementById('broadcast-target-info') as HTMLSpanElement;
+
+  const scopeId = scopeSelect.value;
+  const gId = scopeId === 'all' ? undefined : scopeId;
+
+  let count = 0;
+  tabs.forEach(tab => {
+    if (!tab.connected) return;
+    if (gId) {
+      const group = tabGroups.get(gId);
+      if (group && group.tabIds.includes(tab.id)) count++;
+    } else {
+      count++;
+    }
+  });
+
+  if (count === 0) {
+    targetInfo.textContent = 'No connected sessions in scope';
+  } else if (gId) {
+    const group = tabGroups.get(gId)!;
+    targetInfo.textContent = `Will send to ${count} connected session${count !== 1 ? 's' : ''} in group "${group.name}"`;
+  } else {
+    targetInfo.textContent = `Will send to ${count} connected session${count !== 1 ? 's' : ''}`;
+  }
+}
+
 function renderTabs(): void {
-  // Clear existing tabs (except add button)
+  // Save and restore the add button
   const addButton = elements.tabBar.querySelector('.tab-add');
   elements.tabBar.innerHTML = '';
 
-  tabs.forEach((tab) => {
-    const tabElement = document.createElement('div');
-    tabElement.className = `tab${tab.id === activeTabId ? ' active' : ''}`;
-    tabElement.dataset.tabId = tab.id;
+  // Build an ordered list: groups with their member tabs, then ungrouped tabs
+  const renderedTabIds = new Set<string>();
 
-    tabElement.innerHTML = `
-      <svg class="tab-icon${tab.connected ? ' connected' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <rect x="2" y="3" width="20" height="14" rx="2"/>
-        <path d="M8 21h8M12 17v4"/>
-      </svg>
-      <span class="tab-title">${escapeHtml(tab.title)}</span>
-      <span class="tab-close">&times;</span>
+  // First, render each group header + members
+  tabGroups.forEach(group => {
+    // Group header element
+    const headerEl = document.createElement('div');
+    headerEl.className = `tab-group-header${group.collapsed ? ' collapsed' : ''}`;
+    headerEl.dataset.groupId = group.id;
+    headerEl.dataset.groupColor = String(group.colorIndex);
+    headerEl.innerHTML = `
+      <button class="group-btn group-chevron" title="${group.collapsed ? 'Expand' : 'Collapse'} group" data-action="toggle-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <span class="group-color-dot"></span>
+      <span class="group-name" contenteditable="false" title="Click to rename group">${escapeHtml(group.name)}</span>
+      <button class="group-btn btn-broadcast" title="Broadcast command to this group" data-action="group-broadcast">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </button>
+      <button class="group-btn btn-close" title="Close tab group" data-action="close-group">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
     `;
 
-    tabElement.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.classList.contains('tab-close')) {
-        closeTab(tab.id);
-      } else {
-        switchToTab(tab.id);
-      }
+    // Toggle collapse
+    headerEl.querySelector('[data-action="toggle-group"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      collapseTabGroup(group.id);
     });
 
-    tabElement.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      showTabContextMenu(e.clientX, e.clientY, tab.id);
+    // Inline rename on click on group-name span
+    const nameSpan = headerEl.querySelector('.group-name') as HTMLSpanElement;
+    nameSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
+      nameSpan.contentEditable = 'true';
+      nameSpan.focus();
+      // Select all text
+      const range = document.createRange();
+      range.selectNodeContents(nameSpan);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    });
+    nameSpan.addEventListener('blur', () => {
+      const newName = nameSpan.textContent?.trim() || group.name;
+      nameSpan.contentEditable = 'false';
+      renameTabGroup(group.id, newName);
+    });
+    nameSpan.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); nameSpan.blur(); }
+      if (e.key === 'Escape') { nameSpan.textContent = group.name; nameSpan.blur(); }
     });
 
-    elements.tabBar.appendChild(tabElement);
+    // Broadcast button
+    headerEl.querySelector('[data-action="group-broadcast"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showBroadcastModal(group.id);
+    });
+
+    // Close-group button
+    headerEl.querySelector('[data-action="close-group"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTabGroup(group.id);
+    });
+
+    elements.tabBar.appendChild(headerEl);
+
+    // Render member tabs (respecting collapse state)
+    group.tabIds.forEach(tabId => {
+      const tab = tabs.get(tabId);
+      if (!tab) return;
+      renderedTabIds.add(tabId);
+      if (group.collapsed) return; // hide but track
+
+      const tabEl = buildTabElement(tab);
+      tabEl.classList.add('in-group');
+      tabEl.dataset.groupColor = String(group.colorIndex);
+      elements.tabBar.appendChild(tabEl);
+    });
+  });
+
+  // Then render ungrouped tabs
+  tabs.forEach(tab => {
+    if (renderedTabIds.has(tab.id)) return;
+    elements.tabBar.appendChild(buildTabElement(tab));
   });
 
   // Re-add the add button
@@ -413,6 +627,43 @@ function renderTabs(): void {
     newAddButton.addEventListener('click', () => createTab());
     elements.tabBar.appendChild(newAddButton);
   }
+
+  // Update broadcast toolbar button styling
+  const broadcastBtn = document.getElementById('btn-broadcast');
+  if (broadcastBtn) {
+    broadcastBtn.classList.toggle('has-groups', tabGroups.size > 0);
+  }
+}
+
+function buildTabElement(tab: TabInfo): HTMLDivElement {
+  const tabElement = document.createElement('div');
+  tabElement.className = `tab${tab.id === activeTabId ? ' active' : ''}`;
+  tabElement.dataset.tabId = tab.id;
+
+  tabElement.innerHTML = `
+    <svg class="tab-icon${tab.connected ? ' connected' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8M12 17v4"/>
+    </svg>
+    <span class="tab-title">${escapeHtml(tab.title)}</span>
+    <span class="tab-close">&times;</span>
+  `;
+
+  tabElement.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('tab-close')) {
+      closeTab(tab.id);
+    } else {
+      switchToTab(tab.id);
+    }
+  });
+
+  tabElement.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    showTabContextMenu(e.clientX, e.clientY, tab.id);
+  });
+
+  return tabElement;
 }
 
 function switchToTab(tabId: string): void {
@@ -491,7 +742,8 @@ async function connect(
   port: number,
   username: string,
   password: string,
-  saveSession: boolean = false
+  saveSession: boolean = false,
+  log_directory?: string
 ): Promise<void> {
   let tab = activeTabId ? tabs.get(activeTabId) : null;
 
@@ -515,13 +767,14 @@ async function connect(
         port,
         username,
         password,
+        log_directory,
       } as ConnectRequest,
     });
 
     if (response.success) {
       tab.sessionId = response.session_id;
       tab.connected = true;
-      tab.connectionParams = { host, port, username, password }; // Save for reconnect
+      tab.connectionParams = { host, port, username, password, log_directory }; // Save for reconnect
       renderTabs();
 
       // Listen for terminal data
@@ -611,6 +864,7 @@ async function connect(
             port,
             folder: undefined,
             username,
+            log_directory,
           } as SavedSession,
         });
         await loadSavedSessions();
@@ -1222,9 +1476,12 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
   const disconnectItem = elements.tabContextMenu.querySelector('[data-action="disconnect"]') as HTMLElement;
   const reconnectItem = elements.tabContextMenu.querySelector('[data-action="reconnect"]') as HTMLElement;
   const saveItem = elements.tabContextMenu.querySelector('[data-action="save"]') as HTMLElement;
-
   const cloneItem = elements.tabContextMenu.querySelector('[data-action="clone"]') as HTMLElement;
   const sftpItem = elements.tabContextMenu.querySelector('[data-action="sftp"]') as HTMLElement;
+  const closeGroupItem = elements.tabContextMenu.querySelector('[data-action="close-group"]') as HTMLElement;
+  const moveToGroupItem = elements.tabContextMenu.querySelector('[data-action="move-to-group"]') as HTMLElement;
+  const removeFromGroupItem = elements.tabContextMenu.querySelector('[data-action="remove-from-group"]') as HTMLElement;
+  const broadcastGroupItem = elements.tabContextMenu.querySelector('[data-action="broadcast-to-group"]') as HTMLElement;
 
   if (tab.connected) {
     disconnectItem.style.display = 'flex';
@@ -1244,6 +1501,14 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
     saveItem.style.display = 'none';
     if (cloneItem) cloneItem.style.display = 'none';
   }
+
+  // Group-related items
+  const isInGroup = !!tab.groupId;
+  if (closeGroupItem) closeGroupItem.style.display = isInGroup ? 'flex' : 'none';
+  if (removeFromGroupItem) removeFromGroupItem.style.display = isInGroup ? 'flex' : 'none';
+  if (broadcastGroupItem) broadcastGroupItem.style.display = isInGroup ? 'flex' : 'none';
+  // Move-to-group only shown if there are existing groups to move to
+  if (moveToGroupItem) moveToGroupItem.style.display = tabGroups.size > 0 ? 'flex' : 'none';
 
   // Position and show
   elements.tabContextMenu.style.left = `${x}px`;
@@ -1281,9 +1546,9 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
     case 'reconnect':
       if (tab.connectionParams) {
-        const { host, port, username, password } = tab.connectionParams;
+        const { host, port, username, password, log_directory } = tab.connectionParams;
         if (activeTabId !== tabId) switchToTab(tabId);
-        await connect(host, port, username, password, false);
+        await connect(host, port, username, password, false, log_directory);
       }
       break;
 
@@ -1351,9 +1616,9 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
     case 'clone':
       if (tab.connectionParams) {
-        const { host, port, username, password } = tab.connectionParams;
+        const { host, port, username, password, log_directory } = tab.connectionParams;
         await createTab(host); // Create new tab
-        await connect(host, port, username, password, false); // Connect in new tab
+        await connect(host, port, username, password, false, log_directory); // Connect in new tab
       }
       break;
 
@@ -1362,9 +1627,37 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
       openSftpBrowser();
       break;
 
+    case 'add-group': {
+      const groupName = prompt('New group name:', 'Group 1');
+      if (groupName) createTabGroup(groupName.trim(), [tabId]);
+      break;
+    }
+
+    case 'move-to-group': {
+      if (tabGroups.size === 0) break;
+      const groupList = Array.from(tabGroups.values());
+      const opts = groupList.map((g, i) => `${i + 1}: ${g.name}`).join('\n');
+      const choice = prompt(`Move to which group?\n${opts}\n\nEnter number:`);
+      if (choice) {
+        const idx = parseInt(choice, 10) - 1;
+        if (idx >= 0 && idx < groupList.length) {
+          addTabToGroup(tabId, groupList[idx].id);
+          renderTabs();
+        }
+      }
+      break;
+    }
+
+    case 'remove-from-group':
+      removeTabFromGroup(tabId);
+      break;
+
+    case 'broadcast-to-group':
+      if (tab.groupId) showBroadcastModal(tab.groupId);
+      break;
+
     case 'close-group':
-    case 'add-group':
-      // NYI - No op
+      if (tab.groupId) await closeTabGroup(tab.groupId);
       break;
   }
 }
@@ -1439,6 +1732,7 @@ function showAddSessionModal(): void {
   elements.sessionPort.value = '22';
   elements.sessionUsername.value = '';
   elements.sessionPassword.value = '';
+  elements.sessionLogDirectory.value = '';
   populateFolderSelect(elements.sessionFolder, 'session');
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
@@ -1452,6 +1746,7 @@ async function showEditSessionModal(session: SavedSession): Promise<void> {
   elements.sessionPort.value = session.port.toString();
   elements.sessionUsername.value = session.username || '';
   elements.sessionPassword.value = ''; // Clear initially
+  elements.sessionLogDirectory.value = session.log_directory || '';
 
   // Try to load password securely
   try {
@@ -1473,6 +1768,7 @@ async function saveSessionModal(): Promise<void> {
   const host = elements.sessionHost.value.trim();
   const port = parseInt(elements.sessionPort.value) || 22;
   const folder = elements.sessionFolder.value.trim() || undefined;
+  const log_directory = elements.sessionLogDirectory.value.trim() || undefined;
 
   if (!host) {
     elements.sessionHost.focus();
@@ -1486,6 +1782,7 @@ async function saveSessionModal(): Promise<void> {
     port,
     folder,
     username: elements.sessionUsername.value.trim() || undefined,
+    log_directory,
   };
 
   // Track the folder
@@ -2128,6 +2425,43 @@ function setupEventListeners(): void {
     createTab();
   });
 
+  // Broadcast button in toolbar — opens broadcast modal scoped to all sessions
+  document.getElementById('btn-broadcast')?.addEventListener('click', () => {
+    showBroadcastModal();
+  });
+
+  // Broadcast modal event listeners
+  document.getElementById('broadcast-modal-close')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-broadcast');
+    modal?.classList.remove('show');
+  });
+
+  document.getElementById('btn-broadcast-cancel')?.addEventListener('click', () => {
+    const modal = document.getElementById('modal-broadcast');
+    modal?.classList.remove('show');
+  });
+
+  document.getElementById('broadcast-scope')?.addEventListener('change', updateBroadcastInfo);
+
+  document.getElementById('btn-broadcast-send')?.addEventListener('click', () => {
+    const commandInput = document.getElementById('broadcast-command-input') as HTMLTextAreaElement;
+    const scopeSelect = document.getElementById('broadcast-scope') as HTMLSelectElement;
+    const command = commandInput.value.trim();
+    if (!command) return;
+    const scopeId = scopeSelect.value;
+    broadcastCommand(command, scopeId === 'all' ? undefined : scopeId);
+    const modal = document.getElementById('modal-broadcast');
+    modal?.classList.remove('show');
+  });
+
+  // Keyboard shortcut: Ctrl+B to open broadcast modal
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'b') {
+      e.preventDefault();
+      showBroadcastModal();
+    }
+  });
+
   // Quick connect from address bar
   elements.addressInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -2488,7 +2822,7 @@ function setupEventListeners(): void {
     }
 
     closeModal(elements.loginModal);
-    await connect(loginSession.host, loginSession.port, username, password, false);
+    await connect(loginSession.host, loginSession.port, username, password, false, loginSession.log_directory);
   });
 
   // Login input enter key
