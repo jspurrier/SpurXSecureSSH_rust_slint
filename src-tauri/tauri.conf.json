@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SpurX Secure SSH",
-  "version": "1.6.10",
+  "version": "1.7.0",
   "identifier": "com.spurx.securessh",
   "build": {
     "beforeDevCommand": "npm run dev",
