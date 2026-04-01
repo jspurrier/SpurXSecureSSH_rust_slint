@@ -83,7 +83,7 @@ jobs:
           destination-github-username: 'jspurrier'
           destination-repository-name: 'SpurXSecureSSH_rust_Public'
           user-email: 'github-actions[bot]@users.noreply.github.com'
-          target-branch: 'main'
+          target-branch: 'master'
           commit-message: 'Update User Guide from ${{ github.ref_name }}'
 
 
