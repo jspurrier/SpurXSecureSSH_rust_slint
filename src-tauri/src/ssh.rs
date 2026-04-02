@@ -1,10 +1,10 @@
 //! SSH connection management module
-//! Handles SSH connections using the ssh2 library with PTY support
+//! Handles SSH connections using the russh library with PTY support
 
+use async_trait::async_trait;
 use parking_lot::Mutex;
-use ssh2::{PtyModeOpcode, PtyModes, Session};
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use russh::{client, ChannelMsg};
+use russh_keys::key;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -15,7 +15,7 @@ pub enum SshInput {
     Resize { rows: u16, cols: u16 },
 }
 
-/// SSH connection handler using ssh2 (libssh2)
+/// SSH connection handler using russh
 pub struct SshConnection {
     pub session_id: String,
     pub host: String,
@@ -44,330 +44,141 @@ impl SshConnection {
     }
 }
 
-/// Connect to SSH server and handle I/O
-pub fn connect_ssh_blocking(
+pub struct ClientHandler {
+    pub host: String,
+    pub output_tx: mpsc::Sender<Vec<u8>>,
+}
+
+#[async_trait]
+impl client::Handler for ClientHandler {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        let mut verified = false;
+        if let Some(mut path) = dirs::home_dir() {
+            path.push(".ssh");
+            path.push("known_hosts");
+            if path.exists() {
+                if let Ok(matched) = russh_keys::check_known_hosts_path(
+                    &self.host,
+                    22,
+                    server_public_key,
+                    &path,
+                ) {
+                    verified = matched;
+                }
+            }
+        }
+
+        if verified {
+            let _ = self.output_tx.send(b"\x1b[32mHost key verified.\x1b[0m\r\n".to_vec()).await;
+        } else {
+            let msg = format!(
+                "\r\n\x1b[33mWARNING: Host '{}' not found in known_hosts (or mismatched). Proceeding...\x1b[0m\r\n",
+                self.host
+            );
+            let _ = self.output_tx.send(msg.into_bytes()).await;
+        }
+
+        Ok(true)
+    }
+}
+
+/// Connect to SSH server and handle I/O asynchronously
+pub async fn connect_ssh_async(
     host: &str,
     port: u16,
     username: &str,
     password: &str,
     output_tx: mpsc::Sender<Vec<u8>>,
-    input_rx: &mut std::sync::mpsc::Receiver<SshInput>,
+    input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
     debug_mode: bool,
 ) -> Result<(), String> {
     // Send connection status
-    let _ =
-        futures::executor::block_on(output_tx.send(
-            format!("\r\n\x1b[36mConnecting to {}:{}...\x1b[0m\r\n", host, port).into_bytes(),
-        ));
+    let _ = output_tx.send(
+        format!("\r\n\x1b[36mConnecting to {}:{}...\x1b[0m\r\n", host, port).into_bytes(),
+    ).await;
 
-    // Create TCP connection
-    let addr = format!("{}:{}", host, port);
-    let tcp = TcpStream::connect(&addr).map_err(|e| format!("TCP connection failed: {}", e))?;
+    let config = Arc::new(client::Config {
+        ..Default::default()
+    });
 
-    // Set initial timeout for handshake/auth (10 seconds)
-    tcp.set_read_timeout(Some(std::time::Duration::from_secs(10)))
-        .map_err(|e| format!("Failed to set read timeout: {}", e))?;
-
-    let tcp_config_clone = tcp
-        .try_clone()
-        .map_err(|e| format!("Failed to clone TCP stream: {}", e))?;
-
-    // Create SSH session
-    let mut sess = Session::new().map_err(|e| format!("Failed to create SSH session: {}", e))?;
-
-    // Enable trace logging for debugging (prints to stderr)
-    sess.set_compress(true);
-    // Note: ssh2-rs trace output goes to stderr by default
-    // We can try to enable it if the feature is available or just rely on our own logs
-    // sess.trace(ssh2::TraceFlags::all());
-
-    sess.set_tcp_stream(tcp);
-
-    // Perform SSH handshake
-    if debug_mode {
-        let _ = futures::executor::block_on(
-            output_tx.send(b"\x1b[36mPerforming SSH handshake...\x1b[0m\r\n".to_vec()),
-        );
-    }
-
-    sess.handshake()
-        .map_err(|e| format!("SSH handshake failed: {}", e))?;
-
-    // Host Key Verification
-    {
-        let mut known_hosts = sess
-            .known_hosts()
-            .map_err(|e| format!("Failed to init known hosts: {}", e))?;
-
-        // Try to load user's known_hosts file
-        let known_hosts_path = dirs::home_dir().map(|h| h.join(".ssh").join("known_hosts"));
-        if let Some(ref path) = known_hosts_path {
-            if path.exists() {
-                let _ = known_hosts.read_file(path, ssh2::KnownHostFileKind::OpenSSH);
-            }
-        }
-
-        let (key, _key_type) = sess.host_key().ok_or("Failed to get host key")?;
-
-        match known_hosts.check(host, key) {
-            ssh2::CheckResult::Match => {
-                let _ = futures::executor::block_on(
-                    output_tx.send(b"\x1b[32mHost key verified.\x1b[0m\r\n".to_vec()),
-                );
-            }
-            ssh2::CheckResult::NotFound => {
-                let fingerprint = sess
-                    .host_key_hash(ssh2::HashType::Sha1)
-                    .map(|h| h.iter().map(|b| format!("{:02x}", b)).collect::<String>());
-
-                let msg = format!(
-                    "\r\n\x1b[33mWARNING: Host '{}' not found in known_hosts.\x1b[0m\r\n",
-                    host
-                );
-                let _ = futures::executor::block_on(output_tx.send(msg.into_bytes()));
-
-                if let Some(fp) = fingerprint {
-                    let msg = format!("\x1b[33mSHA1 Fingerprint: {}\x1b[0m\r\n", fp);
-                    let _ = futures::executor::block_on(output_tx.send(msg.into_bytes()));
-                }
-            }
-            ssh2::CheckResult::Mismatch => {
-                let _ = futures::executor::block_on(
-                    output_tx.send(
-                        b"\r\n\x1b[41;37m WARNING: POSSIBLE DNS SPOOFING DETECTED! \x1b[0m\r\n"
-                            .to_vec(),
-                    ),
-                );
-                let _ = futures::executor::block_on(
-                    output_tx.send(b"\x1b[31mThe host key for this server does not match the key in known_hosts.\x1b[0m\r\n".to_vec())
-                );
-                return Err(
-                    "Host key verification failed: Mismatch (Possible Man-In-The-Middle attack)"
-                        .to_string(),
-                );
-            }
-            ssh2::CheckResult::Failure => {
-                return Err("Host key verification failed: Internal error".to_string());
-            }
-        }
-    }
+    let handler = ClientHandler {
+        host: host.to_string(),
+        output_tx: output_tx.clone(),
+    };
 
     if debug_mode {
-        let _ = futures::executor::block_on(
-            output_tx.send(b"\x1b[36mAuthenticating...\x1b[0m\r\n".to_vec()),
-        );
+        let _ = output_tx.send(b"\x1b[36mPerforming SSH handshake...\x1b[0m\r\n".to_vec()).await;
     }
 
-    // Try Password Authentication first
-    let mut auth_success = false;
+    let mut session = client::connect(config, (host, port), handler)
+        .await
+        .map_err(|e| format!("SSH connect failed: {}", e))?;
 
-    // Check if we can use password auth
-    let auth_methods = sess.auth_methods(username).unwrap_or_default();
     if debug_mode {
-        let _ = futures::executor::block_on(
-            output_tx.send(
-                format!(
-                    "\x1b[30;1mDebug: Supported auth methods: {}\x1b[0m\r\n",
-                    auth_methods
-                )
-                .into_bytes(),
-            ),
-        );
+        let _ = output_tx.send(b"\x1b[36mAuthenticating...\x1b[0m\r\n".to_vec()).await;
     }
 
-    if auth_methods.contains("password") {
-        match sess.userauth_password(username, password) {
-            Ok(_) => auth_success = true,
-            Err(e) => {
-                let _ =
-                    futures::executor::block_on(output_tx.send(
-                        format!("\x1b[33mPassword auth failed: {}\x1b[0m\r\n", e).into_bytes(),
-                    ));
-            }
-        }
-    }
+    let auth_res = session.authenticate_password(username, password).await
+        .map_err(|e| format!("Auth error: {}", e))?;
 
-    // fallback to keyboard-interactive if password failed or not supported
-    if !auth_success && auth_methods.contains("keyboard-interactive") {
-        if debug_mode {
-            let _ = futures::executor::block_on(
-                output_tx.send(b"\x1b[36mTrying keyboard-interactive auth...\x1b[0m\r\n".to_vec()),
-            );
-        }
-
-        struct Prompter {
-            password: String,
-        }
-
-        impl ssh2::KeyboardInteractivePrompt for Prompter {
-            fn prompt(
-                &mut self,
-                _username: &str,
-                _instructions: &str,
-                prompts: &[ssh2::Prompt],
-            ) -> Vec<String> {
-                prompts.iter().map(|_| self.password.clone()).collect()
-            }
-        }
-
-        let mut prompter = Prompter {
-            password: password.to_string(),
-        };
-
-        match sess.userauth_keyboard_interactive(username, &mut prompter) {
-            Ok(_) => {} // Success handled by sess.authenticated() check
-            Err(e) => {
-                let _ = futures::executor::block_on(
-                    output_tx.send(
-                        format!("\x1b[33mKeyboard-interactive auth failed: {}\x1b[0m\r\n", e)
-                            .into_bytes(),
-                    ),
-                );
-            }
-        }
-    }
-
-    if !sess.authenticated() {
-        let _ = futures::executor::block_on(
-            output_tx.send(b"\x1b[31mAuthentication failed (all methods)!\x1b[0m\r\n".to_vec()),
-        );
+    if !auth_res {
+        let _ = output_tx.send(b"\x1b[31mAuthentication failed (password)!\x1b[0m\r\n".to_vec()).await;
         return Err("Authentication failed".to_string());
     }
 
-    let _ = futures::executor::block_on(
-        output_tx.send(b"\x1b[36mAuthenticated! Opening channel...\x1b[0m\r\n".to_vec()),
-    );
+    let _ = output_tx.send(b"\x1b[36mAuthenticated! Opening channel...\x1b[0m\r\n".to_vec()).await;
 
-    // Open channel
-    let mut channel = sess
-        .channel_session()
+    let mut channel = session.channel_open_session().await
         .map_err(|e| format!("Failed to open channel: {}", e))?;
 
-    // Request PTY
-    channel
-        .request_pty(
-            "xterm-256color",
-            Some(build_standard_pty_modes()),
-            Some((80, 24, 0, 0)),
-        )
+    channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
         .map_err(|e| format!("Failed to request PTY: {}", e))?;
 
-    // Start shell
-    channel
-        .shell()
+    channel.request_shell(true).await
         .map_err(|e| format!("Failed to start shell: {}", e))?;
 
-    let _ = futures::executor::block_on(
-        output_tx.send(b"\x1b[36mShell ready!\x1b[0m\r\n\r\n".to_vec()),
-    );
+    let _ = output_tx.send(b"\x1b[36mShell ready!\x1b[0m\r\n\r\n".to_vec()).await;
 
-    // Set channel to non-blocking
-    // Restore short timeout for interactive loop to trigger WouldBlock and allow polling
-    let _ = tcp_config_clone.set_read_timeout(Some(std::time::Duration::from_millis(100)));
-    drop(tcp_config_clone);
-    sess.set_blocking(false);
-
-    let mut buf = [0u8; 4096];
-
-    // Main I/O loop
     loop {
-        // Read from SSH channel (stdout)
-        match channel.read(&mut buf) {
-            Ok(0) => {
-                // EOF - connection closed
-                let _ = futures::executor::block_on(
-                    output_tx.send(b"\r\n\x1b[33mConnection closed.\x1b[0m\r\n".to_vec()),
-                );
-                break;
-            }
-            Ok(n) => {
-                let _ = futures::executor::block_on(output_tx.send(buf[..n].to_vec()));
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No data available, continue
-            }
-            Err(e) => {
-                let _ = futures::executor::block_on(
-                    output_tx
-                        .send(format!("\r\n\x1b[31mRead error: {}\x1b[0m\r\n", e).into_bytes()),
-                );
-                break;
-            }
-        }
-
-        // Read from SSH channel (stderr)
-        match channel.stderr().read(&mut buf) {
-            Ok(n) if n > 0 => {
-                let _ = futures::executor::block_on(output_tx.send(buf[..n].to_vec()));
-            }
-            _ => {}
-        }
-
-        // Check for input from user (non-blocking)
-        match input_rx.try_recv() {
-            Ok(input) => match input {
-                SshInput::Data(data) => {
-                    if let Err(e) = channel.write_all(&data) {
-                        let _ = futures::executor::block_on(output_tx.send(
-                            format!("\r\n\x1b[31mWrite error: {}\x1b[0m\r\n", e).into_bytes(),
-                        ));
+        tokio::select! {
+            msg_res = channel.wait() => {
+                match msg_res {
+                    Some(ChannelMsg::Data { ref data }) => {
+                        let _ = output_tx.send(data.to_vec()).await;
+                    }
+                    Some(ChannelMsg::ExtendedData { ref data, .. }) => {
+                        let _ = output_tx.send(data.to_vec()).await;
+                    }
+                    Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                        let _ = output_tx.send(b"\r\n\x1b[33mConnection closed.\x1b[0m\r\n".to_vec()).await;
                         break;
                     }
-                    let _ = channel.flush();
+                    _ => {}
                 }
-                SshInput::Resize { rows, cols } => {
-                    if let Err(e) = channel.request_pty_size(cols.into(), rows.into(), None, None) {
-                        if debug_mode {
-                            let _ = futures::executor::block_on(output_tx.send(
-                                format!("\r\n\x1b[33mResize failed: {}\x1b[0m\r\n", e).into_bytes(),
-                            ));
-                        }
+            }
+            input_res = input_rx.recv() => {
+                match input_res {
+                    Some(SshInput::Data(data)) => {
+                        let _ = channel.data(&*data).await;
+                    }
+                    Some(SshInput::Resize { rows, cols }) => {
+                        let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
+                    }
+                    None => {
+                        // Channel closed, terminate shell
+                        break;
                     }
                 }
-            },
-            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                // No input, continue
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                // Input channel closed
-                break;
             }
         }
-
-        // Check if channel is closed
-        if channel.eof() {
-            let _ = futures::executor::block_on(
-                output_tx
-                    .send(b"\r\n\x1b[33mConnection closed by remote host.\x1b[0m\r\n".to_vec()),
-            );
-            break;
-        }
-
-        // Smart sleep - only sleep if we didn't do any work
-        // This dramatically improves throughput
-        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 
-    let _ = channel.close();
-    let _ = channel.wait_close();
+    let _ = channel.close().await;
 
     Ok(())
-}
-
-/// Build standard PTY modes (RFC 4254)
-/// Configures Echo, Canonical mode, Signals, etc. to ensure consistent behavior.
-fn build_standard_pty_modes() -> PtyModes {
-    let mut modes = PtyModes::new();
-
-    // Standard modes
-    modes.set_boolean(PtyModeOpcode::ECHO, true);
-    modes.set_boolean(PtyModeOpcode::ECHOE, true);
-    modes.set_boolean(PtyModeOpcode::ECHOK, true);
-    modes.set_boolean(PtyModeOpcode::ICANON, true);
-    modes.set_boolean(PtyModeOpcode::ISIG, true);
-    modes.set_boolean(PtyModeOpcode::IEXTEN, true);
-    modes.set_boolean(PtyModeOpcode::OPOST, true);
-    modes.set_boolean(PtyModeOpcode::ONLCR, true);
-
-    modes
 }

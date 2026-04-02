@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::command_storage;
 use crate::session;
-use crate::ssh::{connect_ssh_blocking, SshConnection, SshInput};
+use crate::ssh::{SshConnection, SshInput};
 use crate::{AppState, ConnectRequest, ConnectResponse, QuickCommand, SavedSession};
 
 /// Connect to an SSH server
@@ -23,8 +23,8 @@ pub async fn ssh_connect(
     // Create output channel for terminal data (tokio async)
     let (output_tx, mut output_rx) = mpsc::channel::<Vec<u8>>(1024);
 
-    // Create input channel for user input (std sync for blocking ssh2)
-    let (input_tx, input_rx) = std::sync::mpsc::channel::<SshInput>();
+    // Create input channel for user input (tokio async for russh)
+    let (input_tx, input_rx) = tokio::sync::mpsc::unbounded_channel::<SshInput>();
 
     // Store input sender in state (wrapped for async compatibility)
     {
@@ -120,16 +120,18 @@ pub async fn ssh_connect(
         }
     });
 
-    // Spawn blocking SSH connection in a separate thread
+    // Spawn async SSH connection in tokio
     let sid_for_ssh = sid.clone();
     let app_for_ssh = app_handle.clone();
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let mut input_rx = input_rx;
         // Load settings to check debug mode
         let settings = crate::settings::load_settings();
         let debug_mode = settings.debug_mode;
 
-        match connect_ssh_blocking(
+        use crate::ssh::connect_ssh_async;
+
+        match connect_ssh_async(
             &host,
             port,
             &username,
@@ -137,7 +139,7 @@ pub async fn ssh_connect(
             output_tx,
             &mut input_rx,
             debug_mode,
-        ) {
+        ).await {
             Ok(_) => {
                 connection_for_task.set_connected(false);
                 let _ = app_for_ssh.emit(&format!("session-closed-{}", sid_for_ssh), ());
@@ -490,21 +492,21 @@ pub async fn sftp_connect(
     password: String,
 ) -> Result<(), String> {
     SFTP_MANAGER
-        .lock()
         .connect(&session_id, &host, port, &username, &password)
+        .await
 }
 
 /// Disconnect SFTP session
 #[command]
 pub async fn sftp_disconnect(session_id: String) -> Result<(), String> {
-    SFTP_MANAGER.lock().disconnect(&session_id);
+    SFTP_MANAGER.disconnect(&session_id).await;
     Ok(())
 }
 
 /// List directory contents
 #[command]
 pub async fn sftp_list(session_id: String, path: String) -> Result<Vec<SftpFileEntry>, String> {
-    SFTP_MANAGER.lock().list_dir(&session_id, &path)
+    SFTP_MANAGER.list_dir(&session_id, &path).await
 }
 
 /// Download file from remote to local
@@ -515,8 +517,8 @@ pub async fn sftp_download(
     local_path: String,
 ) -> Result<u64, String> {
     SFTP_MANAGER
-        .lock()
         .download(&session_id, &remote_path, &local_path)
+        .await
 }
 
 /// Upload file from local to remote
@@ -527,26 +529,26 @@ pub async fn sftp_upload(
     remote_path: String,
 ) -> Result<u64, String> {
     SFTP_MANAGER
-        .lock()
         .upload(&session_id, &local_path, &remote_path)
+        .await
 }
 
 /// Create directory
 #[command]
 pub async fn sftp_mkdir(session_id: String, path: String) -> Result<(), String> {
-    SFTP_MANAGER.lock().mkdir(&session_id, &path)
+    SFTP_MANAGER.mkdir(&session_id, &path).await
 }
 
 /// Delete file
 #[command]
 pub async fn sftp_delete_file(session_id: String, path: String) -> Result<(), String> {
-    SFTP_MANAGER.lock().delete_file(&session_id, &path)
+    SFTP_MANAGER.delete_file(&session_id, &path).await
 }
 
 /// Delete directory
 #[command]
 pub async fn sftp_delete_dir(session_id: String, path: String) -> Result<(), String> {
-    SFTP_MANAGER.lock().delete_dir(&session_id, &path)
+    SFTP_MANAGER.delete_dir(&session_id, &path).await
 }
 
 /// Rename file or directory
@@ -557,6 +559,6 @@ pub async fn sftp_rename(
     new_path: String,
 ) -> Result<(), String> {
     SFTP_MANAGER
-        .lock()
         .rename(&session_id, &old_path, &new_path)
+        .await
 }

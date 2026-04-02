@@ -18,8 +18,8 @@ pub mod ssh;
 pub struct AppState {
     /// Active SSH connections indexed by session ID
     pub connections: RwLock<HashMap<String, Arc<ssh::SshConnection>>>,
-    /// Channel senders for terminal input, indexed by session ID (std::sync for blocking ssh2)
-    pub input_senders: RwLock<HashMap<String, std::sync::mpsc::Sender<ssh::SshInput>>>,
+    /// Channel senders for terminal input, indexed by session ID (tokio async for russh)
+    pub input_senders: RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<ssh::SshInput>>>,
 }
 
 impl AppState {
