@@ -1,5 +1,5 @@
 use serde::Serialize;
-use ssh2::Session;
+use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Clone)]
@@ -20,33 +20,27 @@ pub fn get_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
         return Ok(Vec::new());
     }
 
-    // Initialize a session just to access KnownHosts parsing logic
-    let sess = Session::new().map_err(|e| format!("Failed to create SSH session: {}", e))?;
-    let mut known_hosts = sess
-        .known_hosts()
-        .map_err(|e| format!("Failed to init known hosts: {}", e))?;
-
-    known_hosts
-        .read_file(&path, ssh2::KnownHostFileKind::OpenSSH)
-        .map_err(|e| format!("Failed to read known_hosts file: {}", e))?;
-
+    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read known_hosts: {}", e))?;
     let mut entries = Vec::new();
 
-    // Iterate over hosts
-    // ssh2 crate known_hosts().hosts() returns Result<Vec<Host>, Error>
-    let hosts = known_hosts
-        .hosts()
-        .map_err(|e| format!("Failed to get hosts list: {}", e))?;
+    for line in content.lines() {
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+        
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 3 {
+            let name = parts[0].to_string();
+            let key_type = parts[1].to_string();
 
-    for host in hosts {
-        let name = host.name().unwrap_or("Unknown").to_string();
-        let key_type = "Unknown".to_string();
-
-        entries.push(KnownHostEntry {
-            name,
-            key_type,
-            fingerprint: "SHA256:...".to_string(),
-        });
+            entries.push(KnownHostEntry {
+                name,
+                key_type,
+                // Russh keys does not easily provide base64->fingerprint parsing for all key formats
+                // without manually instantiating `ssh_key::PublicKey`. So we mock it.
+                fingerprint: "SHA256:...".to_string(),
+            });
+        }
     }
 
     Ok(entries)
@@ -55,35 +49,30 @@ pub fn get_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
 pub fn delete_known_host(host_name: &str) -> Result<(), String> {
     let path = get_known_hosts_path().ok_or("Could not determine home directory")?;
 
-    // Use ssh2 to remove
-    let sess = Session::new().map_err(|e| format!("Failed to create session: {}", e))?;
-    let mut known_hosts = sess
-        .known_hosts()
-        .map_err(|e| format!("Failed to init known hosts: {}", e))?;
+    if !path.exists() {
+        return Err("known_hosts file not found".to_string());
+    }
 
-    known_hosts
-        .read_file(&path, ssh2::KnownHostFileKind::OpenSSH)
-        .map_err(|e| format!("Failed to read known_hosts: {}", e))?;
-
-    // Get hosts list
-    let hosts = known_hosts
-        .hosts()
-        .map_err(|e| format!("Failed to get hosts: {}", e))?;
-
-    // Find hosts to remove
-    // We cannot remove while iterating if we are iterating the struct itself,
-    // but here `hosts` is a Vec<Host> copy.
+    let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read known_hosts: {}", e))?;
+    let mut new_lines = Vec::new();
     let mut found = false;
 
-    for host in hosts {
-        if let Some(name) = host.name() {
-            // Check if name matches or if it matches [name]:port
-            if name == host_name || name.starts_with(&format!("[{}]:", host_name)) {
-                known_hosts
-                    .remove(&host)
-                    .map_err(|e| format!("Failed to remove host: {}", e))?;
-                found = true;
+    // A host entry might be raw '192.168.1.1' or '[192.168.1.1]:22' or hashed '|1|...'
+    // Since hashed hosts are opaque, we can only safely delete plaintext hostname matches.
+    for line in content.lines() {
+        let is_match = {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if !parts.is_empty() && (parts[0] == host_name || parts[0].starts_with(&format!("[{}]:", host_name))) {
+                true
+            } else {
+                false
             }
+        };
+
+        if is_match {
+            found = true;
+        } else {
+            new_lines.push(line);
         }
     }
 
@@ -91,9 +80,8 @@ pub fn delete_known_host(host_name: &str) -> Result<(), String> {
         return Err(format!("Host '{}' not found in known_hosts", host_name));
     }
 
-    // Write back to file
-    known_hosts
-        .write_file(&path, ssh2::KnownHostFileKind::OpenSSH)
+    // Write back to file preserving line endings (Unix style is safe for ssh known_hosts)
+    fs::write(&path, new_lines.join("\n") + "\n")
         .map_err(|e| format!("Failed to write known_hosts: {}", e))?;
 
     Ok(())
