@@ -102,7 +102,30 @@ pub async fn connect_ssh_async(
         format!("\r\n\x1b[36mConnecting to {}:{}...\x1b[0m\r\n", host, port).into_bytes(),
     ).await;
 
+    let preferred = russh::Preferred {
+        // Modern algorithms first, then legacy fallbacks for old Cisco/network gear
+        kex: std::borrow::Cow::Owned(vec![
+            russh::kex::CURVE25519,
+            russh::kex::CURVE25519_PRE_RFC_8731,
+            russh::kex::ECDH_SHA2_NISTP256,
+            russh::kex::ECDH_SHA2_NISTP384,
+            russh::kex::ECDH_SHA2_NISTP521,
+            russh::kex::DH_G14_SHA256,
+            russh::kex::DH_G14_SHA1,  // Legacy: Cisco IOS, older gear
+            russh::kex::DH_G1_SHA1,   // Very old legacy
+        ]),
+        // Include legacy host key types for old SSH servers
+        key: std::borrow::Cow::Owned(vec![
+            russh_keys::key::ED25519,
+            russh_keys::key::RSA_SHA2_512,
+            russh_keys::key::RSA_SHA2_256,
+            russh_keys::key::SSH_RSA,    // Legacy RSA - required for very old Cisco
+        ]),
+        ..russh::Preferred::DEFAULT
+    };
+
     let config = Arc::new(client::Config {
+        preferred,
         ..Default::default()
     });
 
@@ -136,10 +159,10 @@ pub async fn connect_ssh_async(
     let mut channel = session.channel_open_session().await
         .map_err(|e| format!("Failed to open channel: {}", e))?;
 
-    channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await
+    channel.request_pty(false, "xterm", 80, 24, 0, 0, &[]).await
         .map_err(|e| format!("Failed to request PTY: {}", e))?;
 
-    channel.request_shell(true).await
+    channel.request_shell(false).await
         .map_err(|e| format!("Failed to start shell: {}", e))?;
 
     let _ = output_tx.send(b"\x1b[36mShell ready!\x1b[0m\r\n\r\n".to_vec()).await;

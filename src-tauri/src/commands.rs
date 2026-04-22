@@ -147,6 +147,7 @@ pub async fn ssh_connect(
             Err(e) => {
                 eprintln!("SSH error for session {}: {}", sid_for_ssh, e);
                 connection_for_task.set_connected(false);
+                let _ = app_for_ssh.emit(&format!("session-error-{}", sid_for_ssh), e.clone());
                 let _ = app_for_ssh.emit(&format!("session-closed-{}", sid_for_ssh), ());
             }
         }
@@ -249,6 +250,24 @@ pub async fn get_session_password(session_id: String) -> Result<Option<String>, 
 #[command]
 pub async fn delete_session_password(session_id: String) -> Result<(), String> {
     session::delete_password(&session_id)
+}
+
+/// Save global password securely
+#[command]
+pub async fn save_global_password(password: String) -> Result<(), String> {
+    session::save_password("__global__", &password)
+}
+
+/// Get global password securely
+#[command]
+pub async fn get_global_password() -> Result<Option<String>, String> {
+    session::get_password("__global__")
+}
+
+/// Delete global password securely
+#[command]
+pub async fn delete_global_password() -> Result<(), String> {
+    session::delete_password("__global__")
 }
 
 /// Get list of quick commands
@@ -410,20 +429,26 @@ pub async fn delete_known_host(host: String) -> Result<(), String> {
 
 use crate::import_export;
 
-/// Import sessions from a file
+/// Import sessions and commands from a file
 #[command]
-pub async fn import_sessions(path: String, format: String) -> Result<Vec<SavedSession>, String> {
-    import_export::import_sessions(&path, &format)
+pub async fn import_sessions(
+    path: String,
+    format: String,
+    password: Option<String>,
+) -> Result<import_export::ImportPayload, String> {
+    import_export::import_sessions(&path, &format, password)
 }
 
-/// Export sessions to a file
+/// Export sessions and commands to a file
 #[command]
 pub async fn export_sessions(
     path: String,
     format: String,
     sessions: Vec<SavedSession>,
+    commands: Vec<crate::QuickCommand>,
+    password: Option<String>,
 ) -> Result<(), String> {
-    import_export::export_sessions(&path, &format, &sessions)
+    import_export::export_sessions(&path, &format, &sessions, &commands, password)
 }
 
 // ============================================

@@ -436,13 +436,23 @@
             <label for="session-host">Host:</label>
             <input type="text" id="session-host" placeholder="hostname or IP address" />
           </div>
-          <div class="form-group">
+          <div class="form-check" style="margin-bottom: 12px;">
+            <input type="checkbox" id="session-use-global" />
+            <label for="session-use-global">Use Global Credentials</label>
+          </div>
+          <div class="form-group" id="session-username-group">
             <label for="session-username">Username:</label>
             <input type="text" id="session-username" placeholder="username (optional)" />
           </div>
-          <div class="form-group">
+          <div class="form-group" id="session-password-group">
             <label for="session-password">Password:</label>
-            <input type="password" id="session-password" placeholder="password (optional - stored securely)" />
+            <div class="password-wrapper">
+              <input type="password" id="session-password" placeholder="password (optional - stored securely)" />
+              <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('session-password', this)">
+                <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -571,7 +581,13 @@
           </div>
           <div class="form-group">
             <label for="login-password">Password:</label>
-            <input type="password" id="login-password" placeholder="password" />
+            <div class="password-wrapper">
+              <input type="password" id="login-password" placeholder="password" />
+              <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('login-password', this)">
+                <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -900,9 +916,29 @@
               <input type="number" id="settings-keepalive" value="60" min="0" max="600" />
             </div>
           </div>
-          <div class="form-check" style="margin-top: 1rem;">
-            <input type="checkbox" id="settings-debug-mode" />
-            <label for="settings-debug-mode">Show Debug Messages (Verbose)</label>
+          <div class="settings-section-divider"></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="settings-global-username">Global Default Username:</label>
+              <input type="text" id="settings-global-username" placeholder="(optional)" />
+            </div>
+            <div class="form-group">
+              <label for="settings-global-password">Global Default Password:</label>
+              <div class="password-wrapper">
+                <input type="password" id="settings-global-password" placeholder="(optional)" />
+                <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('settings-global-password', this)">
+                  <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section-divider"></div>
+          <div class="settings-section-title">Application Data</div>
+          <p class="settings-description" style="margin-bottom: 8px;">Backup or restore your sessions and quick commands.</p>
+          <div class="form-row" style="gap: 12px;">
+            <button class="btn btn-secondary" id="btn-settings-import" style="flex: 1;">Import Data...</button>
+            <button class="btn btn-secondary" id="btn-settings-export" style="flex: 1;">Export Data...</button>
           </div>
         </div>
 
@@ -968,36 +1004,6 @@
             <label for="settings-download-dir">Download Directory:</label>
             <input type="text" id="settings-download-dir" placeholder="(Default)" />
           </div>
-          <div class="settings-section-divider"></div>
-          <div class="settings-section-title">Session Data</div>
-          <div class="form-row" style="gap: 12px; margin-top: 8px;">
-            <button class="btn btn-secondary" id="btn-settings-import" style="flex: 1;">Import Sessions...</button>
-            <button class="btn btn-secondary" id="btn-settings-export" style="flex: 1;">Export Sessions...</button>
-          </div>
-        </div>
-
-        <!-- Logging Settings -->
-        <div class="settings-panel" id="settings-logging">
-          <div class="form-check">
-            <input type="checkbox" id="settings-logging-enabled" />
-            <label for="settings-logging-enabled">Enable session logging by default</label>
-          </div>
-          <div class="form-group" style="margin-top: 1rem;">
-            <label for="settings-log-dir">Log Directory:</label>
-            <div class="file-input-row">
-              <input type="text" id="settings-log-dir" placeholder="(Documents/SpurXSecureSSH/logs)" />
-              <button class="btn btn-secondary" id="btn-browse-log-dir" style="white-space: nowrap;">Browse...</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="settings-log-format">Log Filename Format:</label>
-            <input type="text" id="settings-log-format" placeholder="{session}_{date}_{time}.log" />
-            <div class="form-hint">Variables: {session}, {host}, {date}, {time}</div>
-          </div>
-          <div class="form-check" style="margin-top: 0.5rem;">
-            <input type="checkbox" id="settings-log-timestamps" checked />
-            <label for="settings-log-timestamps">Include timestamps in log</label>
-          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -1007,61 +1013,153 @@
     </div>
   </div>
 
-  <!-- Import Sessions Modal -->
+  <!-- Import Data Modal -->
   <div class="modal-overlay" id="modal-import-sessions">
     <div class="modal modal-wide">
       <div class="modal-header">
-        <h2>Import Sessions</h2>
+        <h2>Import Data</h2>
         <button class="modal-close" id="import-modal-close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
           <label for="import-format">Import Format:</label>
           <select id="import-format">
+            <option value="spurx_encrypted">SpurX Encrypted (.spurx)</option>
+            <option value="spurx_plaintext">SpurX Plaintext (.json) (Warning: Unencrypted)</option>
             <option value="securecrt">SecureCRT (.xml)</option>
             <option value="putty">PuTTY (.reg)</option>
           </select>
+          <div class="form-group hidden" id="import-master-password-group" style="display: none;">
+            <!-- Hidden - password now handled via pop-up prompt in previewImport -->
+            <label for="import-master-password">Master Password:</label>
+            <input type="password" id="import-master-password" placeholder="Enter password to decrypt..." />
+          </div>
         </div>
         <div class="form-group">
           <label>Select File:</label>
-          <div class="file-input-row">
-            <input type="text" id="import-file-path" placeholder="No file selected" readonly />
+          <div class="file-input-row" style="display: flex; gap: 10px;">
+            <input type="text" id="import-file-path" placeholder="No file selected" readonly style="flex: 1;" />
             <button class="btn btn-secondary" id="btn-import-browse">Browse...</button>
           </div>
         </div>
-        <div class="import-preview" id="import-preview">
-          <p class="import-hint">Select a file to preview sessions</p>
+        <div id="import-preview-container">
+          <label>Preview Data:</label>
+          <div id="import-preview" class="import-preview-box">
+            <p class="import-hint">Select a file to preview data</p>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-import-cancel">Cancel</button>
-        <button class="btn btn-primary" id="btn-import-confirm" disabled>Import Sessions</button>
+        <button class="btn btn-primary" id="btn-import-confirm" disabled>Import Selected</button>
       </div>
     </div>
   </div>
 
-  <!-- Export Sessions Modal -->
+  <!-- Import Conflict Modal -->
+  <div class="modal-overlay" id="modal-import-conflict">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Duplicate Data Found</h2>
+        <button class="modal-close" id="conflict-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="conflict-message" style="margin-bottom: 1.5rem; line-height: 1.5;">
+          A conflict was detected.
+        </div>
+        <div class="form-group">
+          <label>Resolution Action:</label>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+            <button class="btn btn-secondary conflict-action" data-action="update" style="width: 100%; text-align: left; padding: 12px;">
+              <strong>Update Existing</strong>
+              <div style="font-size: 11px; opacity: 0.7;">Overwrite all fields with imported data</div>
+            </button>
+            <button class="btn btn-secondary conflict-action" data-action="skip" style="width: 100%; text-align: left; padding: 12px;">
+              <strong>Skip</strong>
+              <div style="font-size: 11px; opacity: 0.7;">Do not import this item</div>
+            </button>
+            <button class="btn btn-secondary conflict-action" data-action="keepBoth" style="width: 100%; text-align: left; padding: 12px;">
+              <strong>Keep Both</strong>
+              <div style="font-size: 11px; opacity: 0.7;">Import as new with " (Imported)" suffix</div>
+            </button>
+          </div>
+        </div>
+        <div class="form-check" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-secondary);">
+          <input type="checkbox" id="conflict-apply-all" />
+          <label for="conflict-apply-all">Apply to all remaining conflicts</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Data Modal -->
   <div class="modal-overlay" id="modal-export-sessions">
     <div class="modal">
       <div class="modal-header">
-        <h2>Export Sessions</h2>
+        <h2>Export Data</h2>
         <button class="modal-close" id="export-modal-close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
+          <label>Data to Include:</label>
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 4px;">
+            <div class="form-check">
+              <input type="checkbox" id="export-include-sessions" checked />
+              <label for="export-include-sessions">Saved Sessions (<span id="export-session-count">0</span>)</label>
+            </div>
+            <div class="form-check">
+              <input type="checkbox" id="export-include-commands" checked />
+              <label for="export-include-commands">Quick Commands (<span id="export-command-count">0</span>)</label>
+            </div>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 1rem;">
           <label for="export-format">Export Format:</label>
           <select id="export-format">
+            <option value="spurx_encrypted">SpurX Encrypted (.spurx)</option>
+            <option value="spurx_plaintext">SpurX Plaintext (.json) (Warning: Unencrypted)</option>
             <option value="securecrt">SecureCRT (.xml)</option>
             <option value="putty">PuTTY (.reg)</option>
           </select>
         </div>
+        <div class="form-group" id="export-master-password-group">
+          <label for="export-master-password">Master Password:</label>
+          <input type="password" id="export-master-password" placeholder="Create a password to encrypt..." />
+        </div>
         <div class="export-summary">
-          <p><span id="export-session-count">0</span> session(s) will be exported</p>
+          <p><span id="export-summary-count">0</span> item(s) will be exported</p>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-export-cancel">Cancel</button>
-        <button class="btn btn-primary" id="btn-export-confirm">Export...</button>
+        <button class="btn btn-primary" id="btn-export-confirm">Export Data...</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Prompt Modal -->
+  <div class="modal-overlay" id="modal-password-prompt">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h2 id="pwd-prompt-title">Master Password Required</h2>
+        <button class="modal-close" id="pwd-prompt-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="pwd-prompt-description" style="margin-bottom: 1rem; font-size: 13px; color: var(--text-muted);"></p>
+        <div class="form-group">
+          <label for="pwd-prompt-input">Password:</label>
+          <div class="password-wrapper">
+            <input type="password" id="pwd-prompt-input" placeholder="Enter password..." />
+            <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('pwd-prompt-input', this)">
+              <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-pwd-prompt-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-pwd-prompt-confirm">Confirm</button>
       </div>
     </div>
   </div>
@@ -1082,7 +1180,7 @@
           </svg>
         </div>
         <h3>SpurX Secure SSH</h3>
-        <p class="about-version" id="about-version">Version 1.6.4</p>
+        <p class="about-version" id="about-version">Version 1.8.3</p>
         <p class="about-description">A modern, secure SSH client for professional system administrators.</p>
         <button class="btn btn-secondary" id="about-update-check" style="margin-top: 10px;">Check for Updates</button>
         <div class="about-links">
@@ -1161,6 +1259,46 @@
     </div>
   </div>
   </div>
+  <script>
+    // Toggle password visibility — resets to hidden when the parent modal closes
+    function togglePasswordVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      const isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      btn.querySelector('.eye-open').style.display  = isHidden ? 'none'  : '';
+      btn.querySelector('.eye-closed').style.display = isHidden ? ''     : 'none';
+    }
+
+    // Reset all password fields back to hidden whenever ANY modal is closed
+    function resetPasswordToggles(modal) {
+      modal.querySelectorAll('.password-wrapper input[type="text"]').forEach(function(input) {
+        input.type = 'password';
+        var btn = input.parentElement.querySelector('.btn-eye');
+        if (btn) {
+          btn.querySelector('.eye-open').style.display  = '';
+          btn.querySelector('.eye-closed').style.display = 'none';
+        }
+      });
+    }
+
+    // Observe modal close (class removal of 'show') on all modal overlays
+    document.addEventListener('DOMContentLoaded', function() {
+      var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+          if (m.attributeName === 'class') {
+            var el = m.target;
+            if (!el.classList.contains('show')) {
+              resetPasswordToggles(el);
+            }
+          }
+        });
+      });
+      document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+        observer.observe(overlay, { attributes: true });
+      });
+    });
+  </script>
 </body>
 
 </html>

@@ -1165,6 +1165,46 @@ body {
   color: var(--text-muted);
 }
 
+/* Password field with eye toggle */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrapper input {
+  flex: 1;
+  padding-right: 38px !important;
+}
+
+.btn-eye {
+  position: absolute;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.btn-eye:hover {
+  color: var(--accent-primary);
+}
+
+.btn-eye svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
 .form-row {
   display: flex;
   gap: 12px;
@@ -1408,6 +1448,112 @@ body {
   width: 16px;
   height: 16px;
   color: var(--text-muted);
+}
+
+/* Import Conflict & Preview Styles */
+#modal-import-conflict .modal {
+  width: 380px;
+}
+
+.conflict-action {
+  transition: all var(--transition-fast) !important;
+}
+
+.conflict-action:hover {
+  border-color: var(--accent-primary) !important;
+  background: var(--bg-primary) !important;
+}
+
+.conflict-action strong {
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.import-preview-box {
+  min-height: 150px;
+  max-height: 250px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 8px;
+  margin-top: 6px;
+  margin-bottom: 16px;
+}
+
+.import-session-item {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+}
+
+.import-session-item:last-child {
+  margin-bottom: 0;
+}
+
+.import-session-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-primary);
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.import-session-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-session-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-session-host {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.import-session-folder {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
+.import-stats {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  background: rgba(0, 212, 255, 0.05);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+.import-stats-count {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+.import-hint {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 40px 20px;
 }
 
 .context-menu-item:hover svg {

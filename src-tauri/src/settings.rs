@@ -23,6 +23,7 @@ pub struct AppSettings {
     pub default_port: u16,
     pub connection_timeout: u32,
     pub keepalive_interval: u32,
+    pub global_username: Option<String>,
 
     // Behavior
     pub confirm_on_close: bool,
@@ -59,6 +60,7 @@ impl Default for AppSettings {
             default_port: 22,
             connection_timeout: 30,
             keepalive_interval: 60,
+            global_username: None,
 
             // Behavior
             confirm_on_close: true,

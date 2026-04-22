@@ -65,6 +65,8 @@ pub struct SavedSession {
     pub folder: Option<String>,
     pub username: Option<String>,
     pub log_directory: Option<String>,
+    #[serde(default)]
+    pub use_global_credentials: bool,
 }
 
 impl SavedSession {
@@ -84,6 +86,7 @@ impl SavedSession {
             folder,
             username,
             log_directory,
+            use_global_credentials: false,
         }
     }
 }
@@ -140,6 +143,9 @@ pub fn run() {
             commands::save_session_password,
             commands::get_session_password,
             commands::delete_session_password,
+            commands::save_global_password,
+            commands::get_global_password,
+            commands::delete_global_password,
             commands::get_quick_commands,
             commands::save_quick_command,
             commands::delete_quick_command,

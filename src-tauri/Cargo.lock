@@ -5030,6 +5030,7 @@ dependencies = [
 name = "spurx-secure-ssh"
 version = "1.8.0"
 dependencies = [
+ "aes-gcm",
  "async-trait",
  "chrono",
  "dirs 5.0.1",
@@ -5037,7 +5038,9 @@ dependencies = [
  "keyring",
  "lazy_static",
  "parking_lot",
+ "pbkdf2 0.12.2",
  "quick-xml 0.39.0",
+ "rand 0.8.5",
  "reqwest 0.12.28",
  "russh",
  "russh-keys",
@@ -5045,6 +5048,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

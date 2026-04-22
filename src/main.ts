@@ -35,6 +35,7 @@ interface ConnectRequest {
   username: string;
   password: string;
   log_directory?: string;
+  use_global_credentials?: boolean;
 }
 
 interface ConnectResponse {
@@ -51,6 +52,7 @@ interface SavedSession {
   folder?: string;
   username?: string;
   log_directory?: string;
+  use_global_credentials?: boolean;
 }
 
 interface QuickCommand {
@@ -194,6 +196,7 @@ const elements = {
   sessionFolder: document.getElementById('session-folder') as HTMLSelectElement,
   sessionLogDirectory: document.getElementById('session-log-directory') as HTMLInputElement,
   sessionModalTitle: document.getElementById('session-modal-title') as HTMLHeadingElement,
+  sessionUseGlobal: document.getElementById('session-use-global') as HTMLInputElement,
 
   // Form inputs - Add/Edit Command
   commandName: document.getElementById('command-name') as HTMLInputElement,
@@ -280,11 +283,34 @@ const elements = {
   importFormat: document.getElementById('import-format') as HTMLSelectElement,
   importFilePath: document.getElementById('import-file-path') as HTMLInputElement,
   importPreview: document.getElementById('import-preview') as HTMLDivElement,
+  importMasterPassword: document.getElementById('import-master-password') as HTMLInputElement,
+
+  // Password Prompt Modal
+  passwordPromptModal: document.getElementById('modal-password-prompt') as HTMLDivElement,
+  passwordPromptInput: document.getElementById('pwd-prompt-input') as HTMLInputElement,
+  passwordPromptTitle: document.getElementById('pwd-prompt-title') as HTMLHeadingElement,
+  passwordPromptDescription: document.getElementById('pwd-prompt-description') as HTMLParagraphElement,
+  passwordPromptConfirm: document.getElementById('btn-pwd-prompt-confirm') as HTMLButtonElement,
+  passwordPromptCancel: document.getElementById('btn-pwd-prompt-cancel') as HTMLButtonElement,
+  passwordPromptClose: document.getElementById('pwd-prompt-close') as HTMLButtonElement,
+  importMasterPasswordGroup: document.getElementById('import-master-password-group') as HTMLDivElement,
 
   // Export Sessions Modal
   exportModal: document.getElementById('modal-export-sessions') as HTMLDivElement,
   exportFormat: document.getElementById('export-format') as HTMLSelectElement,
   exportSessionCount: document.getElementById('export-session-count') as HTMLSpanElement,
+  exportCommandCount: document.getElementById('export-command-count') as HTMLSpanElement,
+  exportIncludeSessions: document.getElementById('export-include-sessions') as HTMLInputElement,
+  exportIncludeCommands: document.getElementById('export-include-commands') as HTMLInputElement,
+  exportSummaryCount: document.getElementById('export-summary-count') as HTMLSpanElement,
+  exportMasterPassword: document.getElementById('export-master-password') as HTMLInputElement,
+  exportMasterPasswordGroup: document.getElementById('export-master-password-group') as HTMLDivElement,
+
+  // Import Conflict Modal
+  conflictModal: document.getElementById('modal-import-conflict') as HTMLDivElement,
+  conflictMessage: document.getElementById('conflict-message') as HTMLDivElement,
+  conflictHost: document.getElementById('conflict-host') as HTMLElement,
+  conflictApplyAll: document.getElementById('conflict-apply-all') as HTMLInputElement,
 
   // Host Keys Manager
   hostKeysSearch: document.getElementById('host-keys-search') as HTMLInputElement,
@@ -768,6 +794,7 @@ async function connect(
         username,
         password,
         log_directory,
+    use_global_credentials: elements.sessionUseGlobal.checked,
       } as ConnectRequest,
     });
 
@@ -1733,6 +1760,9 @@ function showAddSessionModal(): void {
   elements.sessionUsername.value = '';
   elements.sessionPassword.value = '';
   elements.sessionLogDirectory.value = '';
+  elements.sessionUseGlobal.checked = false;
+  document.getElementById('session-username-group')!.style.display = 'block';
+  document.getElementById('session-password-group')!.style.display = 'block';
   populateFolderSelect(elements.sessionFolder, 'session');
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
@@ -1747,6 +1777,14 @@ async function showEditSessionModal(session: SavedSession): Promise<void> {
   elements.sessionUsername.value = session.username || '';
   elements.sessionPassword.value = ''; // Clear initially
   elements.sessionLogDirectory.value = session.log_directory || '';
+  elements.sessionUseGlobal.checked = session.use_global_credentials || false;
+  if(session.use_global_credentials) {
+    document.getElementById('session-username-group')!.style.display = 'none';
+    document.getElementById('session-password-group')!.style.display = 'none';
+  } else {
+    document.getElementById('session-username-group')!.style.display = 'block';
+    document.getElementById('session-password-group')!.style.display = 'block';
+  }
 
   // Try to load password securely
   try {
@@ -1783,6 +1821,7 @@ async function saveSessionModal(): Promise<void> {
     folder,
     username: elements.sessionUsername.value.trim() || undefined,
     log_directory,
+    use_global_credentials: elements.sessionUseGlobal.checked,
   };
 
   // Track the folder
@@ -1794,10 +1833,15 @@ async function saveSessionModal(): Promise<void> {
     const sessionId = session.id;
     await invoke('save_session', { session });
 
-    // Save password if provided
+    // Save or clear password
     const password = elements.sessionPassword.value;
     if (password) {
       await invoke('save_session_password', { sessionId, password });
+    } else if (editingSessionId) {
+      // Field was cleared on an existing session — delete the stored password
+      try {
+        await invoke('delete_session_password', { sessionId });
+      } catch (_) { /* not stored, ignore */ }
     }
 
     await loadSavedSessions();
@@ -2374,28 +2418,81 @@ async function testGrokConnection(): Promise<void> {
 }
 
 // ============================================
+// Password Prompt Utility
+// ============================================
+let passwordPromptResolve: ((value: string | null) => void) | null = null;
+
+async function promptPassword(title: string, description: string): Promise<string | null> {
+  elements.passwordPromptTitle.textContent = title;
+  elements.passwordPromptDescription.textContent = description;
+  elements.passwordPromptInput.value = '';
+  
+  showModal(elements.passwordPromptModal);
+  elements.passwordPromptInput.focus();
+
+  return new Promise((resolve) => {
+    passwordPromptResolve = resolve;
+  });
+}
+
+function handlePasswordPrompt(result: string | null) {
+  closeModal(elements.passwordPromptModal);
+  if (passwordPromptResolve) {
+    passwordPromptResolve(result);
+    passwordPromptResolve = null;
+  }
+}
+
+elements.passwordPromptConfirm.addEventListener('click', () => {
+  handlePasswordPrompt(elements.passwordPromptInput.value);
+});
+elements.passwordPromptCancel.addEventListener('click', () => handlePasswordPrompt(null));
+elements.passwordPromptClose.addEventListener('click', () => handlePasswordPrompt(null));
+elements.passwordPromptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handlePasswordPrompt(elements.passwordPromptInput.value);
+  if (e.key === 'Escape') handlePasswordPrompt(null);
+});
+
+// ============================================
 // Login Modal
 // ============================================
 
 async function showLoginModal(session: SavedSession): Promise<void> {
   loginSession = session;
   elements.loginModalTitle.textContent = `Connect to ${session.name}`;
-  elements.loginUsername.value = session.username || '';
-  elements.loginPassword.value = '';
 
-  // Try to load password securely
-  try {
-    const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
-    if (password) {
-      elements.loginPassword.value = password;
+  if (session.use_global_credentials) {
+    elements.loginUsername.value = currentSettings?.global_username || '';
+    elements.loginPassword.value = '';
+    try {
+      const gPwd = await invoke<string | null>('get_global_password');
+      if (gPwd) elements.loginPassword.value = gPwd;
+    } catch(e) {}
+  } else {
+    elements.loginUsername.value = session.username || '';
+    elements.loginPassword.value = '';
+    try {
+      const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
+      if (password) {
+        elements.loginPassword.value = password;
+      }
+    } catch (e) {
+      console.error('Failed to load session password:', e);
     }
-  } catch (e) {
-    console.error('Failed to load session password:', e);
+  }
+
+  const user = elements.loginUsername.value.trim();
+  const pass = elements.loginPassword.value;
+
+  if (user && pass) {
+    // If we have both, automatically connect and skip the modal
+    await connect(session.host, session.port, user, pass, false, session.log_directory);
+    return;
   }
 
   elements.loginModal.classList.add('show');
 
-  if (session.username) {
+  if (user) {
     elements.loginPassword.focus();
   } else {
     elements.loginUsername.focus();
@@ -2658,6 +2755,17 @@ function setupEventListeners(): void {
     closeModal(elements.addSessionModal);
   });
 
+  elements.sessionUseGlobal.addEventListener('change', (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    if (checked) {
+      document.getElementById('session-username-group')!.style.display = 'none';
+      document.getElementById('session-password-group')!.style.display = 'none';
+    } else {
+      document.getElementById('session-username-group')!.style.display = 'block';
+      document.getElementById('session-password-group')!.style.display = 'block';
+    }
+  });
+
   document.getElementById('btn-session-save')?.addEventListener('click', () => {
     saveSessionModal();
   });
@@ -2899,6 +3007,7 @@ interface AppSettings {
   default_port: number;
   connection_timeout: number;
   keepalive_interval: number;
+  global_username: string | null;
   confirm_on_close: boolean;
   save_window_size: boolean;
   restore_sessions: boolean;
@@ -2911,11 +3020,25 @@ interface AppSettings {
   debug_mode: boolean;
 }
 
+interface ImportPayload {
+  sessions: SavedSession[];
+  commands: QuickCommand[];
+}
+
 // Current app settings
 let currentSettings: AppSettings | null = null;
-
-// Sessions pending import
 let pendingImportSessions: SavedSession[] = [];
+let pendingImportCommands: QuickCommand[] = [];
+
+// Cache for export counts to avoid DOM scraping
+let exportTotalSessions = 0;
+let exportTotalCommands = 0;
+
+// Conflict Resolution State
+let sessionConflictQueue: SavedSession[] = [];
+let commandConflictQueue: QuickCommand[] = [];
+let bulkAction: 'update' | 'skip' | 'keepBoth' | null = null;
+let currentConflictCallback: ((choice: 'update' | 'skip' | 'keepBoth') => void) | null = null;
 
 // Load application settings
 async function loadAppSettings(): Promise<void> {
@@ -3014,6 +3137,17 @@ function populateSettingsForm(): void {
   elements.settingsSaveWindowSize.checked = currentSettings.save_window_size;
   elements.settingsRestoreSessions.checked = currentSettings.restore_sessions;
   elements.settingsDownloadDir.value = currentSettings.download_directory || '';
+  
+  const globalUser = document.getElementById('settings-global-username') as HTMLInputElement;
+  if (globalUser) globalUser.value = currentSettings.global_username || '';
+  
+  const globalPwd = document.getElementById('settings-global-password') as HTMLInputElement;
+  if (globalPwd) {
+    globalPwd.value = '';
+    invoke<string | null>('get_global_password').then(pwd => {
+      if (pwd) globalPwd.value = pwd;
+    }).catch(console.error);
+  }
 
   // Logging settings
   const logDirInput = document.getElementById('settings-log-dir') as HTMLInputElement;
@@ -3053,6 +3187,7 @@ async function saveAppSettings(): Promise<void> {
     save_window_size: elements.settingsSaveWindowSize.checked,
     restore_sessions: elements.settingsRestoreSessions.checked,
     download_directory: elements.settingsDownloadDir.value || null,
+    global_username: (document.getElementById('settings-global-username') as HTMLInputElement)?.value || null,
     log_directory: logDirInput?.value || null,
     logging_enabled: logEnabledInput?.checked || false,
     log_format: logFormatInput?.value || '{session}_{date}_{time}.log',
@@ -3063,6 +3198,13 @@ async function saveAppSettings(): Promise<void> {
   try {
     await invoke('save_settings', { settings });
     currentSettings = settings;
+    
+    const globalPwdInput = document.getElementById('settings-global-password') as HTMLInputElement;
+    if (globalPwdInput && globalPwdInput.value) {
+      await invoke('save_global_password', { password: globalPwdInput.value });
+    } else if (globalPwdInput && !globalPwdInput.value) {
+      await invoke('delete_global_password');
+    }
     closeModal(elements.settingsModal);
   } catch (e) {
     console.error('Failed to save settings:', e);
@@ -3165,6 +3307,17 @@ function setupSettingsListeners(): void {
       document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
       document.getElementById(`settings-${tabId}`)?.classList.add('active');
 
+      // Reset global password visibility when leaving the connection tab
+      const globalPwdInput = document.getElementById('settings-global-password') as HTMLInputElement | null;
+      if (globalPwdInput && globalPwdInput.type === 'text') {
+        globalPwdInput.type = 'password';
+        const btn = globalPwdInput.parentElement?.querySelector('.btn-eye') as HTMLElement | null;
+        if (btn) {
+          (btn.querySelector('.eye-open') as HTMLElement).style.display = '';
+          (btn.querySelector('.eye-closed') as HTMLElement).style.display = 'none';
+        }
+      }
+
       // Load host keys if security tab
       if (tabId === 'security') {
         refreshHostKeys();
@@ -3231,6 +3384,21 @@ function setupImportListeners(): void {
   // File Menu: Open Connection
   document.getElementById('menu-file-open')?.addEventListener('click', () => {
     showQuickConnectModal();
+  });
+
+    elements.importFormat.addEventListener('change', () => {
+    // Hidden - password now handled via pop-up prompt in previewImport
+  });
+
+  elements.exportFormat.addEventListener('change', () => {
+    const format = elements.exportFormat.value;
+    if (format === 'spurx_encrypted') {
+      elements.exportMasterPasswordGroup.style.display = 'block';
+      elements.exportMasterPasswordGroup.classList.remove('hidden');
+    } else {
+      elements.exportMasterPasswordGroup.style.display = 'none';
+      elements.exportMasterPasswordGroup.classList.add('hidden');
+    }
   });
 
   // File Menu: Import Sessions
@@ -3396,10 +3564,25 @@ function setupImportListeners(): void {
 
   // Browse button - using file input fallback
   document.getElementById('btn-import-browse')?.addEventListener('click', async () => {
+    const format = elements.importFormat.value;
+    let ext = 'reg';
+    let name = 'PuTTY Registry';
+
+    if (format === 'securecrt') {
+      ext = 'xml';
+      name = 'SecureCRT XML';
+    } else if (format === 'spurx_encrypted') {
+      ext = 'spurx';
+      name = 'SpurX Encrypted';
+    } else if (format === 'spurx_plaintext') {
+      ext = 'json';
+      name = 'SpurX JSON';
+    }
+
     // Create a hidden file input for file selection
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = elements.importFormat.value === 'securecrt' ? '.xml' : '.reg';
+    input.accept = `.${ext}`;
 
     input.onchange = async () => {
       const file = input.files?.[0];
@@ -3410,16 +3593,14 @@ function setupImportListeners(): void {
       // Read and preview
       const reader = new FileReader();
       reader.onload = async () => {
-
         // Create a temporary file path to pass to backend
-        // For now, we'll show a message that direct file reading is needed
         try {
           // Use Tauri's file dialog if available
           const { open } = await import('@tauri-apps/plugin-dialog');
           const selected = await open({
             filters: [{
-              name: elements.importFormat.value === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry',
-              extensions: elements.importFormat.value === 'securecrt' ? ['xml'] : ['reg']
+              name: name,
+              extensions: [ext]
             }]
           });
 
@@ -3432,16 +3613,15 @@ function setupImportListeners(): void {
           elements.importPreview.innerHTML = '<p class="import-hint">Please enter the full file path manually or use native file dialog.</p>';
         }
       };
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     };
 
-    // Try using Tauri dialog first
     try {
       const { open } = await import('@tauri-apps/plugin-dialog');
       const selected = await open({
         filters: [{
-          name: elements.importFormat.value === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry',
-          extensions: elements.importFormat.value === 'securecrt' ? ['xml'] : ['reg']
+          name: name,
+          extensions: [ext]
         }]
       });
 
@@ -3455,29 +3635,181 @@ function setupImportListeners(): void {
     }
   });
 
-  // Import confirm button
+  // Import confirm button - handles duplicate checks and conflict resolution queue
   document.getElementById('btn-import-confirm')?.addEventListener('click', async () => {
-    if (pendingImportSessions.length === 0) return;
+    if (pendingImportSessions.length === 0 && pendingImportCommands.length === 0) return;
 
-    try {
-      // Save each session
-      for (const session of pendingImportSessions) {
-        await invoke('save_session', { session });
+    // 1. Process Sessions
+    const duplicatesS: SavedSession[] = [];
+    const nonDuplicatesS: SavedSession[] = [];
+
+    for (const imported of pendingImportSessions) {
+      const existing = savedSessions.find(s => s.host === imported.host && s.port === imported.port);
+      if (existing) duplicatesS.push(imported);
+      else nonDuplicatesS.push(imported);
+    }
+
+    for (const session of nonDuplicatesS) {
+      await invoke('save_session', { session });
+    }
+
+    // 2. Process Commands
+    const duplicatesC: QuickCommand[] = [];
+    const nonDuplicatesC: QuickCommand[] = [];
+    const existingCommands = await invoke<QuickCommand[]>('get_quick_commands');
+
+    for (const imported of pendingImportCommands) {
+      const existing = existingCommands.find(c => c.name === imported.name);
+      if (existing) duplicatesC.push(imported);
+      else nonDuplicatesC.push(imported);
+    }
+
+    for (const command of nonDuplicatesC) {
+      await invoke('save_quick_command', { command });
+    }
+
+    // 3. Initiate conflict resolution if needed
+    if (duplicatesS.length === 0 && duplicatesC.length === 0) {
+      await loadSavedSessions();
+      await loadQuickCommands();
+      closeModal(elements.importModal);
+      alert(`Import successful!`);
+      return;
+    }
+
+    sessionConflictQueue = duplicatesS;
+    commandConflictQueue = duplicatesC;
+    bulkAction = null;
+    processNextConflict();
+  });
+
+  // Function to process the next conflict in the queue
+  async function processNextConflict() {
+    // Process sessions first, then commands
+    if (sessionConflictQueue.length > 0) {
+      const session = sessionConflictQueue[0];
+      const existing = savedSessions.find(s => s.host === session.host && s.port === session.port);
+
+      if (!existing) {
+        sessionConflictQueue.shift();
+        processNextConflict();
+        return;
       }
 
-      // Refresh session list
-      await loadSavedSessions();
-      closeModal(elements.importModal);
-    } catch (e) {
-      console.error('Failed to import sessions:', e);
-      alert('Failed to import sessions: ' + e);
+      const handleSessionChoice = async (choice: 'update' | 'skip' | 'keepBoth') => {
+        if (choice === 'update') {
+          session.id = existing.id;
+          await invoke('save_session', { session });
+        } else if (choice === 'keepBoth') {
+          session.name = `${session.name} (Imported)`;
+          await invoke('save_session', { session });
+        }
+        
+        sessionConflictQueue.shift();
+        
+        if (elements.conflictApplyAll.checked) {
+          bulkAction = choice;
+          while (sessionConflictQueue.length > 0) {
+            const s = sessionConflictQueue.shift()!;
+            const ex = savedSessions.find(e => e.host === s.host && e.port === s.port);
+            if (ex) {
+              if (choice === 'update') { s.id = ex.id; await invoke('save_session', { session: s }); }
+              else if (choice === 'keepBoth') { s.name = `${s.name} (Imported)`; await invoke('save_session', { session: s }); }
+            }
+          }
+        }
+        processNextConflict();
+      };
+
+      if (bulkAction) {
+        await handleSessionChoice(bulkAction);
+      } else {
+        elements.conflictMessage.innerHTML = `Session conflict: A session for <strong id="conflict-host">${session.host}:${session.port}</strong> already exists.`;
+        currentConflictCallback = handleSessionChoice;
+        showModal(elements.conflictModal);
+      }
+      return;
     }
+
+    if (commandConflictQueue.length > 0) {
+      const command = commandConflictQueue[0];
+      const existingCommands = await invoke<QuickCommand[]>('get_quick_commands');
+      const existing = existingCommands.find(c => c.name === command.name);
+
+      if (!existing) {
+        commandConflictQueue.shift();
+        processNextConflict();
+        return;
+      }
+
+      const handleCommandChoice = async (choice: 'update' | 'skip' | 'keepBoth') => {
+        if (choice === 'update') {
+          command.id = existing.id;
+          await invoke('save_quick_command', { command });
+        } else if (choice === 'keepBoth') {
+          command.name = `${command.name} (Imported)`;
+          await invoke('save_quick_command', { command });
+        }
+        
+        commandConflictQueue.shift();
+        
+        if (elements.conflictApplyAll.checked) {
+          bulkAction = choice;
+          while (commandConflictQueue.length > 0) {
+            const c = commandConflictQueue.shift()!;
+            const ex = existingCommands.find(e => e.name === c.name);
+            if (ex) {
+              if (choice === 'update') { c.id = ex.id; await invoke('save_quick_command', { command: c }); }
+              else if (choice === 'keepBoth') { c.name = `${c.name} (Imported)`; await invoke('save_quick_command', { command: c }); }
+            }
+          }
+        }
+        processNextConflict();
+      };
+
+      if (bulkAction) {
+        await handleCommandChoice(bulkAction);
+      } else {
+        elements.conflictMessage.innerHTML = `Command conflict: A command named <strong>${command.name}</strong> already exists.`;
+        currentConflictCallback = handleCommandChoice;
+        showModal(elements.conflictModal);
+      }
+      return;
+    }
+
+    // All done
+    await loadSavedSessions();
+    await loadQuickCommands();
+    closeModal(elements.importModal);
+    bulkAction = null;
+    alert("Import process completed.");
+  }
+
+  // Conflict modal action buttons
+  document.querySelectorAll('.conflict-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = (btn as HTMLElement).dataset.action as 'update' | 'skip' | 'keepBoth';
+      if (currentConflictCallback) {
+        closeModal(elements.conflictModal);
+        currentConflictCallback(action);
+      }
+    });
+  });
+
+  // Conflict modal close
+  document.getElementById('conflict-modal-close')?.addEventListener('click', () => {
+    closeModal(elements.conflictModal);
+    // Default to skip if closed
+    if (currentConflictCallback) currentConflictCallback('skip');
   });
 
   // Export modal handlers
   document.getElementById('export-modal-close')?.addEventListener('click', () => {
     closeModal(elements.exportModal);
   });
+
+  elements.exportIncludeSessions.addEventListener('change', updateExportSummary);
+  elements.exportIncludeCommands.addEventListener('change', updateExportSummary);
 
   document.getElementById('btn-export-cancel')?.addEventListener('click', () => {
     closeModal(elements.exportModal);
@@ -3487,86 +3819,211 @@ function setupImportListeners(): void {
     try {
       const { save } = await import('@tauri-apps/plugin-dialog');
       const format = elements.exportFormat.value;
-      const ext = format === 'securecrt' ? 'xml' : 'reg';
-      const name = format === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry';
+      let ext = format === 'securecrt' ? 'xml' : 'reg';
+      if (format === 'spurx_encrypted') ext = 'spurx';
+      if (format === 'spurx_plaintext') ext = 'json';
+      let name = format === 'securecrt' ? 'SecureCRT XML' : 'PuTTY Registry';
+      if (format === 'spurx_encrypted') name = 'SpurX Encrypted';
+      if (format === 'spurx_plaintext') name = 'SpurX JSON';
 
       const filePath = await save({
         filters: [{ name, extensions: [ext] }],
-        defaultPath: `sessions.${ext}`
+        defaultPath: `spurx_backup.${ext}`
       });
 
       if (filePath) {
+        const includeSessions = elements.exportIncludeSessions.checked;
+        const includeCommands = elements.exportIncludeCommands.checked;
+
+        const sessions = includeSessions ? savedSessions : [];
+        let commands: QuickCommand[] = [];
+        if (includeCommands) {
+          commands = await invoke<QuickCommand[]>('get_quick_commands');
+        }
+
         await invoke('export_sessions', {
           path: filePath,
           format,
-          sessions: savedSessions
+          sessions,
+          commands,
+          password: format === 'spurx_encrypted' ? (elements.exportMasterPassword.value || null) : null
         });
         closeModal(elements.exportModal);
-        alert(`Successfully exported ${savedSessions.length} sessions!`);
+        
+        let message = 'Successfully exported ';
+        if (includeSessions && includeCommands) message += `${sessions.length} sessions and ${commands.length} commands!`;
+        else if (includeSessions) message += `${sessions.length} sessions!`;
+        else if (includeCommands) message += `${commands.length} commands!`;
+        else message = "Export completed (no data selected).";
+        
+        alert(message);
       }
     } catch (e) {
-      console.error('Failed to export sessions:', e);
-      alert('Failed to export sessions: ' + e);
+      console.error('Failed to export data:', e);
+      alert('Failed to export data: ' + e);
     }
   });
 }
 
 // Show export modal
-function showExportModal(): void {
-  elements.exportSessionCount.textContent = savedSessions.length.toString();
+async function showExportModal(): Promise<void> {
+  exportTotalSessions = savedSessions.length;
+  elements.exportSessionCount.textContent = exportTotalSessions.toString();
+  
+  // Clear sensitive data on open
+  elements.exportMasterPassword.value = '';
+  
+  // Use cached quickCommands if available, otherwise fetch
+  if (quickCommands.length > 0) {
+    exportTotalCommands = quickCommands.length;
+    elements.exportCommandCount.textContent = exportTotalCommands.toString();
+  } else {
+    try {
+      const commands = await invoke<QuickCommand[]>('get_quick_commands');
+      exportTotalCommands = commands.length;
+      elements.exportCommandCount.textContent = exportTotalCommands.toString();
+    } catch {
+      elements.exportCommandCount.textContent = '0';
+    }
+  }
+  
+  // Update summary total
+  updateExportSummary();
+  
   showModal(elements.exportModal);
+}
+
+function updateExportSummary(): void {
+  let total = 0;
+  if (elements.exportIncludeSessions.checked) total += exportTotalSessions;
+  if (elements.exportIncludeCommands.checked) total += exportTotalCommands;
+  
+  if (elements.exportSummaryCount) {
+    elements.exportSummaryCount.textContent = total.toString();
+  }
 }
 
 // Reset import modal
 function resetImportModal(): void {
   elements.importFilePath.value = '';
-  elements.importPreview.innerHTML = '<p class="import-hint">Select a file to preview sessions</p>';
+  elements.importMasterPassword.value = '';
+  elements.importPreview.innerHTML = '<p class="import-hint">Select a file to preview data</p>';
   pendingImportSessions = [];
   (document.getElementById('btn-import-confirm') as HTMLButtonElement).disabled = true;
 }
 
 // Preview sessions from file
 async function previewImport(filePath: string): Promise<void> {
-  try {
-    const format = elements.importFormat.value;
-    pendingImportSessions = await invoke<SavedSession[]>('import_sessions', { path: filePath, format });
+  let attempts = 0;
+  const format = elements.importFormat.value;
 
-    if (pendingImportSessions.length === 0) {
-      elements.importPreview.innerHTML = '<p class="import-hint">No sessions found in this file</p>';
-      return;
-    }
+  while (attempts < 3) {
+    try {
+      const pwd = elements.importMasterPassword.value || null;
+      const payload = await invoke<ImportPayload>('import_sessions', { path: filePath, format, password: pwd });
+      
+      pendingImportSessions = payload.sessions || [];
+      pendingImportCommands = payload.commands || [];
 
-    // Build preview HTML
-    let html = '';
-    pendingImportSessions.forEach(session => {
+      if (pendingImportSessions.length === 0 && pendingImportCommands.length === 0) {
+        elements.importPreview.innerHTML = '<p class="import-hint">No sessions or commands found in this file</p>';
+        return;
+      }
+
+      // Build preview HTML
+      let html = '';
+      
+      // Sessions section
+      if (pendingImportSessions.length > 0) {
+        html += '<div class="preview-section-title" style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;">Sessions</div>';
+        
+        // Performance: Cap rendered items to 50
+        const displaySessions = pendingImportSessions.slice(0, 50);
+        displaySessions.forEach(session => {
+          html += `
+            <div class="import-session-item">
+              <svg class="import-session-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+              <div class="import-session-info">
+                <div class="import-session-name">${escapeHtml(session.name)}</div>
+                <div class="import-session-host">${escapeHtml(session.host)}:${session.port}</div>
+              </div>
+              ${session.folder ? `<span class="import-session-folder">${escapeHtml(session.folder)}</span>` : ''}
+            </div>
+          `;
+        });
+        
+        if (pendingImportSessions.length > 50) {
+          html += `<div class="import-more-hint" style="font-size: 11px; color: var(--text-muted); padding: 8px; text-align: center; font-style: italic;">...and ${pendingImportSessions.length - 50} more sessions</div>`;
+        }
+      }
+
+      // Commands section
+      if (pendingImportCommands.length > 0) {
+        html += `<div class="preview-section-title" style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-top: 16px; margin-bottom: 8px;">Quick Commands</div>`;
+        
+        // Performance: Cap rendered items to 50
+        const displayCommands = pendingImportCommands.slice(0, 50);
+        displayCommands.forEach(cmd => {
+          html += `
+            <div class="import-session-item">
+              <svg class="import-session-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 17l6-6-6-6M12 19h8"/>
+              </svg>
+              <div class="import-session-info">
+                <div class="import-session-name">${escapeHtml(cmd.name)}</div>
+                <div class="import-session-host" style="font-family: monospace;">${escapeHtml(cmd.command.substring(0, 40))}${cmd.command.length > 40 ? '...' : ''}</div>
+              </div>
+              <span class="import-session-folder">${escapeHtml(cmd.folder)}</span>
+            </div>
+          `;
+        });
+
+        if (pendingImportCommands.length > 50) {
+          html += `<div class="import-more-hint" style="font-size: 11px; color: var(--text-muted); padding: 8px; text-align: center; font-style: italic;">...and ${pendingImportCommands.length - 50} more commands</div>`;
+        }
+      }
+
       html += `
-        <div class="import-session-item">
-          <svg class="import-session-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-          <div class="import-session-info">
-            <div class="import-session-name">${escapeHtml(session.name)}</div>
-            <div class="import-session-host">${escapeHtml(session.host)}:${session.port}</div>
-          </div>
-          ${session.folder ? `<span class="import-session-folder">${escapeHtml(session.folder)}</span>` : ''}
+        <div class="import-stats">
+          <span>Found <span class="import-stats-count">${pendingImportSessions.length}</span> sessions & <span class="import-stats-count">${pendingImportCommands.length}</span> commands</span>
+          <span>Ready to import</span>
         </div>
       `;
-    });
 
-    html += `
-      <div class="import-stats">
-        <span>Found <span class="import-stats-count">${pendingImportSessions.length}</span> session(s)</span>
-        <span>Ready to import</span>
-      </div>
-    `;
+      elements.importPreview.innerHTML = html;
+      (document.getElementById('btn-import-confirm') as HTMLButtonElement).disabled = false;
+      return; // Success!
 
-    elements.importPreview.innerHTML = html;
-    (document.getElementById('btn-import-confirm') as HTMLButtonElement).disabled = false;
-  } catch (e) {
-    elements.importPreview.innerHTML = `<p class="import-hint" style="color: var(--accent-danger);">Error: ${e}</p>`;
-    pendingImportSessions = [];
+    } catch (e) {
+      const errorMsg = String(e);
+      const isEncrypted = format === 'spurx_encrypted';
+      const needsPassword = errorMsg.includes('Password required') || errorMsg.includes('Decryption failed');
+
+      if (isEncrypted && needsPassword) {
+        const title = errorMsg.includes('failed') ? "Incorrect Password" : "Master Password Required";
+        const description = errorMsg.includes('failed') 
+          ? "The password provided was incorrect. Please try again." 
+          : "This file is encrypted and requires a password to preview its contents.";
+        
+        const newPwd = await promptPassword(title, description);
+        
+        if (newPwd !== null) {
+          elements.importMasterPassword.value = newPwd;
+          attempts++;
+          continue; // Retry with new password
+        }
+      }
+      
+      // If we get here, it's a non-password error or user canceled prompt
+      elements.importPreview.innerHTML = `<p class="import-hint" style="color: var(--accent-danger);">Error: ${e}</p>`;
+      pendingImportSessions = [];
+      pendingImportCommands = [];
+      break; 
+    }
   }
 }
 

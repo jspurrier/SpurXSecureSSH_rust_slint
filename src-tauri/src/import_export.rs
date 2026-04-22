@@ -1,19 +1,29 @@
 //! Session import/export functionality
 //! Supports SecureCRT XML and PuTTY registry formats
 
-use crate::SavedSession;
+use crate::{QuickCommand, SavedSession};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
+
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
+};
+use pbkdf2::pbkdf2_hmac_array;
+use sha2::Sha256;
 
 /// Supported import/export formats
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionFormat {
     SecureCRT,
     PuTTY,
+    SpurXEncrypted,
+    SpurXPlaintext,
 }
 
 impl SessionFormat {
@@ -21,9 +31,31 @@ impl SessionFormat {
         match s.to_lowercase().as_str() {
             "securecrt" | "xml" => Some(SessionFormat::SecureCRT),
             "putty" | "reg" => Some(SessionFormat::PuTTY),
+            "spurx_encrypted" | "spurx" => Some(SessionFormat::SpurXEncrypted),
+            "spurx_plaintext" | "json" => Some(SessionFormat::SpurXPlaintext),
             _ => None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedSession {
+    pub session: SavedSession,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpurxExportPayload {
+    #[serde(default)]
+    pub sessions: Vec<ExportedSession>,
+    #[serde(default)]
+    pub commands: Vec<QuickCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportPayload {
+    pub sessions: Vec<SavedSession>,
+    pub commands: Vec<QuickCommand>,
 }
 
 // ============================================
@@ -176,6 +208,7 @@ impl SessionBuilder {
             folder,
             username: self.username,
             log_directory: None,
+            use_global_credentials: false,
         })
     }
 }
@@ -291,6 +324,7 @@ fn build_putty_session(name: &str, props: &HashMap<String, String>) -> Option<Sa
         folder: Some("PuTTY Import".to_string()),
         username,
         log_directory: None,
+        use_global_credentials: false,
     })
 }
 
@@ -461,23 +495,188 @@ fn escape_xml(s: &str) -> String {
 }
 
 // ============================================
+// SpurX Native Formats (Encrypted and Plaintext)
+// ============================================
+
+/// Derive AES key from password
+fn derive_key_password(password: &str, salt: &[u8]) -> Key<Aes256Gcm> {
+    let key = pbkdf2_hmac_array::<Sha256, 32>(password.as_bytes(), salt, 100_000);
+    *Key::<Aes256Gcm>::from_slice(&key)
+}
+
+/// Export to SpurX Plaintext format
+pub fn export_spurx_plaintext(
+    sessions: &[SavedSession],
+    commands: &[QuickCommand],
+    path: &Path,
+) -> Result<(), String> {
+    let mut payload_sessions = Vec::new();
+    for session in sessions {
+        let password = crate::session::get_password(&session.id).unwrap_or(None);
+        payload_sessions.push(ExportedSession {
+            session: session.clone(),
+            password,
+        });
+    }
+
+    let payload = SpurxExportPayload {
+        sessions: payload_sessions,
+        commands: commands.to_vec(),
+    };
+    let json = serde_json::to_string_pretty(&payload)
+        .map_err(|e| format!("Serialization error: {}", e))?;
+    fs::write(path, json).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Import from SpurX Plaintext format
+pub fn import_spurx_plaintext(path: &Path) -> Result<ImportPayload, String> {
+    let content = fs::read_to_string(path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let payload: SpurxExportPayload =
+        serde_json::from_str(&content).map_err(|e| format!("Parse error: {}", e))?;
+
+    let mut sessions = Vec::with_capacity(payload.sessions.len());
+    for entry in payload.sessions {
+        let mut session = entry.session;
+        session.id = Uuid::new_v4().to_string();
+        if let Some(pwd) = entry.password {
+            let _ = crate::session::save_password(&session.id, &pwd);
+        }
+        sessions.push(session);
+    }
+    
+    let mut commands = Vec::with_capacity(payload.commands.len());
+    for mut cmd in payload.commands {
+        cmd.id = Uuid::new_v4().to_string();
+        commands.push(cmd);
+    }
+    
+    Ok(ImportPayload { sessions, commands })
+}
+
+/// Export to SpurX Encrypted format
+pub fn export_spurx_encrypted(
+    sessions: &[SavedSession],
+    commands: &[QuickCommand],
+    path: &Path,
+    password: &str,
+) -> Result<(), String> {
+    let mut payload_sessions = Vec::new();
+    for session in sessions {
+        let pwd = crate::session::get_password(&session.id).unwrap_or(None);
+        payload_sessions.push(ExportedSession {
+            session: session.clone(),
+            password: pwd,
+        });
+    }
+    let payload = SpurxExportPayload {
+        sessions: payload_sessions,
+        commands: commands.to_vec(),
+    };
+    let json = serde_json::to_vec(&payload).map_err(|e| format!("Serialization error: {}", e))?;
+
+    let salt = Aes256Gcm::generate_nonce(&mut OsRng); // Using 12 bytes nonce as salt for simplicity here, or gen 16 bytes
+    let derived_key = derive_key_password(password, &salt);
+    let cipher = Aes256Gcm::new(&derived_key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+
+    let ciphertext = cipher
+        .encrypt(&nonce, json.as_ref())
+        .map_err(|e| format!("Encryption error: {}", e))?;
+
+    // File format: [salt 12 bytes] + [nonce 12 bytes] + [ciphertext]
+    let mut final_data = Vec::new();
+    final_data.extend_from_slice(&salt);
+    final_data.extend_from_slice(&nonce);
+    final_data.extend_from_slice(&ciphertext);
+
+    fs::write(path, final_data).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+/// Import from SpurX Encrypted format
+pub fn import_spurx_encrypted(path: &Path, password: &str) -> Result<ImportPayload, String> {
+    let content = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    if content.len() < 24 {
+        return Err("Invalid file format: too short".into());
+    }
+
+    let salt = &content[0..12];
+    let nonce = Nonce::from_slice(&content[12..24]);
+    let ciphertext = &content[24..];
+
+    let derived_key = derive_key_password(password, salt);
+    let cipher = Aes256Gcm::new(&derived_key);
+
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|_| "Decryption failed. Incorrect password?")?;
+
+    let payload: SpurxExportPayload =
+        serde_json::from_slice(&plaintext).map_err(|e| format!("Parse error: {}", e))?;
+
+    let mut sessions = Vec::with_capacity(payload.sessions.len());
+    for entry in payload.sessions {
+        let mut session = entry.session;
+        session.id = Uuid::new_v4().to_string();
+        if let Some(pwd) = entry.password {
+            let _ = crate::session::save_password(&session.id, &pwd);
+        }
+        sessions.push(session);
+    }
+    
+    let mut commands = Vec::with_capacity(payload.commands.len());
+    for mut cmd in payload.commands {
+        cmd.id = Uuid::new_v4().to_string();
+        commands.push(cmd);
+    }
+    
+    Ok(ImportPayload { sessions, commands })
+}
+
+// ============================================
 // Public Import/Export Interface
 // ============================================
 
 /// Import sessions from a file
-pub fn import_sessions(path: &str, format: &str) -> Result<Vec<SavedSession>, String> {
+pub fn import_sessions(
+    path: &str,
+    format: &str,
+    password: Option<String>,
+) -> Result<ImportPayload, String> {
     let path = Path::new(path);
     let format =
         SessionFormat::from_str(format).ok_or_else(|| format!("Unknown format: {}", format))?;
 
     match format {
-        SessionFormat::SecureCRT => import_securecrt(path),
-        SessionFormat::PuTTY => import_putty(path),
+        SessionFormat::SecureCRT => {
+            let sessions = import_securecrt(path)?;
+            Ok(ImportPayload {
+                sessions,
+                commands: Vec::new(),
+            })
+        }
+        SessionFormat::PuTTY => {
+            let sessions = import_putty(path)?;
+            Ok(ImportPayload {
+                sessions,
+                commands: Vec::new(),
+            })
+        }
+        SessionFormat::SpurXPlaintext => import_spurx_plaintext(path),
+        SessionFormat::SpurXEncrypted => {
+            let pwd = password.ok_or_else(|| "Password required for decryption".to_string())?;
+            import_spurx_encrypted(path, &pwd)
+        }
     }
 }
 
 /// Export sessions to a file
-pub fn export_sessions(path: &str, format: &str, sessions: &[SavedSession]) -> Result<(), String> {
+pub fn export_sessions(
+    path: &str,
+    format: &str,
+    sessions: &[SavedSession],
+    commands: &[QuickCommand],
+    password: Option<String>,
+) -> Result<(), String> {
     let path = Path::new(path);
     let format =
         SessionFormat::from_str(format).ok_or_else(|| format!("Unknown format: {}", format))?;
@@ -485,5 +684,10 @@ pub fn export_sessions(path: &str, format: &str, sessions: &[SavedSession]) -> R
     match format {
         SessionFormat::SecureCRT => export_securecrt(sessions, path),
         SessionFormat::PuTTY => export_putty(sessions, path),
+        SessionFormat::SpurXPlaintext => export_spurx_plaintext(sessions, commands, path),
+        SessionFormat::SpurXEncrypted => {
+            let pwd = password.ok_or_else(|| "Password required for encryption".to_string())?;
+            export_spurx_encrypted(sessions, commands, path, &pwd)
+        }
     }
 }
