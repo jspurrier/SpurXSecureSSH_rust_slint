@@ -9,19 +9,6 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 
 // Tauri API
-declare global {
-  interface Window {
-    __TAURI__: {
-      core: {
-        invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-      };
-      event: {
-        listen: <T>(event: string, handler: (event: { payload: T }) => void) => Promise<() => void>;
-      };
-    };
-  }
-}
-
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -30,219 +17,26 @@ import {
   ConnectResponse,
   SavedSession,
   QuickCommand,
-  SftpFileEntry,
   TabInfo,
   TabGroup,
-  AiConfig,
   KnownHostEntry
 } from './types';
-
-const tabs: Map<string, TabInfo> = new Map();
-const tabGroups: Map<string, TabGroup> = new Map();
-let activeTabId: string | null = null;
-let savedSessions: SavedSession[] = [];
-let quickCommands: QuickCommand[] = [];
+import { elements } from "./ui/elements";
+import { state } from "./state";
+import { escapeHtml, showModal, closeModal } from "./ui/utils";
+import { openSftpBrowser, closeSftpBrowser, loadSftpDirectory, uploadSftpFile, downloadSftpFile, createSftpFolder, deleteSftpFile } from "./features/sftp";
+import { toggleAiPanel, renderAiMessages, showAiError, sendAiMessage, showAiSettingsModal, hideAiSettingsModal, saveAiSettings, updatePrivacyBanner, getTerminalContent } from "./features/ai";
 
 // Editing state
-let editingSessionId: string | null = null;
-let editingCommandId: string | null = null;
-
-let contextMenuTargetSessionId: string | null = null;
-let contextMenuTargetCommandId: string | null = null;
-let contextMenuTargetFolder: string | null = null;
-let contextMenuType: 'session' | 'command' | 'folder' | null = null;
-let moveSessionId: string | null = null;
-let moveCommandId: string | null = null;
-let moveContext: 'session' | 'command' = 'session';
-let loginSession: SavedSession | null = null;
-let contextMenuTargetTabId: string | null = null;
-
 // Command folders
-let commandFolders: string[] = ['General'];
-let sessionFolders: string[] = ['General'];
 // Track expanded folders for persistence
-const expandedSessionFolders: Set<string> = new Set();
-const expandedCommandFolders: Set<string> = new Set();
-let folderContext: 'session' | 'command' = 'command';
-let tooltipHideTimer: number | null = null;
-
 // SFTP state
-let sftpSessionId: string | null = null;
-let sftpCurrentPath = '/';
-let sftpSelectedFile: SftpFileEntry | null = null;
-let sftpConnectionParams: ConnectRequest | null = null;
-
 // AI Assistant state
-let aiPanelOpen = false;
-const aiMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-let aiProvider: 'gemini' | 'grok' | 'ollama' = 'gemini';
-
 // AI Config interface matching Rust struct
 
 // ============================================
 // DOM Elements
 // ============================================
-
-const elements = {
-  tabBar: document.getElementById('tab-bar') as HTMLDivElement,
-  terminalViewport: document.getElementById('terminal-viewport') as HTMLDivElement,
-  sidebar: document.getElementById('sidebar') as HTMLDivElement,
-  commandTree: document.getElementById('command-tree') as HTMLDivElement,
-
-  // Sidebar panels
-  sessionsPanel: document.getElementById('sessions-panel') as HTMLDivElement,
-  commandsPanel: document.getElementById('commands-panel') as HTMLDivElement,
-  sessionsTree: document.getElementById('sessions-tree') as HTMLDivElement,
-
-  // Modals
-  quickConnectModal: document.getElementById('modal-quick-connect') as HTMLDivElement,
-  sessionsModal: document.getElementById('modal-sessions') as HTMLDivElement,
-  sessionsList: document.getElementById('sessions-list') as HTMLDivElement,
-  addSessionModal: document.getElementById('modal-add-session') as HTMLDivElement,
-  addCommandModal: document.getElementById('modal-add-command') as HTMLDivElement,
-  moveSessionModal: document.getElementById('modal-move-session') as HTMLDivElement,
-
-  // Context menu
-  contextMenu: document.getElementById('context-menu') as HTMLDivElement,
-  tabContextMenu: document.getElementById('tab-context-menu') as HTMLDivElement,
-
-  // Form inputs - Quick Connect
-  inputHost: document.getElementById('input-host') as HTMLInputElement,
-  inputPort: document.getElementById('input-port') as HTMLInputElement,
-  inputUsername: document.getElementById('input-username') as HTMLInputElement,
-  inputPassword: document.getElementById('input-password') as HTMLInputElement,
-  inputSaveSession: document.getElementById('input-save-session') as HTMLInputElement,
-  addressInput: document.getElementById('address-input') as HTMLInputElement,
-
-  // Form inputs - Add/Edit Session
-  sessionName: document.getElementById('session-name') as HTMLInputElement,
-  sessionHost: document.getElementById('session-host') as HTMLInputElement,
-  sessionPort: document.getElementById('session-port') as HTMLInputElement,
-  sessionFolder: document.getElementById('session-folder') as HTMLSelectElement,
-  sessionLogDirectory: document.getElementById('session-log-directory') as HTMLInputElement,
-  sessionModalTitle: document.getElementById('session-modal-title') as HTMLHeadingElement,
-  sessionUseGlobal: document.getElementById('session-use-global') as HTMLInputElement,
-
-  // Form inputs - Add/Edit Command
-  commandName: document.getElementById('command-name') as HTMLInputElement,
-  commandText: document.getElementById('command-text') as HTMLInputElement,
-  commandDescription: document.getElementById('command-description') as HTMLInputElement,
-  commandExample: document.getElementById('command-example') as HTMLTextAreaElement,
-  commandFolder: document.getElementById('command-folder') as HTMLSelectElement,
-  commandColor: document.getElementById('command-color') as HTMLSelectElement,
-  commandModalTitle: document.getElementById('command-modal-title') as HTMLHeadingElement,
-
-  // Form inputs - Add Folder
-  addFolderModal: document.getElementById('modal-add-folder') as HTMLDivElement,
-  folderName: document.getElementById('folder-name') as HTMLInputElement,
-  folderModalTitle: document.getElementById('folder-modal-title') as HTMLHeadingElement,
-
-  // Form inputs - Move Session
-  moveFolderInput: document.getElementById('move-folder-input') as HTMLInputElement,
-  moveFolderList: document.getElementById('folder-list') as HTMLDataListElement,
-
-  // Login Modal
-  loginModal: document.getElementById('modal-login') as HTMLDivElement,
-  loginModalTitle: document.getElementById('login-modal-title') as HTMLHeadingElement,
-  loginUsername: document.getElementById('login-username') as HTMLInputElement,
-  loginPassword: document.getElementById('login-password') as HTMLInputElement,
-
-  // Session User Input
-  sessionUsername: document.getElementById('session-username') as HTMLInputElement,
-  sessionPassword: document.getElementById('session-password') as HTMLInputElement,
-
-  // Sidebar Title
-  sidebarTitle: document.getElementById('sidebar-title') as HTMLSpanElement,
-
-  // Status bar
-  statusConnection: document.getElementById('status-connection') as HTMLSpanElement,
-  statusCipher: document.getElementById('status-cipher') as HTMLSpanElement,
-  statusSize: document.getElementById('status-size') as HTMLSpanElement,
-
-  // AI Panel
-  aiPanel: document.getElementById('ai-panel') as HTMLDivElement,
-  aiToggleBtn: document.getElementById('btn-toggle-ai') as HTMLButtonElement,
-  aiPanelToggle: document.getElementById('ai-panel-toggle') as HTMLButtonElement,
-  aiProviderSelect: document.getElementById('ai-provider-select') as HTMLSelectElement,
-  aiSettingsBtn: document.getElementById('ai-settings-btn') as HTMLButtonElement,
-  aiMessages: document.getElementById('ai-messages') as HTMLDivElement,
-  aiInput: document.getElementById('ai-input') as HTMLTextAreaElement,
-  aiSendBtn: document.getElementById('ai-send-btn') as HTMLButtonElement,
-  aiAnalyzeBtn: document.getElementById('ai-analyze-btn') as HTMLButtonElement,
-  aiHelpBtn: document.getElementById('ai-help-btn') as HTMLButtonElement,
-
-  // AI Settings Modal
-  aiSettingsModal: document.getElementById('modal-ai-settings') as HTMLDivElement,
-  aiGeminiKey: document.getElementById('ai-gemini-key') as HTMLInputElement,
-  aiToggleKeyVisibility: document.getElementById('ai-toggle-key-visibility') as HTMLButtonElement,
-  aiTestGemini: document.getElementById('ai-test-gemini') as HTMLButtonElement,
-  aiGrokKey: document.getElementById('ai-grok-key') as HTMLInputElement,
-  aiToggleGrokVisibility: document.getElementById('ai-toggle-grok-visibility') as HTMLButtonElement,
-  aiTestGrok: document.getElementById('ai-test-grok') as HTMLButtonElement,
-  aiOllamaHost: document.getElementById('ai-ollama-host') as HTMLInputElement,
-  aiOllamaModel: document.getElementById('ai-ollama-model') as HTMLInputElement,
-  aiTestOllama: document.getElementById('ai-test-ollama') as HTMLButtonElement,
-  aiSettingsSave: document.getElementById('ai-settings-save') as HTMLButtonElement,
-  aiSettingsCancel: document.getElementById('ai-settings-cancel') as HTMLButtonElement,
-  aiSettingsClose: document.getElementById('ai-settings-close') as HTMLButtonElement,
-
-  // Settings Modal
-  settingsModal: document.getElementById('modal-settings') as HTMLDivElement,
-  settingsFontFamily: document.getElementById('settings-font-family') as HTMLInputElement,
-  settingsFontSize: document.getElementById('settings-font-size') as HTMLInputElement,
-  settingsScrollback: document.getElementById('settings-scrollback') as HTMLInputElement,
-  settingsCursorStyle: document.getElementById('settings-cursor-style') as HTMLSelectElement,
-  settingsCursorBlink: document.getElementById('settings-cursor-blink') as HTMLInputElement,
-  settingsTheme: document.getElementById('settings-theme') as HTMLSelectElement,
-  settingsColorScheme: document.getElementById('settings-color-scheme') as HTMLSelectElement,
-  settingsDefaultPort: document.getElementById('settings-default-port') as HTMLInputElement,
-  settingsTimeout: document.getElementById('settings-timeout') as HTMLInputElement,
-  settingsKeepalive: document.getElementById('settings-keepalive') as HTMLInputElement,
-  settingsConfirmClose: document.getElementById('settings-confirm-close') as HTMLInputElement,
-  settingsSaveWindowSize: document.getElementById('settings-save-window-size') as HTMLInputElement,
-  settingsRestoreSessions: document.getElementById('settings-restore-sessions') as HTMLInputElement,
-  settingsDownloadDir: document.getElementById('settings-download-dir') as HTMLInputElement,
-
-  // Import Sessions Modal
-  importModal: document.getElementById('modal-import-sessions') as HTMLDivElement,
-  importFormat: document.getElementById('import-format') as HTMLSelectElement,
-  importFilePath: document.getElementById('import-file-path') as HTMLInputElement,
-  importPreview: document.getElementById('import-preview') as HTMLDivElement,
-  importMasterPassword: document.getElementById('import-master-password') as HTMLInputElement,
-
-  // Password Prompt Modal
-  passwordPromptModal: document.getElementById('modal-password-prompt') as HTMLDivElement,
-  passwordPromptInput: document.getElementById('pwd-prompt-input') as HTMLInputElement,
-  passwordPromptTitle: document.getElementById('pwd-prompt-title') as HTMLHeadingElement,
-  passwordPromptDescription: document.getElementById('pwd-prompt-description') as HTMLParagraphElement,
-  passwordPromptConfirm: document.getElementById('btn-pwd-prompt-confirm') as HTMLButtonElement,
-  passwordPromptCancel: document.getElementById('btn-pwd-prompt-cancel') as HTMLButtonElement,
-  passwordPromptClose: document.getElementById('pwd-prompt-close') as HTMLButtonElement,
-  importMasterPasswordGroup: document.getElementById('import-master-password-group') as HTMLDivElement,
-
-  // Export Sessions Modal
-  exportModal: document.getElementById('modal-export-sessions') as HTMLDivElement,
-  exportFormat: document.getElementById('export-format') as HTMLSelectElement,
-  exportSessionCount: document.getElementById('export-session-count') as HTMLSpanElement,
-  exportCommandCount: document.getElementById('export-command-count') as HTMLSpanElement,
-  exportIncludeSessions: document.getElementById('export-include-sessions') as HTMLInputElement,
-  exportIncludeCommands: document.getElementById('export-include-commands') as HTMLInputElement,
-  exportSummaryCount: document.getElementById('export-summary-count') as HTMLSpanElement,
-  exportMasterPassword: document.getElementById('export-master-password') as HTMLInputElement,
-  exportMasterPasswordGroup: document.getElementById('export-master-password-group') as HTMLDivElement,
-
-  // Import Conflict Modal
-  conflictModal: document.getElementById('modal-import-conflict') as HTMLDivElement,
-  conflictMessage: document.getElementById('conflict-message') as HTMLDivElement,
-  conflictHost: document.getElementById('conflict-host') as HTMLElement,
-  conflictApplyAll: document.getElementById('conflict-apply-all') as HTMLInputElement,
-
-  // Host Keys Manager
-  hostKeysSearch: document.getElementById('host-keys-search') as HTMLInputElement,
-  hostKeysList: document.getElementById('host-keys-list') as HTMLDivElement,
-  btnRefreshKeys: document.getElementById('btn-refresh-keys') as HTMLButtonElement,
-};
-
 // ============================================
 // Terminal Management
 // ============================================
@@ -326,7 +120,7 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
     container,
   };
 
-  tabs.set(tabId, tabInfo);
+  state.tabs.set(tabId, tabInfo);
   renderTabs();
   switchToTab(tabId);
 
@@ -341,17 +135,17 @@ const GROUP_COLORS = ['#00d4ff', '#10b981', '#f59e0b', '#f97316', '#8b5cf6', '#e
 
 function createTabGroup(name: string, initialTabIds: string[] = []): TabGroup {
   const groupId = generateGroupId();
-  const colorIndex = tabGroups.size % GROUP_COLORS.length;
+  const colorIndex = state.tabGroups.size % GROUP_COLORS.length;
   const group: TabGroup = { id: groupId, name, colorIndex, collapsed: false, tabIds: [] };
-  tabGroups.set(groupId, group);
+  state.tabGroups.set(groupId, group);
   for (const tabId of initialTabIds) addTabToGroup(tabId, groupId);
   renderTabs();
   return group;
 }
 
 function addTabToGroup(tabId: string, groupId: string): void {
-  const tab = tabs.get(tabId);
-  const group = tabGroups.get(groupId);
+  const tab = state.tabs.get(tabId);
+  const group = state.tabGroups.get(groupId);
   if (!tab || !group) return;
   // Remove from old group if needed
   if (tab.groupId && tab.groupId !== groupId) removeTabFromGroup(tabId);
@@ -360,38 +154,38 @@ function addTabToGroup(tabId: string, groupId: string): void {
 }
 
 function removeTabFromGroup(tabId: string): void {
-  const tab = tabs.get(tabId);
+  const tab = state.tabs.get(tabId);
   if (!tab || !tab.groupId) return;
-  const group = tabGroups.get(tab.groupId);
+  const group = state.tabGroups.get(tab.groupId);
   if (group) {
     group.tabIds = group.tabIds.filter(id => id !== tabId);
-    if (group.tabIds.length === 0) tabGroups.delete(group.id);
+    if (group.tabIds.length === 0) state.tabGroups.delete(group.id);
   }
   tab.groupId = undefined;
   renderTabs();
 }
 
 function renameTabGroup(groupId: string, name: string): void {
-  const group = tabGroups.get(groupId);
+  const group = state.tabGroups.get(groupId);
   if (!group) return;
   group.name = name;
   renderTabs();
 }
 
 function collapseTabGroup(groupId: string): void {
-  const group = tabGroups.get(groupId);
+  const group = state.tabGroups.get(groupId);
   if (!group) return;
   group.collapsed = !group.collapsed;
   renderTabs();
 }
 
 async function closeTabGroup(groupId: string): Promise<void> {
-  const group = tabGroups.get(groupId);
+  const group = state.tabGroups.get(groupId);
   if (!group) return;
   const ids = [...group.tabIds];
-  tabGroups.delete(groupId);
+  state.tabGroups.delete(groupId);
   for (const tabId of ids) {
-    const tab = tabs.get(tabId);
+    const tab = state.tabs.get(tabId);
     if (tab) tab.groupId = undefined;
     await closeTab(tabId);
   }
@@ -402,10 +196,10 @@ function broadcastCommand(command: string, groupId?: string): void {
   const encoder = new TextEncoder();
   const data = Array.from(encoder.encode(command + '\r'));
   let sent = 0;
-  tabs.forEach(tab => {
+  state.tabs.forEach(tab => {
     if (!tab.connected || !tab.sessionId) return;
     if (groupId) {
-      const group = tabGroups.get(groupId);
+      const group = state.tabGroups.get(groupId);
       if (!group || !group.tabIds.includes(tab.id)) return;
     }
     invoke('ssh_write', { sessionId: tab.sessionId, data });
@@ -424,16 +218,16 @@ function showBroadcastModal(groupId?: string): void {
 
   // Rebuild scope options
   scopeSelect.innerHTML = '<option value="all">All Connected Sessions</option>';
-  tabGroups.forEach(group => {
+  state.tabGroups.forEach(group => {
     const opt = document.createElement('option');
     opt.value = group.id;
     opt.textContent = `Group: ${group.name}`;
     scopeSelect.appendChild(opt);
   });
 
-  if (groupId && tabGroups.has(groupId)) {
+  if (groupId && state.tabGroups.has(groupId)) {
     scopeSelect.value = groupId;
-    const group = tabGroups.get(groupId)!;
+    const group = state.tabGroups.get(groupId)!;
     titleEl.textContent = `Broadcast to "${group.name}"`;
   } else {
     scopeSelect.value = 'all';
@@ -454,10 +248,10 @@ function updateBroadcastInfo(): void {
   const gId = scopeId === 'all' ? undefined : scopeId;
 
   let count = 0;
-  tabs.forEach(tab => {
+  state.tabs.forEach(tab => {
     if (!tab.connected) return;
     if (gId) {
-      const group = tabGroups.get(gId);
+      const group = state.tabGroups.get(gId);
       if (group && group.tabIds.includes(tab.id)) count++;
     } else {
       count++;
@@ -467,7 +261,7 @@ function updateBroadcastInfo(): void {
   if (count === 0) {
     targetInfo.textContent = 'No connected sessions in scope';
   } else if (gId) {
-    const group = tabGroups.get(gId)!;
+    const group = state.tabGroups.get(gId)!;
     targetInfo.textContent = `Will send to ${count} connected session${count !== 1 ? 's' : ''} in group "${group.name}"`;
   } else {
     targetInfo.textContent = `Will send to ${count} connected session${count !== 1 ? 's' : ''}`;
@@ -483,7 +277,7 @@ function renderTabs(): void {
   const renderedTabIds = new Set<string>();
 
   // First, render each group header + members
-  tabGroups.forEach(group => {
+  state.tabGroups.forEach(group => {
     // Group header element
     const headerEl = document.createElement('div');
     headerEl.className = `tab-group-header${group.collapsed ? ' collapsed' : ''}`;
@@ -548,7 +342,7 @@ function renderTabs(): void {
 
     // Render member tabs (respecting collapse state)
     group.tabIds.forEach(tabId => {
-      const tab = tabs.get(tabId);
+      const tab = state.tabs.get(tabId);
       if (!tab) return;
       renderedTabIds.add(tabId);
       if (group.collapsed) return; // hide but track
@@ -561,7 +355,7 @@ function renderTabs(): void {
   });
 
   // Then render ungrouped tabs
-  tabs.forEach(tab => {
+  state.tabs.forEach(tab => {
     if (renderedTabIds.has(tab.id)) return;
     elements.tabBar.appendChild(buildTabElement(tab));
   });
@@ -582,13 +376,13 @@ function renderTabs(): void {
   // Update broadcast toolbar button styling
   const broadcastBtn = document.getElementById('btn-broadcast');
   if (broadcastBtn) {
-    broadcastBtn.classList.toggle('has-groups', tabGroups.size > 0);
+    broadcastBtn.classList.toggle('has-groups', state.tabGroups.size > 0);
   }
 }
 
 function buildTabElement(tab: TabInfo): HTMLDivElement {
   const tabElement = document.createElement('div');
-  tabElement.className = `tab${tab.id === activeTabId ? ' active' : ''}`;
+  tabElement.className = `tab${tab.id === state.activeTabId ? ' active' : ''}`;
   tabElement.dataset.tabId = tab.id;
 
   tabElement.innerHTML = `
@@ -618,14 +412,14 @@ function buildTabElement(tab: TabInfo): HTMLDivElement {
 }
 
 function switchToTab(tabId: string): void {
-  const tab = tabs.get(tabId);
+  const tab = state.tabs.get(tabId);
   if (!tab) return;
 
-  activeTabId = tabId;
+  state.activeTabId = tabId;
   renderTabs();
 
   // Hide all containers
-  tabs.forEach(t => {
+  state.tabs.forEach(t => {
     t.container.classList.remove('active');
   });
 
@@ -641,7 +435,7 @@ function switchToTab(tabId: string): void {
 }
 
 async function closeTab(tabId: string): Promise<void> {
-  const tab = tabs.get(tabId);
+  const tab = state.tabs.get(tabId);
   if (!tab) return;
 
   // Disconnect if connected
@@ -659,13 +453,13 @@ async function closeTab(tabId: string): Promise<void> {
   tab.container.remove();
 
   // Remove from tabs
-  tabs.delete(tabId);
+  state.tabs.delete(tabId);
 
   // Switch to another tab or create new one
-  if (tabs.size === 0) {
+  if (state.tabs.size === 0) {
     await createTab();
-  } else if (activeTabId === tabId) {
-    const firstTab = tabs.values().next().value;
+  } else if (state.activeTabId === tabId) {
+    const firstTab = state.tabs.values().next().value;
     if (firstTab) {
       switchToTab(firstTab.id);
     }
@@ -696,7 +490,7 @@ async function connect(
   saveSession: boolean = false,
   log_directory?: string
 ): Promise<void> {
-  let tab = activeTabId ? tabs.get(activeTabId) : null;
+  let tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
 
   // Create new tab if none exists or current is connected
   if (!tab || tab.connected) {
@@ -835,11 +629,11 @@ async function connect(
 
 async function loadSavedSessions(): Promise<void> {
   try {
-    savedSessions = await invoke<SavedSession[]>('get_saved_sessions');
+    state.savedSessions = await invoke<SavedSession[]>('get_saved_sessions');
 
     // Sync folders
-    savedSessions.forEach(s => {
-      if (s.folder && !sessionFolders.includes(s.folder)) sessionFolders.push(s.folder);
+    state.savedSessions.forEach(s => {
+      if (s.folder && !state.sessionFolders.includes(s.folder)) state.sessionFolders.push(s.folder);
     });
 
     renderSessionsList();
@@ -852,12 +646,12 @@ async function loadSavedSessions(): Promise<void> {
 
 
 function renderSessionsList(): void {
-  if (savedSessions.length === 0) {
+  if (state.savedSessions.length === 0) {
     elements.sessionsList.innerHTML = '<div class="sessions-empty">No saved sessions yet</div>';
     return;
   }
 
-  elements.sessionsList.innerHTML = savedSessions.map((session) => `
+  elements.sessionsList.innerHTML = state.savedSessions.map((session) => `
     <div class="session-item" data-session-id="${session.id}">
       <div class="session-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -894,7 +688,7 @@ function renderSessionsList(): void {
 
     // Click to connect
     item.addEventListener('click', () => {
-      const session = savedSessions.find((s) => s.id === sessionId);
+      const session = state.savedSessions.find((s) => s.id === sessionId);
       if (session) {
         closeModal(elements.sessionsModal);
         showQuickConnectModal(session.host, session.port);
@@ -909,11 +703,11 @@ function renderSessionsList(): void {
 
 async function loadQuickCommands(): Promise<void> {
   try {
-    quickCommands = await invoke<QuickCommand[]>('get_quick_commands');
+    state.quickCommands = await invoke<QuickCommand[]>('get_quick_commands');
 
     // Sync folders
-    quickCommands.forEach(c => {
-      if (c.folder && !commandFolders.includes(c.folder)) commandFolders.push(c.folder);
+    state.quickCommands.forEach(c => {
+      if (c.folder && !state.commandFolders.includes(c.folder)) state.commandFolders.push(c.folder);
     });
 
     renderCommandTree();
@@ -1073,11 +867,11 @@ function renderCommandItem(cmd: QuickCommand): string {
 
 // Tooltip functions
 (window as any).showCommandTooltip = (e: MouseEvent, commandId: string) => {
-  if (tooltipHideTimer) {
-    window.clearTimeout(tooltipHideTimer);
-    tooltipHideTimer = null;
+  if (state.tooltipHideTimer) {
+    window.clearTimeout(state.tooltipHideTimer);
+    state.tooltipHideTimer = null;
   }
-  const cmd = quickCommands.find(c => c.id === commandId);
+  const cmd = state.quickCommands.find(c => c.id === commandId);
   if (!cmd) return;
 
   const tooltip = document.getElementById('command-tooltip');
@@ -1115,8 +909,8 @@ function renderCommandItem(cmd: QuickCommand): string {
 };
 
 (window as any).hideCommandTooltip = () => {
-  if (tooltipHideTimer) window.clearTimeout(tooltipHideTimer);
-  tooltipHideTimer = window.setTimeout(() => {
+  if (state.tooltipHideTimer) window.clearTimeout(state.tooltipHideTimer);
+  state.tooltipHideTimer = window.setTimeout(() => {
     const tooltip = document.getElementById('command-tooltip');
     if (tooltip) tooltip.classList.add('hidden');
   }, 300); // 300ms delay to allow moving mouse into tooltip
@@ -1127,9 +921,9 @@ function renderCommandTree(): void {
   const filterInput = document.getElementById('command-search') as HTMLInputElement;
   const filter = filterInput?.value.toLowerCase().trim() || '';
 
-  let items = quickCommands;
+  let items = state.quickCommands;
   if (filter) {
-    items = quickCommands.filter(c =>
+    items = state.quickCommands.filter(c =>
       c.name.toLowerCase().includes(filter) ||
       c.command.toLowerCase().includes(filter) ||
       (c.description && c.description.toLowerCase().includes(filter)) ||
@@ -1138,7 +932,7 @@ function renderCommandTree(): void {
   }
 
   const rootItems = items.filter(c => !c.folder);
-  const folders = buildFolderTree(commandFolders, items.filter(c => c.folder), expandedCommandFolders);
+  const folders = buildFolderTree(state.commandFolders, items.filter(c => c.folder), state.expandedCommandFolders);
 
   elements.commandTree.innerHTML = renderTreeHtml(folders, 'command', rootItems);
 
@@ -1154,9 +948,9 @@ function renderSessionsTree(): void {
   const filterInput = document.querySelector('.sidebar-search') as HTMLInputElement;
   const filter = filterInput?.value.toLowerCase().trim() || '';
 
-  let items = savedSessions;
+  let items = state.savedSessions;
   if (filter) {
-    items = savedSessions.filter(s =>
+    items = state.savedSessions.filter(s =>
       s.name.toLowerCase().includes(filter) ||
       s.host.toLowerCase().includes(filter) ||
       (s.username && s.username.toLowerCase().includes(filter))
@@ -1164,7 +958,7 @@ function renderSessionsTree(): void {
   }
 
   const rootItems = items.filter(s => !s.folder);
-  const folders = buildFolderTree(sessionFolders, items.filter(s => s.folder), expandedSessionFolders);
+  const folders = buildFolderTree(state.sessionFolders, items.filter(s => s.folder), state.expandedSessionFolders);
 
   elements.sessionsTree.innerHTML = renderTreeHtml(folders, 'session', rootItems);
 
@@ -1185,7 +979,7 @@ function attachTreeListeners(container: HTMLElement, type: 'session' | 'command'
 
       const path = (header.parentElement as HTMLElement).dataset.path;
       if (path) {
-        const expandedSet = type === 'session' ? expandedSessionFolders : expandedCommandFolders;
+        const expandedSet = type === 'session' ? state.expandedSessionFolders : state.expandedCommandFolders;
         if (header.classList.contains('expanded')) {
           expandedSet.add(path);
         } else {
@@ -1207,7 +1001,7 @@ function attachTreeListeners(container: HTMLElement, type: 'session' | 'command'
     container.querySelectorAll('.session-tree-item').forEach((item) => {
       const sessionId = (item as HTMLElement).dataset.sessionId;
       item.addEventListener('dblclick', () => {
-        const session = savedSessions.find((s) => s.id === sessionId);
+        const session = state.savedSessions.find((s) => s.id === sessionId);
         if (session) showLoginModal(session);
       });
       item.addEventListener('contextmenu', (e) => {
@@ -1220,7 +1014,7 @@ function attachTreeListeners(container: HTMLElement, type: 'session' | 'command'
     container.querySelectorAll('.command-item').forEach((item) => {
       const commandId = (item as HTMLElement).dataset.commandId;
       item.addEventListener('click', () => {
-        const command = quickCommands.find((c) => c.id === commandId);
+        const command = state.quickCommands.find((c) => c.id === commandId);
         if (command) executeQuickCommand(command);
       });
       item.addEventListener('contextmenu', (e) => {
@@ -1238,31 +1032,31 @@ async function deleteFolder(path: string, type: 'session' | 'command'): Promise<
 
   if (type === 'session') {
     // Remove sessions in this folder key
-    const toDelete = savedSessions.filter(s => s.folder === path || s.folder?.startsWith(path + '/'));
+    const toDelete = state.savedSessions.filter(s => s.folder === path || s.folder?.startsWith(path + '/'));
     // We need 'delete_session' for each? Or bulk delete?
     // Bulk delete logic:
     for (const s of toDelete) {
       await invoke('delete_session', { sessionId: s.id });
     }
     // Update folders list
-    sessionFolders = sessionFolders.filter(f => f !== path && !f.startsWith(path + '/'));
+    state.sessionFolders = state.sessionFolders.filter(f => f !== path && !f.startsWith(path + '/'));
     await loadSavedSessions();
   } else {
     // Command deletion
-    const toDelete = quickCommands.filter(c => c.folder === path || c.folder.startsWith(path + '/'));
+    const toDelete = state.quickCommands.filter(c => c.folder === path || c.folder.startsWith(path + '/'));
 
     for (const c of toDelete) {
       await invoke('delete_quick_command', { commandId: c.id });
     }
 
-    commandFolders = commandFolders.filter(f => f !== path && !f.startsWith(path + '/'));
+    state.commandFolders = state.commandFolders.filter(f => f !== path && !f.startsWith(path + '/'));
     await loadQuickCommands();
   }
 }
 
 
 function executeQuickCommand(command: QuickCommand): void {
-  const tab = activeTabId ? tabs.get(activeTabId) : null;
+  const tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
   if (tab && tab.sessionId) {
     const encoder = new TextEncoder();
     invoke('ssh_write', {
@@ -1286,27 +1080,19 @@ function showQuickConnectModal(host?: string, port?: number): void {
   elements.inputHost.focus();
 }
 
-function closeModal(modal: HTMLElement): void {
-  modal.classList.remove('show');
-}
-
-function showModal(modal: HTMLElement): void {
-  modal.classList.add('show');
-}
-
 // ============================================
 // Context Menu
 // ============================================
 
 function showContextMenu(e: MouseEvent, sessionId: string | null): void {
-  contextMenuType = 'session';
-  contextMenuTargetSessionId = sessionId;
+  state.contextMenuType = 'session';
+  state.contextMenuTargetSessionId = sessionId;
   updateContextMenuItems('session');
   displayMenu(e);
 }
 
 function showFolderContextMenu(e: MouseEvent, path: string, type: 'session' | 'command'): void {
-  contextMenuType = 'folder'; // We need to distinguish session/command folder? 
+  state.contextMenuType = 'folder'; // We need to distinguish session/command folder? 
   // We'll trust handleContextMenuAction to know which structure to delete from based on `contextMenuTargetFolder`? 
   // No, we need to know the type.
   // Let's rely on finding the folder in sessionFolders vs commandFolders? 
@@ -1314,16 +1100,16 @@ function showFolderContextMenu(e: MouseEvent, path: string, type: 'session' | 'c
   // I'll store the type in a temp property or use the global `folderContext`.
   // Let's reuse `folderContext` variable for this purpose temporarily or add a var.
   // Let's set the global `folderContext` which I already have (used for add modal).
-  folderContext = type;
-  contextMenuTargetFolder = path;
+  state.folderContext = type;
+  state.contextMenuTargetFolder = path;
 
   updateContextMenuItems('folder');
   displayMenu(e);
 }
 
 function showCommandContextMenu(e: MouseEvent, commandId: string | null): void {
-  contextMenuType = 'command';
-  contextMenuTargetCommandId = commandId;
+  state.contextMenuType = 'command';
+  state.contextMenuTargetCommandId = commandId;
   updateContextMenuItems('command');
   displayMenu(e);
 }
@@ -1407,10 +1193,10 @@ function updateContextMenuItems(type: 'session' | 'command' | 'folder'): void {
 
 function hideContextMenu(): void {
   elements.contextMenu.classList.remove('visible');
-  contextMenuTargetSessionId = null;
-  contextMenuTargetCommandId = null;
-  contextMenuTargetFolder = null;
-  contextMenuType = null;
+  state.contextMenuTargetSessionId = null;
+  state.contextMenuTargetCommandId = null;
+  state.contextMenuTargetFolder = null;
+  state.contextMenuType = null;
 }
 
 // ============================================
@@ -1419,8 +1205,8 @@ function hideContextMenu(): void {
 
 function showTabContextMenu(x: number, y: number, tabId: string): void {
   hideContextMenu(); // Close other menu
-  contextMenuTargetTabId = tabId;
-  const tab = tabs.get(tabId);
+  state.contextMenuTargetTabId = tabId;
+  const tab = state.tabs.get(tabId);
 
   if (!tab) return;
 
@@ -1460,7 +1246,7 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
   if (removeFromGroupItem) removeFromGroupItem.style.display = isInGroup ? 'flex' : 'none';
   if (broadcastGroupItem) broadcastGroupItem.style.display = isInGroup ? 'flex' : 'none';
   // Move-to-group only shown if there are existing groups to move to
-  if (moveToGroupItem) moveToGroupItem.style.display = tabGroups.size > 0 ? 'flex' : 'none';
+  if (moveToGroupItem) moveToGroupItem.style.display = state.tabGroups.size > 0 ? 'flex' : 'none';
 
   // Position and show
   elements.tabContextMenu.style.left = `${x}px`;
@@ -1470,13 +1256,13 @@ function showTabContextMenu(x: number, y: number, tabId: string): void {
 
 function hideTabContextMenu(): void {
   elements.tabContextMenu.classList.remove('visible');
-  contextMenuTargetTabId = null;
+  state.contextMenuTargetTabId = null;
 }
 
 async function handleTabContextMenuAction(action: string): Promise<void> {
-  if (!contextMenuTargetTabId) return;
-  const tabId = contextMenuTargetTabId;
-  const tab = tabs.get(tabId);
+  if (!state.contextMenuTargetTabId) return;
+  const tabId = state.contextMenuTargetTabId;
+  const tab = state.tabs.get(tabId);
 
   hideTabContextMenu();
 
@@ -1499,7 +1285,7 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
     case 'reconnect':
       if (tab.connectionParams) {
         const { host, port, username, password, log_directory } = tab.connectionParams;
-        if (activeTabId !== tabId) switchToTab(tabId);
+        if (state.activeTabId !== tabId) switchToTab(tabId);
         await connect(host, port, username, password, false, log_directory);
       }
       break;
@@ -1538,7 +1324,7 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
     case 'close-disconnected':
       const disconnectedIds: string[] = [];
-      tabs.forEach((t) => {
+      state.tabs.forEach((t) => {
         if (!t.connected) disconnectedIds.push(t.id);
       });
       for (const id of disconnectedIds) await closeTab(id);
@@ -1546,14 +1332,14 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
     case 'close-others':
       const otherIds: string[] = [];
-      tabs.forEach((t) => {
+      state.tabs.forEach((t) => {
         if (t.id !== tabId) otherIds.push(t.id);
       });
       for (const id of otherIds) await closeTab(id);
       break;
 
     case 'close-right':
-      const ids = Array.from(tabs.keys());
+      const ids = Array.from(state.tabs.keys());
       const currentIndex = ids.indexOf(tabId);
       if (currentIndex !== -1) {
         const rightIds = ids.slice(currentIndex + 1);
@@ -1562,7 +1348,7 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
       break;
 
     case 'close-all':
-      const allIds = Array.from(tabs.keys());
+      const allIds = Array.from(state.tabs.keys());
       for (const id of allIds) await closeTab(id);
       break;
 
@@ -1575,7 +1361,7 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
       break;
 
     case 'sftp':
-      if (activeTabId !== tabId) switchToTab(tabId);
+      if (state.activeTabId !== tabId) switchToTab(tabId);
       openSftpBrowser();
       break;
 
@@ -1586,8 +1372,8 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
     }
 
     case 'move-to-group': {
-      if (tabGroups.size === 0) break;
-      const groupList = Array.from(tabGroups.values());
+      if (state.tabGroups.size === 0) break;
+      const groupList = Array.from(state.tabGroups.values());
       const opts = groupList.map((g, i) => `${i + 1}: ${g.name}`).join('\n');
       const choice = prompt(`Move to which group?\n${opts}\n\nEnter number:`);
       if (choice) {
@@ -1616,8 +1402,8 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
 
 
 function handleContextMenuAction(action: string): void {
-  if (contextMenuType === 'session' && contextMenuTargetSessionId) {
-    const session = savedSessions.find((s) => s.id === contextMenuTargetSessionId);
+  if (state.contextMenuType === 'session' && state.contextMenuTargetSessionId) {
+    const session = state.savedSessions.find((s) => s.id === state.contextMenuTargetSessionId);
     if (!session) return;
 
     switch (action) {
@@ -1636,8 +1422,8 @@ function handleContextMenuAction(action: string): void {
         }
         break;
     }
-  } else if (contextMenuType === 'command' && contextMenuTargetCommandId) {
-    const command = quickCommands.find(c => c.id === contextMenuTargetCommandId);
+  } else if (state.contextMenuType === 'command' && state.contextMenuTargetCommandId) {
+    const command = state.quickCommands.find(c => c.id === state.contextMenuTargetCommandId);
     if (!command) return;
 
     switch (action) {
@@ -1661,11 +1447,11 @@ function handleContextMenuAction(action: string): void {
         }
         break;
     }
-  } else if (contextMenuType === 'folder' && contextMenuTargetFolder) {
+  } else if (state.contextMenuType === 'folder' && state.contextMenuTargetFolder) {
     if (action === 'delete-folder') {
-      deleteFolder(contextMenuTargetFolder, folderContext); // folderContext is set in showFolderContextMenu
+      deleteFolder(state.contextMenuTargetFolder, state.folderContext); // folderContext is set in showFolderContextMenu
     } else if (action === 'new-subfolder') {
-      showAddFolderModal(folderContext, contextMenuTargetFolder);
+      showAddFolderModal(state.folderContext, state.contextMenuTargetFolder);
     }
   }
 
@@ -1677,7 +1463,7 @@ function handleContextMenuAction(action: string): void {
 // ============================================
 
 function showAddSessionModal(): void {
-  editingSessionId = null;
+  state.editingSessionId = null;
   elements.sessionModalTitle.textContent = 'Add Session';
   elements.sessionName.value = '';
   elements.sessionHost.value = '';
@@ -1694,7 +1480,7 @@ function showAddSessionModal(): void {
 }
 
 async function showEditSessionModal(session: SavedSession): Promise<void> {
-  editingSessionId = session.id;
+  state.editingSessionId = session.id;
   elements.sessionModalTitle.textContent = 'Edit Session';
   elements.sessionName.value = session.name || '';
   elements.sessionHost.value = session.host;
@@ -1739,7 +1525,7 @@ async function saveSessionModal(): Promise<void> {
   }
 
   const session: SavedSession = {
-    id: editingSessionId || crypto.randomUUID(),
+    id: state.editingSessionId || crypto.randomUUID(),
     name: name || host,
     host, // 4 spaces
     port,
@@ -1750,8 +1536,8 @@ async function saveSessionModal(): Promise<void> {
   };
 
   // Track the folder
-  if (folder && !sessionFolders.includes(folder)) {
-    sessionFolders.push(folder);
+  if (folder && !state.sessionFolders.includes(folder)) {
+    state.sessionFolders.push(folder);
   }
 
   try {
@@ -1762,7 +1548,7 @@ async function saveSessionModal(): Promise<void> {
     const password = elements.sessionPassword.value;
     if (password) {
       await invoke('save_session_password', { sessionId, password });
-    } else if (editingSessionId) {
+    } else if (state.editingSessionId) {
       // Field was cleared on an existing session — delete the stored password
       try {
         await invoke('delete_session_password', { sessionId });
@@ -1781,7 +1567,7 @@ async function saveSessionModal(): Promise<void> {
 // ============================================
 
 function showAddCommandModal(): void {
-  editingCommandId = null;
+  state.editingCommandId = null;
   elements.commandModalTitle.textContent = 'Add Command';
   elements.commandName.value = '';
   elements.commandText.value = '';
@@ -1808,7 +1594,7 @@ async function saveCommandModal(): Promise<void> {
   }
 
   const quickCommand: QuickCommand = {
-    id: editingCommandId || crypto.randomUUID(),
+    id: state.editingCommandId || crypto.randomUUID(),
     name,
     command,
     folder,
@@ -1818,8 +1604,8 @@ async function saveCommandModal(): Promise<void> {
   };
 
   // Track the folder
-  if (!commandFolders.includes(folder)) {
-    commandFolders.push(folder);
+  if (!state.commandFolders.includes(folder)) {
+    state.commandFolders.push(folder);
   }
 
   try {
@@ -1837,7 +1623,7 @@ async function saveCommandModal(): Promise<void> {
 // ============================================
 
 function showAddFolderModal(context: 'session' | 'command', parentPath?: string): void {
-  folderContext = context;
+  state.folderContext = context;
   elements.folderModalTitle.textContent = context === 'session' ? 'Add Session Folder' : 'Add Command Folder';
   elements.folderName.value = parentPath ? `${parentPath}/` : '';
   elements.addFolderModal.classList.add('show');
@@ -1852,14 +1638,14 @@ function saveFolderModal(): void {
     return;
   }
 
-  if (folderContext === 'session') {
-    if (!sessionFolders.includes(name)) {
-      sessionFolders.push(name);
+  if (state.folderContext === 'session') {
+    if (!state.sessionFolders.includes(name)) {
+      state.sessionFolders.push(name);
       renderSessionsTree();
     }
   } else {
-    if (!commandFolders.includes(name)) {
-      commandFolders.push(name);
+    if (!state.commandFolders.includes(name)) {
+      state.commandFolders.push(name);
       renderCommandTree();
     }
   }
@@ -1872,23 +1658,23 @@ function saveFolderModal(): void {
 // ============================================
 
 function showMoveItemModal(type: 'session' | 'command', id: string): void {
-  moveContext = type;
+  state.moveContext = type;
   elements.moveFolderInput.value = '';
 
   if (type === 'session') {
-    moveSessionId = id;
-    const session = savedSessions.find(s => s.id === id);
+    state.moveSessionId = id;
+    const session = state.savedSessions.find(s => s.id === id);
     if (session && session.folder) elements.moveFolderInput.value = session.folder;
 
-    elements.moveFolderList.innerHTML = sessionFolders.map(folder =>
+    elements.moveFolderList.innerHTML = state.sessionFolders.map(folder =>
       `<option value="${escapeHtml(folder)}">`
     ).join('');
   } else {
-    moveCommandId = id;
-    const command = quickCommands.find(c => c.id === id);
+    state.moveCommandId = id;
+    const command = state.quickCommands.find(c => c.id === id);
     if (command && command.folder) elements.moveFolderInput.value = command.folder;
 
-    elements.moveFolderList.innerHTML = commandFolders.map(folder =>
+    elements.moveFolderList.innerHTML = state.commandFolders.map(folder =>
       `<option value="${escapeHtml(folder)}">`
     ).join('');
   }
@@ -1905,12 +1691,12 @@ async function saveMoveItemModal(): Promise<void> {
     return;
   }
 
-  if (moveContext === 'session') {
-    if (!moveSessionId) return;
-    const session = savedSessions.find(s => s.id === moveSessionId);
+  if (state.moveContext === 'session') {
+    if (!state.moveSessionId) return;
+    const session = state.savedSessions.find(s => s.id === state.moveSessionId);
     if (!session) return;
     session.folder = folder;
-    if (!sessionFolders.includes(folder)) sessionFolders.push(folder);
+    if (!state.sessionFolders.includes(folder)) state.sessionFolders.push(folder);
 
     try {
       await invoke('save_session', { session });
@@ -1921,11 +1707,11 @@ async function saveMoveItemModal(): Promise<void> {
     }
   } else {
     // Command move
-    if (!moveCommandId) return;
-    const command = quickCommands.find(c => c.id === moveCommandId);
+    if (!state.moveCommandId) return;
+    const command = state.quickCommands.find(c => c.id === state.moveCommandId);
     if (!command) return;
     command.folder = folder;
-    if (!commandFolders.includes(folder)) commandFolders.push(folder);
+    if (!state.commandFolders.includes(folder)) state.commandFolders.push(folder);
 
     try {
       await invoke('save_quick_command', { command });
@@ -1942,192 +1728,8 @@ async function saveMoveItemModal(): Promise<void> {
 // ============================================
 // AI Assistant
 // ============================================
-
-function toggleAiPanel(): void {
-  aiPanelOpen = !aiPanelOpen;
-  elements.aiPanel.classList.toggle('collapsed', !aiPanelOpen);
-  elements.aiToggleBtn.classList.toggle('active', aiPanelOpen);
-
-  if (aiPanelOpen) {
-    updatePrivacyBanner();
-  }
-
-  // Resize terminal when panel toggles
-  setTimeout(() => {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
-    if (tab) {
-      tab.fitAddon.fit();
-    }
-  }, 300); // Wait for animation
-}
-
 // Show/hide the privacy banner based on the current AI provider.
 // Cloud providers (Gemini, Grok) may train on submitted data.
-function updatePrivacyBanner(): void {
-  const banner = document.getElementById('ai-privacy-banner');
-  if (!banner) return;
-  const isCloud = aiProvider === 'gemini' || aiProvider === 'grok';
-  banner.classList.toggle('hidden', !isCloud);
-}
-
-function renderAiMessages(): void {
-  if (aiMessages.length === 0) {
-    elements.aiMessages.innerHTML = `
-      <div class="ai-welcome">
-        <div class="ai-welcome-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z" />
-            <circle cx="8" cy="14" r="1" fill="currentColor" />
-            <circle cx="16" cy="14" r="1" fill="currentColor" />
-            <path d="M9 18h6" />
-          </svg>
-        </div>
-        <h3>AI Assistant</h3>
-        <p>Ask for help with commands, analyze terminal output, or get device-specific guidance.</p>
-      </div>
-    `;
-    return;
-  }
-
-  let html = '';
-  for (const msg of aiMessages) {
-    // Convert markdown code blocks to HTML with copy buttons
-    let content = escapeHtml(msg.content);
-
-    // Handle fenced code blocks with copy button
-    content = content.replace(/```(\w*)\n([\s\S]*?)```/g, (_match, _lang, code) => {
-      const codeId = 'code-' + Math.random().toString(36).substr(2, 9);
-      return `<div class="code-block-wrapper">
-        <button class="code-copy-btn" data-code-id="${codeId}" title="Copy to clipboard">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-          </svg>
-        </button>
-        <pre><code id="${codeId}">${code.trim()}</code></pre>
-      </div>`;
-    });
-
-    // Handle inline code
-    content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
-    content = content.replace(/\n/g, '<br>');
-
-    html += `
-      <div class="ai-message ${msg.role}">
-        <div class="ai-message-content">${content}</div>
-      </div>
-    `;
-  }
-
-  elements.aiMessages.innerHTML = html;
-  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
-
-  // Add click handlers for copy buttons
-  document.querySelectorAll('.code-copy-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const codeId = btn.getAttribute('data-code-id');
-      const codeEl = document.getElementById(codeId!);
-      if (codeEl) {
-        try {
-          await navigator.clipboard.writeText(codeEl.textContent || '');
-          btn.classList.add('copied');
-          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 6L9 17l-5-5"/>
-          </svg>`;
-          setTimeout(() => {
-            btn.classList.remove('copied');
-            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>`;
-          }, 2000);
-        } catch (e) {
-          console.error('Failed to copy:', e);
-        }
-      }
-    });
-  });
-}
-
-function getTerminalContent(): string {
-  const tab = activeTabId ? tabs.get(activeTabId) : null;
-  if (!tab) return '';
-
-  // Get visible rows from terminal buffer
-  const buffer = tab.terminal.buffer.active;
-  const lines: string[] = [];
-
-  for (let i = 0; i < buffer.length; i++) {
-    const line = buffer.getLine(i);
-    if (line) {
-      lines.push(line.translateToString(true));
-    }
-  }
-
-  // Return last 100 lines to avoid too much context
-  return lines.slice(-100).join('\n').trim();
-}
-
-function showAiTyping(): void {
-  const typingHtml = `
-    <div class="ai-typing" id="ai-typing">
-      <div class="ai-typing-dots">
-        <span></span>
-        <span></span>
-        <span></span>
-      </div>
-    </div>
-  `;
-  elements.aiMessages.insertAdjacentHTML('beforeend', typingHtml);
-  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
-}
-
-function hideAiTyping(): void {
-  document.getElementById('ai-typing')?.remove();
-}
-
-function showAiError(message: string): void {
-  const errorHtml = `
-    <div class="ai-error">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 8v4M12 16h.01" />
-      </svg>
-      <span>${escapeHtml(message)}</span>
-    </div>
-  `;
-  elements.aiMessages.insertAdjacentHTML('beforeend', errorHtml);
-  elements.aiMessages.scrollTop = elements.aiMessages.scrollHeight;
-}
-
-async function sendAiMessage(userMessage: string): Promise<void> {
-  if (!userMessage.trim()) return;
-
-  // Add user message
-  aiMessages.push({ role: 'user', content: userMessage });
-  renderAiMessages();
-  elements.aiInput.value = '';
-  elements.aiSendBtn.disabled = true;
-
-  showAiTyping();
-
-  try {
-    // Call backend AI chat function
-    const response = await invoke<string>('ai_chat', {
-      provider: aiProvider,
-      messages: aiMessages,
-    });
-
-    hideAiTyping();
-    aiMessages.push({ role: 'assistant', content: response });
-    renderAiMessages();
-  } catch (error) {
-    hideAiTyping();
-    showAiError(error instanceof Error ? error.message : 'Failed to get AI response. Check your API key settings.');
-  } finally {
-    elements.aiSendBtn.disabled = false;
-  }
-}
 
 async function analyzeTerminal(): Promise<void> {
   const content = getTerminalContent();
@@ -2154,7 +1756,7 @@ async function showCommandHelp(): Promise<void> {
 
   // No active terminal session — show a helpful starter prompt
   if (!terminalContent) {
-    aiMessages.push({
+    state.aiMessages.push({
       role: 'assistant',
       content: 'Connect to a session and I can read your terminal to suggest commands.\n\nOr just ask me anything, for example:\n- "How do I show interfaces on Cisco?"\n- "Show ARP table for VLAN 100"\n- "Check routing table on Juniper"\n- "What is the Juniper equivalent of `show ip bgp sum`?"'
     });
@@ -2182,49 +1784,6 @@ Based ONLY on what you can see above:
 // ============================================
 // AI Settings Modal
 // ============================================
-
-async function showAiSettingsModal(): Promise<void> {
-  // Load current config from backend
-  try {
-    const config = await invoke<AiConfig>('get_ai_config');
-    elements.aiGeminiKey.value = config.gemini_api_key || '';
-    elements.aiGrokKey.value = config.grok_api_key || '';
-    elements.aiOllamaHost.value = config.ollama_host || 'http://localhost:11434';
-    elements.aiOllamaModel.value = config.ollama_model || 'llama3.2';
-  } catch (e) {
-    // Use defaults
-    elements.aiGeminiKey.value = '';
-    elements.aiGrokKey.value = '';
-    elements.aiOllamaHost.value = 'http://localhost:11434';
-    elements.aiOllamaModel.value = 'llama3.2';
-  }
-
-  elements.aiSettingsModal.classList.add('show');
-}
-
-function hideAiSettingsModal(): void {
-  elements.aiSettingsModal.classList.remove('show');
-  // Reset test button states
-  elements.aiTestGemini.classList.remove('success', 'error');
-  elements.aiTestGrok.classList.remove('success', 'error');
-  elements.aiTestOllama.classList.remove('success', 'error');
-}
-
-async function saveAiSettings(): Promise<void> {
-  const config: AiConfig = {
-    gemini_api_key: elements.aiGeminiKey.value.trim() || null,
-    grok_api_key: elements.aiGrokKey.value.trim() || null,
-    ollama_host: elements.aiOllamaHost.value.trim() || 'http://localhost:11434',
-    ollama_model: elements.aiOllamaModel.value.trim() || 'llama3.2',
-  };
-
-  try {
-    await invoke('save_ai_config', { config });
-    hideAiSettingsModal();
-  } catch (e) {
-    alert('Failed to save AI settings: ' + (e instanceof Error ? e.message : e));
-  }
-}
 
 function toggleApiKeyVisibility(): void {
   const input = elements.aiGeminiKey;
@@ -2383,7 +1942,7 @@ elements.passwordPromptInput.addEventListener('keydown', (e) => {
 // ============================================
 
 async function showLoginModal(session: SavedSession): Promise<void> {
-  loginSession = session;
+  state.loginSession = session;
   elements.loginModalTitle.textContent = `Connect to ${session.name}`;
 
   if (session.use_global_credentials) {
@@ -2499,7 +2058,7 @@ function setupEventListeners(): void {
     elements.sidebar.classList.add('collapsed');
     // Refit terminal when sidebar toggles
     setTimeout(() => {
-      const tab = activeTabId ? tabs.get(activeTabId) : null;
+      const tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
       if (tab) {
         tab.fitAddon.fit();
         updateStatusBar(tab);
@@ -2512,7 +2071,7 @@ function setupEventListeners(): void {
     elements.sidebar.classList.toggle('collapsed');
     // Refit terminal when sidebar toggles
     setTimeout(() => {
-      const tab = activeTabId ? tabs.get(activeTabId) : null;
+      const tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
       if (tab) {
         tab.fitAddon.fit();
         updateStatusBar(tab);
@@ -2532,7 +2091,7 @@ function setupEventListeners(): void {
 
   // AI Provider selection
   elements.aiProviderSelect?.addEventListener('change', () => {
-    aiProvider = elements.aiProviderSelect.value as 'gemini' | 'ollama';
+    state.aiProvider = elements.aiProviderSelect.value as 'gemini' | 'ollama';
     updatePrivacyBanner();
   });
 
@@ -2592,9 +2151,9 @@ function setupEventListeners(): void {
   // Tooltip interaction
   const tooltip = document.getElementById('command-tooltip');
   tooltip?.addEventListener('mouseenter', () => {
-    if (tooltipHideTimer) {
-      window.clearTimeout(tooltipHideTimer);
-      tooltipHideTimer = null;
+    if (state.tooltipHideTimer) {
+      window.clearTimeout(state.tooltipHideTimer);
+      state.tooltipHideTimer = null;
     }
   });
   tooltip?.addEventListener('mouseleave', () => {
@@ -2792,7 +2351,7 @@ function setupEventListeners(): void {
 
   // Window resize handler
   window.addEventListener('resize', () => {
-    const tab = activeTabId ? tabs.get(activeTabId) : null;
+    const tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
     if (tab) {
       tab.fitAddon.fit();
       updateStatusBar(tab);
@@ -2816,8 +2375,8 @@ function setupEventListeners(): void {
     // Ctrl+W - Close tab
     if (e.ctrlKey && e.key === 'w') {
       e.preventDefault();
-      if (activeTabId) {
-        closeTab(activeTabId);
+      if (state.activeTabId) {
+        closeTab(state.activeTabId);
       }
     }
 
@@ -2845,7 +2404,7 @@ function setupEventListeners(): void {
   });
 
   document.getElementById('btn-login-connect')?.addEventListener('click', async () => {
-    if (!loginSession) return;
+    if (!state.loginSession) return;
     const username = elements.loginUsername.value.trim();
     const password = elements.loginPassword.value;
 
@@ -2855,7 +2414,7 @@ function setupEventListeners(): void {
     }
 
     closeModal(elements.loginModal);
-    await connect(loginSession.host, loginSession.port, username, password, false, loginSession.log_directory);
+    await connect(state.loginSession.host, state.loginSession.port, username, password, false, state.loginSession.log_directory);
   });
 
   // Login input enter key
@@ -2884,16 +2443,9 @@ function setupEventListeners(): void {
 // ============================================
 // Utility Functions
 // ============================================
-
-function escapeHtml(text: string): string {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 // Helper to populate folder select
 function populateFolderSelect(select: HTMLSelectElement, type: 'session' | 'command', selectedValue?: string): void {
-  const foldersList = type === 'session' ? sessionFolders : commandFolders;
+  const foldersList = type === 'session' ? state.sessionFolders : state.commandFolders;
   // Use buildFolderTree to get structure (pass empty items to just get folder structure)
   const rootMap = buildFolderTree(foldersList, []);
 
@@ -3345,8 +2897,8 @@ function setupImportListeners(): void {
 
   // Edit Menu: Copy
   document.getElementById('menu-edit-copy')?.addEventListener('click', async () => {
-    if (!activeTabId) return;
-    const tab = tabs.get(activeTabId);
+    if (!state.activeTabId) return;
+    const tab = state.tabs.get(state.activeTabId);
     if (tab?.terminal) {
       const selection = tab.terminal.getSelection();
       if (selection) {
@@ -3357,8 +2909,8 @@ function setupImportListeners(): void {
 
   // Edit Menu: Paste
   document.getElementById('menu-edit-paste')?.addEventListener('click', async () => {
-    if (!activeTabId) return;
-    const tab = tabs.get(activeTabId);
+    if (!state.activeTabId) return;
+    const tab = state.tabs.get(state.activeTabId);
     if (tab?.terminal && tab.sessionId) {
       const text = await navigator.clipboard.readText();
       if (text) {
@@ -3369,8 +2921,8 @@ function setupImportListeners(): void {
 
   // Edit Menu: Select All
   document.getElementById('menu-edit-select-all')?.addEventListener('click', () => {
-    if (!activeTabId) return;
-    const tab = tabs.get(activeTabId);
+    if (!state.activeTabId) return;
+    const tab = state.tabs.get(state.activeTabId);
     if (tab?.terminal) {
       tab.terminal.selectAll();
     }
@@ -3378,8 +2930,8 @@ function setupImportListeners(): void {
 
   // Edit Menu: Clear Terminal
   document.getElementById('menu-edit-clear')?.addEventListener('click', () => {
-    if (!activeTabId) return;
-    const tab = tabs.get(activeTabId);
+    if (!state.activeTabId) return;
+    const tab = state.tabs.get(state.activeTabId);
     if (tab?.terminal) {
       tab.terminal.clear();
     }
@@ -3449,15 +3001,15 @@ function setupImportListeners(): void {
 
   // SFTP navigation
   document.getElementById('sftp-btn-up')?.addEventListener('click', () => {
-    if (sftpCurrentPath === '/') return;
-    const parts = sftpCurrentPath.split('/').filter(p => p);
+    if (state.sftpCurrentPath === '/') return;
+    const parts = state.sftpCurrentPath.split('/').filter(p => p);
     parts.pop();
-    sftpCurrentPath = '/' + parts.join('/');
-    loadSftpDirectory(sftpCurrentPath);
+    state.sftpCurrentPath = '/' + parts.join('/');
+    loadSftpDirectory(state.sftpCurrentPath);
   });
 
   document.getElementById('sftp-btn-refresh')?.addEventListener('click', () => {
-    loadSftpDirectory(sftpCurrentPath);
+    loadSftpDirectory(state.sftpCurrentPath);
   });
 
   // SFTP actions
@@ -3569,7 +3121,7 @@ function setupImportListeners(): void {
     const nonDuplicatesS: SavedSession[] = [];
 
     for (const imported of pendingImportSessions) {
-      const existing = savedSessions.find(s => s.host === imported.host && s.port === imported.port);
+      const existing = state.savedSessions.find(s => s.host === imported.host && s.port === imported.port);
       if (existing) duplicatesS.push(imported);
       else nonDuplicatesS.push(imported);
     }
@@ -3613,7 +3165,7 @@ function setupImportListeners(): void {
     // Process sessions first, then commands
     if (sessionConflictQueue.length > 0) {
       const session = sessionConflictQueue[0];
-      const existing = savedSessions.find(s => s.host === session.host && s.port === session.port);
+      const existing = state.savedSessions.find(s => s.host === session.host && s.port === session.port);
 
       if (!existing) {
         sessionConflictQueue.shift();
@@ -3636,7 +3188,7 @@ function setupImportListeners(): void {
           bulkAction = choice;
           while (sessionConflictQueue.length > 0) {
             const s = sessionConflictQueue.shift()!;
-            const ex = savedSessions.find(e => e.host === s.host && e.port === s.port);
+            const ex = state.savedSessions.find(e => e.host === s.host && e.port === s.port);
             if (ex) {
               if (choice === 'update') { s.id = ex.id; await invoke('save_session', { session: s }); }
               else if (choice === 'keepBoth') { s.name = `${s.name} (Imported)`; await invoke('save_session', { session: s }); }
@@ -3760,7 +3312,7 @@ function setupImportListeners(): void {
         const includeSessions = elements.exportIncludeSessions.checked;
         const includeCommands = elements.exportIncludeCommands.checked;
 
-        const sessions = includeSessions ? savedSessions : [];
+        const sessions = includeSessions ? state.savedSessions : [];
         let commands: QuickCommand[] = [];
         if (includeCommands) {
           commands = await invoke<QuickCommand[]>('get_quick_commands');
@@ -3792,15 +3344,15 @@ function setupImportListeners(): void {
 
 // Show export modal
 async function showExportModal(): Promise<void> {
-  exportTotalSessions = savedSessions.length;
+  exportTotalSessions = state.savedSessions.length;
   elements.exportSessionCount.textContent = exportTotalSessions.toString();
   
   // Clear sensitive data on open
   elements.exportMasterPassword.value = '';
   
   // Use cached quickCommands if available, otherwise fetch
-  if (quickCommands.length > 0) {
-    exportTotalCommands = quickCommands.length;
+  if (state.quickCommands.length > 0) {
+    exportTotalCommands = state.quickCommands.length;
     elements.exportCommandCount.textContent = exportTotalCommands.toString();
   } else {
     try {
@@ -3955,238 +3507,6 @@ async function previewImport(filePath: string): Promise<void> {
 // ============================================
 // SFTP Browser Functions
 // ============================================
-
-async function openSftpBrowser(): Promise<void> {
-  // Check if we have an active connection
-  if (!activeTabId) {
-    alert('No active connection. Please connect to a server first.');
-    return;
-  }
-
-  const tab = tabs.get(activeTabId);
-  if (!tab?.sessionId || !tab.connectionParams) {
-    alert('No active SSH connection. Please connect to a server first.');
-    return;
-  }
-
-  // Store connection params for SFTP
-  sftpConnectionParams = tab.connectionParams;
-  sftpSessionId = 'sftp-' + tab.sessionId;
-
-  try {
-    // Connect SFTP
-    await invoke('sftp_connect', {
-      sessionId: sftpSessionId,
-      host: sftpConnectionParams.host,
-      port: sftpConnectionParams.port,
-      username: sftpConnectionParams.username,
-      password: sftpConnectionParams.password,
-    });
-
-    // Show modal and load root directory
-    const sftpModal = document.getElementById('modal-sftp');
-    if (sftpModal) {
-      showModal(sftpModal);
-      sftpCurrentPath = '/home/' + sftpConnectionParams.username;
-      await loadSftpDirectory(sftpCurrentPath);
-    }
-  } catch (e) {
-    console.error('SFTP connect failed:', e);
-    alert('Failed to connect SFTP: ' + e);
-  }
-}
-
-async function closeSftpBrowser(): Promise<void> {
-  const sftpModal = document.getElementById('modal-sftp');
-  if (sftpModal) closeModal(sftpModal);
-
-  // Disconnect SFTP
-  if (sftpSessionId) {
-    try {
-      await invoke('sftp_disconnect', { sessionId: sftpSessionId });
-    } catch (e) {
-      console.error('SFTP disconnect error:', e);
-    }
-    sftpSessionId = null;
-  }
-
-  sftpSelectedFile = null;
-  sftpConnectionParams = null;
-}
-
-async function loadSftpDirectory(path: string): Promise<void> {
-  const fileList = document.getElementById('sftp-file-list');
-  const pathInput = document.getElementById('sftp-current-path') as HTMLInputElement;
-
-  if (!fileList || !sftpSessionId) return;
-
-  fileList.innerHTML = '<div class="sftp-empty">Loading...</div>';
-  pathInput.value = path;
-  sftpCurrentPath = path;
-  sftpSelectedFile = null;
-  updateSftpButtons();
-
-  try {
-    const entries = await invoke<SftpFileEntry[]>('sftp_list', {
-      sessionId: sftpSessionId,
-      path: path,
-    });
-
-    if (entries.length === 0) {
-      fileList.innerHTML = '<div class="sftp-empty">Empty directory</div>';
-      return;
-    }
-
-    // Sort: directories first, then alphabetically
-    entries.sort((a, b) => {
-      if (a.is_dir && !b.is_dir) return -1;
-      if (!a.is_dir && b.is_dir) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
-    fileList.innerHTML = entries.map(entry => `
-      <div class="sftp-file-item" data-path="${escapeHtml(entry.path)}" data-is-dir="${entry.is_dir}" data-name="${escapeHtml(entry.name)}">
-        <svg class="sftp-file-icon ${entry.is_dir ? 'folder' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          ${entry.is_dir
-        ? '<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2v11z"/>'
-        : '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>'
-      }
-        </svg>
-        <span class="sftp-file-name">${escapeHtml(entry.name)}</span>
-        <span class="sftp-file-size">${entry.is_dir ? '' : formatFileSize(entry.size)}</span>
-      </div>
-    `).join('');
-
-    // Add click handlers
-    fileList.querySelectorAll('.sftp-file-item').forEach(item => {
-      item.addEventListener('click', () => {
-        // Deselect others
-        fileList.querySelectorAll('.sftp-file-item').forEach(i => i.classList.remove('selected'));
-        item.classList.add('selected');
-
-        const el = item as HTMLElement;
-        sftpSelectedFile = {
-          name: el.dataset.name || '',
-          path: el.dataset.path || '',
-          is_dir: el.dataset.isDir === 'true',
-          size: 0,
-        };
-        updateSftpButtons();
-      });
-
-      item.addEventListener('dblclick', () => {
-        const el = item as HTMLElement;
-        if (el.dataset.isDir === 'true') {
-          loadSftpDirectory(el.dataset.path || '');
-        }
-      });
-    });
-  } catch (e) {
-    console.error('SFTP list failed:', e);
-    fileList.innerHTML = `<div class="sftp-empty" style="color: var(--accent-danger);">Error: ${e}</div>`;
-  }
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-}
-
-function updateSftpButtons(): void {
-  const downloadBtn = document.getElementById('sftp-btn-download') as HTMLButtonElement;
-  const deleteBtn = document.getElementById('sftp-btn-delete') as HTMLButtonElement;
-
-  if (downloadBtn) downloadBtn.disabled = !sftpSelectedFile || sftpSelectedFile.is_dir;
-  if (deleteBtn) deleteBtn.disabled = !sftpSelectedFile;
-}
-
-async function uploadSftpFile(): Promise<void> {
-  if (!sftpSessionId) return;
-
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const file = await open({ multiple: false });
-
-  if (!file) return;
-
-  try {
-    const remotePath = sftpCurrentPath + '/' + (file as string).split(/[/\\]/).pop();
-    await invoke('sftp_upload', {
-      sessionId: sftpSessionId,
-      localPath: file as string,
-      remotePath: remotePath,
-    });
-    await loadSftpDirectory(sftpCurrentPath);
-  } catch (e) {
-    console.error('SFTP upload failed:', e);
-    alert('Upload failed: ' + e);
-  }
-}
-
-async function downloadSftpFile(): Promise<void> {
-  if (!sftpSessionId || !sftpSelectedFile || sftpSelectedFile.is_dir) return;
-
-  const { save } = await import('@tauri-apps/plugin-dialog');
-  const file = await save({ defaultPath: sftpSelectedFile.name });
-
-  if (!file) return;
-
-  try {
-    await invoke('sftp_download', {
-      sessionId: sftpSessionId,
-      remotePath: sftpSelectedFile.path,
-      localPath: file,
-    });
-    alert('Download complete!');
-  } catch (e) {
-    console.error('SFTP download failed:', e);
-    alert('Download failed: ' + e);
-  }
-}
-
-async function createSftpFolder(): Promise<void> {
-  if (!sftpSessionId) return;
-
-  const name = prompt('Enter folder name:');
-  if (!name) return;
-
-  try {
-    await invoke('sftp_mkdir', {
-      sessionId: sftpSessionId,
-      path: sftpCurrentPath + '/' + name,
-    });
-    await loadSftpDirectory(sftpCurrentPath);
-  } catch (e) {
-    console.error('SFTP mkdir failed:', e);
-    alert('Failed to create folder: ' + e);
-  }
-}
-
-async function deleteSftpFile(): Promise<void> {
-  if (!sftpSessionId || !sftpSelectedFile) return;
-
-  if (!confirm(`Delete "${sftpSelectedFile.name}"?`)) return;
-
-  try {
-    if (sftpSelectedFile.is_dir) {
-      await invoke('sftp_delete_dir', {
-        sessionId: sftpSessionId,
-        path: sftpSelectedFile.path,
-      });
-    } else {
-      await invoke('sftp_delete_file', {
-        sessionId: sftpSessionId,
-        path: sftpSelectedFile.path,
-      });
-    }
-    await loadSftpDirectory(sftpCurrentPath);
-  } catch (e) {
-    console.error('SFTP delete failed:', e);
-    alert('Delete failed: ' + e);
-  }
-}
-
 // ============================================
 // Auto Updater
 // ============================================
