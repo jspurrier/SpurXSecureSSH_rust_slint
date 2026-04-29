@@ -348,7 +348,7 @@ pub async fn check_latest_version(app: AppHandle) -> Result<VersionCheckResponse
         return Ok(VersionCheckResponse {
             update_available: false,
             latest_version: "".to_string(),
-            current_version: current_version,
+            current_version,
             url: "".to_string(),
             error: Some(format!("GitHub API returned error: {}", response.status())),
         });

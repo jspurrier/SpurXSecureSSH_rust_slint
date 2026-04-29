@@ -25,80 +25,17 @@ declare global {
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-// ============================================
-// Types
-// ============================================
-
-interface ConnectRequest {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  log_directory?: string;
-  use_global_credentials?: boolean;
-}
-
-interface ConnectResponse {
-  session_id: string;
-  success: boolean;
-  error?: string;
-}
-
-interface SavedSession {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  folder?: string;
-  username?: string;
-  log_directory?: string;
-  use_global_credentials?: boolean;
-}
-
-interface QuickCommand {
-  id: string;
-  name: string;
-  command: string;
-  folder: string;
-  icon?: string;
-  description?: string;
-  example?: string;
-}
-
-interface SftpFileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  size: number;
-  modified?: number;
-  permissions?: number;
-}
-
-interface TabInfo {
-  id: string;
-  sessionId?: string;
-  title: string;
-  terminal: Terminal;
-  fitAddon: FitAddon;
-  connected: boolean;
-  unlisteners: Array<() => void>;
-  connectionParams: ConnectRequest | null;
-  container: HTMLDivElement;
-  onDataDisposable?: { dispose: () => void }; // Track to prevent duplicate listeners on reconnect
-  groupId?: string; // Tab group membership
-}
-
-interface TabGroup {
-  id: string;
-  name: string;
-  colorIndex: number; // 0-5, indexes into CSS group color palette
-  collapsed: boolean;
-  tabIds: string[]; // ordered list
-}
-
-// ============================================
-// State
-// ============================================
+import {
+  ConnectRequest,
+  ConnectResponse,
+  SavedSession,
+  QuickCommand,
+  SftpFileEntry,
+  TabInfo,
+  TabGroup,
+  AiConfig,
+  KnownHostEntry
+} from './types';
 
 const tabs: Map<string, TabInfo> = new Map();
 const tabGroups: Map<string, TabGroup> = new Map();
@@ -141,18 +78,6 @@ const aiMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 let aiProvider: 'gemini' | 'grok' | 'ollama' = 'gemini';
 
 // AI Config interface matching Rust struct
-interface AiConfig {
-  gemini_api_key: string | null;
-  grok_api_key: string | null;
-  ollama_host: string;
-  ollama_model: string;
-}
-
-interface KnownHostEntry {
-  name: string;
-  key_type: string;
-  fingerprint: string;
-}
 
 // ============================================
 // DOM Elements

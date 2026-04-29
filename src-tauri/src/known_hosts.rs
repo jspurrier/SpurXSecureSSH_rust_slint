@@ -62,11 +62,7 @@ pub fn delete_known_host(host_name: &str) -> Result<(), String> {
     for line in content.lines() {
         let is_match = {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if !parts.is_empty() && (parts[0] == host_name || parts[0].starts_with(&format!("[{}]:", host_name))) {
-                true
-            } else {
-                false
-            }
+            !parts.is_empty() && (parts[0] == host_name || parts[0].starts_with(&format!("[{}]:", host_name)))
         };
 
         if is_match {

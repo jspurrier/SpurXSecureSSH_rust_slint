@@ -26,14 +26,16 @@ pub enum SessionFormat {
     SpurXPlaintext,
 }
 
-impl SessionFormat {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for SessionFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "securecrt" | "xml" => Some(SessionFormat::SecureCRT),
-            "putty" | "reg" => Some(SessionFormat::PuTTY),
-            "spurx_encrypted" | "spurx" => Some(SessionFormat::SpurXEncrypted),
-            "spurx_plaintext" | "json" => Some(SessionFormat::SpurXPlaintext),
-            _ => None,
+            "securecrt" | "xml" => Ok(SessionFormat::SecureCRT),
+            "putty" | "reg" => Ok(SessionFormat::PuTTY),
+            "spurx_encrypted" | "spurx" => Ok(SessionFormat::SpurXEncrypted),
+            "spurx_plaintext" | "json" => Ok(SessionFormat::SpurXPlaintext),
+            _ => Err(format!("Unknown format: {}", s)),
         }
     }
 }
@@ -288,9 +290,8 @@ fn parse_reg_line(line: &str) -> Option<(String, String)> {
     let value = if value_str.starts_with('"') {
         // String value
         value_str.trim_matches('"').to_string()
-    } else if value_str.starts_with("dword:") {
+    } else if let Some(hex) = value_str.strip_prefix("dword:") {
         // DWORD value - parse hex
-        let hex = &value_str[6..];
         u32::from_str_radix(hex, 16)
             .map(|n| n.to_string())
             .unwrap_or_default()
@@ -594,7 +595,7 @@ pub fn export_spurx_encrypted(
 
 /// Import from SpurX Encrypted format
 pub fn import_spurx_encrypted(path: &Path, password: &str) -> Result<ImportPayload, String> {
-    let content = fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let content = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
     if content.len() < 24 {
         return Err("Invalid file format: too short".into());
     }
@@ -643,8 +644,7 @@ pub fn import_sessions(
     password: Option<String>,
 ) -> Result<ImportPayload, String> {
     let path = Path::new(path);
-    let format =
-        SessionFormat::from_str(format).ok_or_else(|| format!("Unknown format: {}", format))?;
+    let format: SessionFormat = format.parse()?;
 
     match format {
         SessionFormat::SecureCRT => {
@@ -678,8 +678,7 @@ pub fn export_sessions(
     password: Option<String>,
 ) -> Result<(), String> {
     let path = Path::new(path);
-    let format =
-        SessionFormat::from_str(format).ok_or_else(|| format!("Unknown format: {}", format))?;
+    let format: SessionFormat = format.parse()?;
 
     match format {
         SessionFormat::SecureCRT => export_securecrt(sessions, path),
