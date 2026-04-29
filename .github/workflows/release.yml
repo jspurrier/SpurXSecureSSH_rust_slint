@@ -27,7 +27,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
@@ -50,14 +50,14 @@ jobs:
         run: npm run tauri build -- ${{ matrix.args }}
 
       - name: upload release assets
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         with:
+          token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           repository: jspurrier/SpurXSecureSSH_rust_Public
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
           files: |
             src-tauri/target/${{ matrix.targetName }}/release/bundle/dmg/*.dmg
             src-tauri/target/${{ matrix.targetName }}/release/bundle/appimage/*.AppImage
@@ -71,8 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/checkout@v6
-      
+      - uses: actions/checkout@v4
+
       - name: Prepare User Guide
         run: |
           mkdir public_docs
@@ -90,42 +90,39 @@ jobs:
           target-branch: 'master'
           commit-message: 'Update User Guide from ${{ github.ref_name }}'
 
-
-
-
   build-flatpak:
     needs: publish-tauri
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/checkout@v6
-      
+      - uses: actions/checkout@v4
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
       - name: Install Generators
         run: |
           pip install aiohttp toml flatpak-node-generator
           wget https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
-          
-      - name: Generate Dependencies
+
+      - name: Generate Dependency Sources
         run: |
           python3 flatpak-cargo-generator.py src-tauri/Cargo.lock -o cargo-sources.json
           flatpak-node-generator npm package-lock.json -o node-sources.json
-          
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: spurx-secure-ssh.flatpak
           manifest-path: com.spurx.securessh.yml
           cache-key: flatpak-builder-${{ github.sha }}
-          
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+
+      - name: Upload Flatpak to Release
+        uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.PUBLIC_REPO_TOKEN }}
           repository: jspurrier/SpurXSecureSSH_rust_Public
+          fail_on_unmatched_files: false
           files: spurx-secure-ssh.flatpak
