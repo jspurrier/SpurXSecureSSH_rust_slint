@@ -44,7 +44,7 @@ impl SftpManager {
         username: &str,
         password: &str,
     ) -> Result<(), String> {
-        let config = Arc::new(client::Config::default());
+        let config = Arc::new(crate::ssh::get_russh_config());
 
         // Dummy transmitter for handler
         let (tx, _rx) = tokio::sync::mpsc::channel(1);

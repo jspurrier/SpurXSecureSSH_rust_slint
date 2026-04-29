@@ -87,21 +87,7 @@ impl client::Handler for ClientHandler {
     }
 }
 
-/// Connect to SSH server and handle I/O asynchronously
-pub async fn connect_ssh_async(
-    host: &str,
-    port: u16,
-    username: &str,
-    password: &str,
-    output_tx: mpsc::Sender<Vec<u8>>,
-    input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
-    debug_mode: bool,
-) -> Result<(), String> {
-    // Send connection status
-    let _ = output_tx.send(
-        format!("\r\n\x1b[36mConnecting to {}:{}...\x1b[0m\r\n", host, port).into_bytes(),
-    ).await;
-
+pub fn get_russh_config() -> client::Config {
     let preferred = russh::Preferred {
         // Modern algorithms first, then legacy fallbacks for old Cisco/network gear
         kex: std::borrow::Cow::Owned(vec![
@@ -121,13 +107,49 @@ pub async fn connect_ssh_async(
             russh_keys::key::RSA_SHA2_256,
             russh_keys::key::SSH_RSA,    // Legacy RSA - required for very old Cisco
         ]),
+        cipher: std::borrow::Cow::Owned(vec![
+            russh::cipher::CHACHA20_POLY1305,
+            russh::cipher::AES_256_GCM,
+            russh::cipher::AES_256_CTR,
+            russh::cipher::AES_192_CTR,
+            russh::cipher::AES_128_CTR,
+            russh::cipher::AES_256_CBC, // For older gear
+            russh::cipher::AES_192_CBC,
+            russh::cipher::AES_128_CBC,
+        ]),
+        mac: std::borrow::Cow::Owned(vec![
+            russh::mac::HMAC_SHA512_ETM,
+            russh::mac::HMAC_SHA256_ETM,
+            russh::mac::HMAC_SHA512,
+            russh::mac::HMAC_SHA256,
+            russh::mac::HMAC_SHA1_ETM,
+            russh::mac::HMAC_SHA1,
+        ]),
         ..russh::Preferred::DEFAULT
     };
 
-    let config = Arc::new(client::Config {
+    client::Config {
         preferred,
         ..Default::default()
-    });
+    }
+}
+
+/// Connect to SSH server and handle I/O asynchronously
+pub async fn connect_ssh_async(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    output_tx: mpsc::Sender<Vec<u8>>,
+    input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
+    debug_mode: bool,
+) -> Result<(), String> {
+    // Send connection status
+    let _ = output_tx.send(
+        format!("\r\n\x1b[36mConnecting to {}:{}...\x1b[0m\r\n", host, port).into_bytes(),
+    ).await;
+
+    let config = Arc::new(get_russh_config());
 
     let handler = ClientHandler {
         host: host.to_string(),
