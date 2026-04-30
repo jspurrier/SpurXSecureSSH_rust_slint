@@ -104,7 +104,7 @@ jobs:
 
       - name: Install Generators
         run: |
-          pip install aiohttp toml flatpak-node-generator
+          pip install aiohttp tomlkit flatpak-node-generator
           wget https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/cargo/flatpak-cargo-generator.py
 
       - name: Generate Dependency Sources
