@@ -26,14 +26,13 @@ build-options:
   append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
   env:
     CARGO_HOME: /run/build/spurx-secure-ssh/cargo
-    npm_config_cache: /run/build/spurx-secure-ssh/npm-cache
 
 modules:
   - name: spurx-secure-ssh
     buildsystem: simple
     build-commands:
       # Install Node dependencies offline using the generated sources
-      - npm ci --offline
+      - npm ci
       # Build the application
       - npm run tauri build -- --bundles appimage
       # Extract the built executable and assets
@@ -56,4 +55,3 @@ modules:
       - type: dir
         path: .
       - cargo-sources.json
-      - node-sources.json
