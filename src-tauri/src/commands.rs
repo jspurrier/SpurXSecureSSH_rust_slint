@@ -113,7 +113,8 @@ pub async fn ssh_connect(
         use std::io::Write;
         while let Some(data) = output_rx.recv().await {
             if let Some(ref mut file) = log_file {
-                let _ = file.write_all(&data);
+                let stripped_data = strip_ansi_escapes::strip(&data);
+                let _ = file.write_all(&stripped_data);
             }
             // Emit terminal data to frontend
             let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), data);

@@ -24,6 +24,8 @@ finish-args:
 
 build-options:
   append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
   env:
     CARGO_HOME: /run/build/spurx-secure-ssh/cargo
 

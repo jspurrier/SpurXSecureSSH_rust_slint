@@ -131,7 +131,6 @@ jobs:
             --force-clean \
             --default-branch=master \
             --arch=x86_64 \
-            --allow-network \
             flatpak_app com.spurx.securessh.yml
           flatpak build-bundle repo spurx-secure-ssh.flatpak com.spurx.securessh master
 
