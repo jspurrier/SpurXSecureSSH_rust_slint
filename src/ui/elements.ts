@@ -156,4 +156,15 @@ export let elements = {
       hostKeysSearch: document.getElementById('host-keys-search') as HTMLInputElement,
       hostKeysList: document.getElementById('host-keys-list') as HTMLDivElement,
       btnRefreshKeys: document.getElementById('btn-refresh-keys') as HTMLButtonElement,
+
+      // YModem Elements
+      ymodemOverlay: document.getElementById('ymodem-overlay') as HTMLDivElement,
+      ymodemFilename: document.getElementById('ymodem-filename') as HTMLSpanElement,
+      ymodemProgressFill: document.getElementById('ymodem-progress-fill') as HTMLDivElement,
+      ymodemPercentage: document.getElementById('ymodem-percentage') as HTMLSpanElement,
+      ymodemBytesRatio: document.getElementById('ymodem-bytes-ratio') as HTMLSpanElement,
+      ymodemSpeed: document.getElementById('ymodem-speed') as HTMLSpanElement,
+      ymodemElapsed: document.getElementById('ymodem-elapsed') as HTMLSpanElement,
+      ymodemAbortBtn: document.getElementById('btn-ymodem-abort') as HTMLButtonElement,
+      ymodemStateBadge: document.getElementById('ymodem-state-badge') as HTMLSpanElement,
     };

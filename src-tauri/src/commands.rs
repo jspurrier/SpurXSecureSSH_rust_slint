@@ -133,6 +133,7 @@ pub async fn ssh_connect(
         use crate::ssh::connect_ssh_async;
 
         match connect_ssh_async(
+            &sid_for_ssh,
             &host,
             port,
             &username,
@@ -140,6 +141,7 @@ pub async fn ssh_connect(
             output_tx,
             &mut input_rx,
             debug_mode,
+            app_for_ssh.clone(),
         ).await {
             Ok(_) => {
                 connection_for_task.set_connected(false);
@@ -587,4 +589,43 @@ pub async fn sftp_rename(
     SFTP_MANAGER
         .rename(&session_id, &old_path, &new_path)
         .await
+}
+
+// ============================================
+// YModem Commands
+// ============================================
+
+/// Start YModem file transfer
+#[command]
+pub async fn ssh_start_ymodem_send(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+    file_path: String,
+) -> Result<(), String> {
+    let senders = state.input_senders.read();
+    if let Some(sender) = senders.get(&session_id) {
+        sender
+            .send(SshInput::StartYmodemSend { file_path })
+            .map_err(|e| format!("Failed to start YModem: {}", e))?;
+    } else {
+        return Err("Session sender not found".to_string());
+    }
+    Ok(())
+}
+
+/// Cancel active YModem file transfer
+#[command]
+pub async fn ssh_cancel_ymodem(
+    state: State<'_, Arc<AppState>>,
+    session_id: String,
+) -> Result<(), String> {
+    let senders = state.input_senders.read();
+    if let Some(sender) = senders.get(&session_id) {
+        sender
+            .send(SshInput::CancelYmodem)
+            .map_err(|e| format!("Failed to cancel YModem: {}", e))?;
+    } else {
+        return Err("Session sender not found".to_string());
+    }
+    Ok(())
 }

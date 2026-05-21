@@ -1,9 +1,7 @@
 app-id: com.spurx.securessh
-runtime: org.freedesktop.Platform
-runtime-version: '24.08'
-sdk: org.freedesktop.Sdk
-base: org.electronjs.Electron2.BaseApp
-base-version: '24.08'
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node20
   - org.freedesktop.Sdk.Extension.rust-stable

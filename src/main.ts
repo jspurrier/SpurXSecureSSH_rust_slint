@@ -26,6 +26,7 @@ import { state } from "./state";
 import { escapeHtml, showModal, closeModal } from "./ui/utils";
 import { openSftpBrowser, closeSftpBrowser, loadSftpDirectory, uploadSftpFile, downloadSftpFile, createSftpFolder, deleteSftpFile } from "./features/sftp";
 import { toggleAiPanel, renderAiMessages, showAiError, sendAiMessage, showAiSettingsModal, hideAiSettingsModal, saveAiSettings, updatePrivacyBanner, getTerminalContent } from "./features/ai";
+import { startYmodemSend, enableTabKeyboard } from "./features/ymodem";
 
 // Editing state
 // Command folders
@@ -556,22 +557,7 @@ async function connect(
       tab.unlisteners.push(unlistenError);
 
       // Send terminal input to backend
-      // Dispose any previous onData listener before registering a new one.
-      // xterm.js onData() is additive — without this, reconnecting the same tab
-      // stacks a second listener and every keystroke is sent twice.
-      if (tab.onDataDisposable) {
-        tab.onDataDisposable.dispose();
-        tab.onDataDisposable = undefined;
-      }
-      tab.onDataDisposable = tab.terminal.onData((data) => {
-        if (tab!.sessionId) {
-          const encoder = new TextEncoder();
-          invoke('ssh_write', {
-            sessionId: tab!.sessionId,
-            data: Array.from(encoder.encode(data)),
-          });
-        }
-      });
+      enableTabKeyboard(tab);
 
       // Handle resize
       tab.terminal.onResize((size) => {
@@ -1365,6 +1351,11 @@ async function handleTabContextMenuAction(action: string): Promise<void> {
       openSftpBrowser();
       break;
 
+    case 'ymodem-send':
+      if (state.activeTabId !== tabId) switchToTab(tabId);
+      startYmodemSend();
+      break;
+
     case 'add-group': {
       const groupName = prompt('New group name:', 'Group 1');
       if (groupName) createTabGroup(groupName.trim(), [tabId]);
@@ -2009,6 +2000,11 @@ function setupEventListeners(): void {
   // Broadcast button in toolbar — opens broadcast modal scoped to all sessions
   document.getElementById('btn-broadcast')?.addEventListener('click', () => {
     showBroadcastModal();
+  });
+
+  // YModem Send button in toolbar
+  document.getElementById('btn-ymodem-send')?.addEventListener('click', () => {
+    startYmodemSend();
   });
 
   // Broadcast modal event listeners
@@ -2993,6 +2989,13 @@ function setupImportListeners(): void {
     e.stopPropagation();
     console.log('SFTP Browser clicked');
     openSftpBrowser();
+  });
+
+  // Transfer Menu: YModem Send
+  document.getElementById('menu-transfer-ymodem-send')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    console.log('YModem Send clicked');
+    startYmodemSend();
   });
 
   // SFTP modal close handlers

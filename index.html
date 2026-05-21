@@ -85,6 +85,9 @@
           <div class="menu-dropdown-item" id="menu-transfer-sftp">
             <span>SFTP Browser...</span>
           </div>
+          <div class="menu-dropdown-item" id="menu-transfer-ymodem-send">
+            <span>YModem Send...</span>
+          </div>
           <div class="menu-dropdown-separator"></div>
           <div class="menu-dropdown-item disabled" id="menu-transfer-tftp">
             <span>TFTP Server (Coming Soon)</span>
@@ -170,6 +173,12 @@
       <button class="toolbar-btn toolbar-btn-broadcast" id="btn-broadcast" title="Broadcast Command to All Sessions">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      </button>
+      <div class="toolbar-separator"></div>
+      <button class="toolbar-btn" id="btn-ymodem-send" title="YModem Send File">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
         </svg>
       </button>
       <div class="toolbar-spacer"></div>
@@ -263,6 +272,44 @@
         </div>
         <!-- Terminal Viewport -->
         <div class="terminal-viewport" id="terminal-viewport"></div>
+        
+        <!-- YModem Progress Card Overlay -->
+        <div id="ymodem-overlay" class="ymodem-overlay hidden">
+          <div class="ymodem-card">
+            <div class="ymodem-header">
+              <h3>YModem File Transfer</h3>
+              <span id="ymodem-state-badge" class="ymodem-badge">Initializing</span>
+            </div>
+            <div class="ymodem-body">
+              <div class="ymodem-file-info">
+                <span class="ymodem-label">File:</span>
+                <span id="ymodem-filename" class="ymodem-value">-</span>
+              </div>
+              <div class="ymodem-progress-container">
+                <div class="ymodem-progress-bar">
+                  <div id="ymodem-progress-fill" class="ymodem-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="ymodem-progress-text">
+                  <span id="ymodem-percentage">0%</span>
+                  <span id="ymodem-bytes-ratio">0 / 0 Bytes</span>
+                </div>
+              </div>
+              <div class="ymodem-stats-grid">
+                <div class="ymodem-stat">
+                  <span class="ymodem-stat-label">Transfer Speed</span>
+                  <span id="ymodem-speed" class="ymodem-stat-value">0 KB/s</span>
+                </div>
+                <div class="ymodem-stat">
+                  <span class="ymodem-stat-label">Time Elapsed</span>
+                  <span id="ymodem-elapsed" class="ymodem-stat-value">0s</span>
+                </div>
+              </div>
+            </div>
+            <div class="ymodem-footer">
+              <button id="btn-ymodem-abort" class="btn btn-danger">Abort Transfer</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- AI Assistant Panel -->
@@ -653,6 +700,7 @@
       <div class="context-menu-separator"></div>
       <div class="context-menu-item" data-action="clone">Clone Session</div>
       <div class="context-menu-item" data-action="sftp">Connect SFTP Session</div>
+      <div class="context-menu-item" data-action="ymodem-send">YModem Send...</div>
       <div class="context-menu-separator"></div>
       <div class="context-menu-item" data-action="add-group">Send to New Tab Group</div>
       <div class="context-menu-item" data-action="move-to-group">Move to Group...</div>

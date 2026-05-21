@@ -13,6 +13,7 @@ pub mod session;
 pub mod settings;
 pub mod sftp;
 pub mod ssh;
+pub mod ymodem;
 
 /// Application state shared across Tauri commands
 pub struct AppState {
@@ -170,6 +171,8 @@ pub fn run() {
             commands::get_known_hosts,
             commands::delete_known_host,
             commands::check_latest_version,
+            commands::ssh_start_ymodem_send,
+            commands::ssh_cancel_ymodem,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

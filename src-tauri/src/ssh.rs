@@ -7,12 +7,15 @@ use russh::{client, ChannelMsg};
 use russh_keys::key;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tauri::Emitter;
 
 /// SSH input events from frontend
 #[derive(Debug, Clone)]
 pub enum SshInput {
     Data(Vec<u8>),
     Resize { rows: u16, cols: u16 },
+    StartYmodemSend { file_path: String },
+    CancelYmodem,
 }
 
 /// SSH connection handler using russh
@@ -136,6 +139,7 @@ pub fn get_russh_config() -> client::Config {
 
 /// Connect to SSH server and handle I/O asynchronously
 pub async fn connect_ssh_async(
+    session_id: &str,
     host: &str,
     port: u16,
     username: &str,
@@ -143,6 +147,7 @@ pub async fn connect_ssh_async(
     output_tx: mpsc::Sender<Vec<u8>>,
     input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
     debug_mode: bool,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     // Send connection status
     let _ = output_tx.send(
@@ -189,12 +194,28 @@ pub async fn connect_ssh_async(
 
     let _ = output_tx.send(b"\x1b[36mShell ready!\x1b[0m\r\n\r\n".to_vec()).await;
 
+    let mut ymodem_sender: Option<crate::ymodem::YmodemSender> = None;
+
     loop {
         tokio::select! {
             msg_res = channel.wait() => {
                 match msg_res {
                     Some(ChannelMsg::Data { ref data }) => {
-                        let _ = output_tx.send(data.to_vec()).await;
+                        if let Some(ref mut sender) = ymodem_sender {
+                            if let Some(response_packet) = sender.handle_data(data) {
+                                let _ = channel.data(&*response_packet).await;
+                            }
+                            if sender.state == crate::ymodem::YmodemState::Finished {
+                                let _ = output_tx.send(b"\r\n\x1b[32mYModem transfer completed successfully!\x1b[0m\r\n".to_vec()).await;
+                                ymodem_sender = None;
+                            } else if sender.state == crate::ymodem::YmodemState::Failed {
+                                let err = sender.error_msg.as_deref().unwrap_or("Unknown error");
+                                let _ = output_tx.send(format!("\r\n\x1b[31mYModem transfer failed: {}\x1b[0m\r\n", err).into_bytes()).await;
+                                ymodem_sender = None;
+                            }
+                        } else {
+                            let _ = output_tx.send(data.to_vec()).await;
+                        }
                     }
                     Some(ChannelMsg::ExtendedData { ref data, .. }) => {
                         let _ = output_tx.send(data.to_vec()).await;
@@ -214,8 +235,33 @@ pub async fn connect_ssh_async(
                     Some(SshInput::Resize { rows, cols }) => {
                         let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
                     }
+                    Some(SshInput::StartYmodemSend { file_path }) => {
+                        if ymodem_sender.is_some() {
+                            let _ = output_tx.send(b"\r\n\x1b[31mError: Another YModem transfer is already active!\x1b[0m\r\n".to_vec()).await;
+                        } else {
+                            let _ = output_tx.send(b"\r\n\x1b[36mInitializing YModem transfer...\x1b[0m\r\n".to_vec()).await;
+                            match crate::ymodem::YmodemSender::new(&file_path, session_id.to_string(), app_handle.clone()) {
+                                Ok(sender) => {
+                                    ymodem_sender = Some(sender);
+                                    let _ = output_tx.send(b"\x1b[36mYModem sender ready. Waiting for remote to start ('C')...\x1b[0m\r\n".to_vec()).await;
+                                }
+                                Err(e) => {
+                                    let _ = output_tx.send(format!("\r\n\x1b[31mFailed to load file: {}\x1b[0m\r\n", e).into_bytes()).await;
+                                    let _ = app_handle.emit(&format!("ymodem-error-{}", session_id), e);
+                                }
+                            }
+                        }
+                    }
+                    Some(SshInput::CancelYmodem) => {
+                        if let Some(ref mut sender) = ymodem_sender {
+                            let _ = channel.data(&[0x18u8, 0x18, 0x18, 0x18, 0x18][..]).await;
+                            sender.state = crate::ymodem::YmodemState::Failed;
+                            let _ = output_tx.send(b"\r\n\x1b[31mYModem transfer cancelled by user.\x1b[0m\r\n".to_vec()).await;
+                            let _ = app_handle.emit(&format!("ymodem-error-{}", session_id), "Cancelled by user".to_string());
+                            ymodem_sender = None;
+                        }
+                    }
                     None => {
-                        // Channel closed, terminate shell
                         break;
                     }
                 }
