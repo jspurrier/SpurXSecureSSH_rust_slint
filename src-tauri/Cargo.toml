@@ -1,6 +1,6 @@
 [package]
 name = "spurx-secure-ssh"
-version = "1.9.6"
+version = "2.0.0"
 description = "SpurX Secure SSH - A Modern SSH Client"
 authors = ["John Spurrier"]
 edition = "2021"
@@ -39,6 +39,7 @@ chrono = "0.4.43"
 lazy_static = "1.5.0"
 keyring = "2"
 semver = "1.0"
+ssh-key = { version = "0.6", features = ["ed25519", "rsa", "encryption"] }
 russh = "0.44"
 russh-keys = "0.44"
 russh-sftp = "2.0"

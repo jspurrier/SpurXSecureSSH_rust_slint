@@ -434,8 +434,27 @@
             <input type="text" id="input-username" placeholder="username" />
           </div>
           <div class="form-group">
+            <label for="input-auth-method">Auth Method:</label>
+            <select id="input-auth-method">
+              <option value="password">Password</option>
+              <option value="publickey">Public Key (SSH Key)</option>
+            </select>
+          </div>
+          <div class="form-group" id="quick-password-group">
             <label for="input-password">Password:</label>
             <input type="password" id="input-password" placeholder="password" />
+          </div>
+          <div id="quick-key-group" style="display: none;">
+            <div class="form-group">
+              <label for="input-key-select">SSH Key:</label>
+              <select id="input-key-select">
+                <option value="">No keys found. Generate one in Settings.</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="input-key-passphrase">Key Passphrase (Optional):</label>
+              <input type="password" id="input-key-passphrase" placeholder="Key passphrase..." />
+            </div>
           </div>
           <div class="form-check">
             <input type="checkbox" id="input-save-session" />
@@ -491,6 +510,13 @@
             <label for="session-username">Username:</label>
             <input type="text" id="session-username" placeholder="username (optional)" />
           </div>
+          <div class="form-group" id="session-auth-method-group">
+            <label for="session-auth-method">Auth Method:</label>
+            <select id="session-auth-method">
+              <option value="password">Password</option>
+              <option value="publickey">Public Key (SSH Key)</option>
+            </select>
+          </div>
           <div class="form-group" id="session-password-group">
             <label for="session-password">Password:</label>
             <div class="password-wrapper">
@@ -499,6 +525,18 @@
                 <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                 <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               </button>
+            </div>
+          </div>
+          <div id="session-key-group" style="display: none;">
+            <div class="form-group">
+              <label for="session-key-select">SSH Key:</label>
+              <select id="session-key-select">
+                <option value="">No keys found. Generate one in Settings.</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="session-key-passphrase">Key Passphrase (Optional):</label>
+              <input type="password" id="session-key-passphrase" placeholder="Key passphrase (stored securely)..." />
             </div>
           </div>
           <div class="form-row">
@@ -1008,6 +1046,31 @@
               <div class="host-key-empty">Loading keys...</div>
             </div>
           </div>
+
+          <div class="settings-section-divider"></div>
+          <div class="settings-section-title">SSH Key Manager</div>
+          <p class="settings-description">
+            Generate or manage private SSH keys for key-based authentication.
+          </p>
+          <div class="key-manager-container">
+            <div class="key-manager-toolbar" style="display: flex; gap: 10px; margin-bottom: 10px;">
+              <button class="btn btn-primary btn-sm" id="btn-generate-key-modal">Generate Keypair...</button>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-ssh-keys">Refresh Keys</button>
+            </div>
+            <div class="host-keys-list" id="ssh-keys-list" style="margin-top: 10px;">
+              <div class="host-key-empty">No SSH keys found. Generate one to get started!</div>
+            </div>
+          </div>
+
+          <div class="settings-section-divider"></div>
+          <div class="settings-section-title">Master Password Lock</div>
+          <p class="settings-description">
+            Encrypt your saved sessions list with a master password. You will be prompted for this password when the application starts.
+          </p>
+          <div class="form-row" style="align-items: center; gap: 15px;">
+            <button class="btn btn-secondary" id="btn-change-master-password" style="width: auto;">Set / Change Master Password...</button>
+            <span id="master-password-status" style="font-size: 13px; color: var(--text-muted);">Status: Disabled</span>
+          </div>
         </div>
 
         <!-- Logging Settings -->
@@ -1185,6 +1248,81 @@
     </div>
   </div>
 
+  <!-- Generate Key Modal -->
+  <div class="modal-overlay" id="modal-generate-key">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h2>Generate SSH Keypair</h2>
+        <button class="modal-close" id="generate-key-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="new-key-name">Key Name:</label>
+          <input type="text" id="new-key-name" placeholder="id_ed25519" />
+        </div>
+        <div class="form-group">
+          <label for="new-key-algo">Algorithm:</label>
+          <select id="new-key-algo">
+            <option value="ed25519">Ed25519 (Recommended)</option>
+            <option value="rsa-4096">RSA (4096-bit)</option>
+            <option value="rsa-2048">RSA (2048-bit)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="new-key-passphrase">Passphrase (Optional):</label>
+          <div class="password-wrapper">
+            <input type="password" id="new-key-passphrase" placeholder="Key passphrase..." />
+            <button type="button" class="btn-eye" aria-label="Toggle passphrase visibility" onclick="togglePasswordVisibility('new-key-passphrase', this)">
+              <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-generate-key-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-generate-key-confirm">Generate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Set Master Password Modal -->
+  <div class="modal-overlay" id="modal-change-master-pwd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h2 id="master-pwd-modal-title">Set Master Password</h2>
+        <button class="modal-close" id="master-pwd-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group id-old-pwd-group" style="display: none;" id="master-pwd-old-group">
+          <label for="master-pwd-old">Current Password:</label>
+          <div class="password-wrapper">
+            <input type="password" id="master-pwd-old" placeholder="Enter current master password..." />
+            <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('master-pwd-old', this)">
+              <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="master-pwd-new" id="master-pwd-new-label">New Password:</label>
+          <div class="password-wrapper">
+            <input type="password" id="master-pwd-new" placeholder="Enter new master password..." />
+            <button type="button" class="btn-eye" aria-label="Toggle password visibility" onclick="togglePasswordVisibility('master-pwd-new', this)">
+              <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+            </button>
+          </div>
+          <p class="form-hint" style="margin-top: 4px; font-size: 11px;">Leave blank to remove password protection.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-master-pwd-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-master-pwd-save">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Password Prompt Modal -->
   <div class="modal-overlay" id="modal-password-prompt">
     <div class="modal modal-small">
@@ -1228,8 +1366,107 @@
           </svg>
         </div>
         <h3>SpurX Secure SSH</h3>
-        <p class="about-version" id="about-version">Version 1.8.3</p>
+        <p class="about-version" id="about-version">Version 2.0.0</p>
         <p class="about-description">A modern, secure SSH client for professional system administrators.</p>
+        
+        <div class="about-features-grid">
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">Command Broadcasting</div>
+              <div class="about-feature-desc">Send commands to multiple active SSH sessions simultaneously.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">SFTP File Transfer</div>
+              <div class="about-feature-desc">Dual-pane manager to transfer files between local and remote hosts.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">Master Password Lock</div>
+              <div class="about-feature-desc">Encrypt saved sessions and credentials with a master key.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">Built-in Key Manager</div>
+              <div class="about-feature-desc">Generate, view, and manage secure ED25519 and RSA key pairs.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">AI Assistant Integration</div>
+              <div class="about-feature-desc">Chat with Gemini, Grok, or local Ollama models directly in the sidebar.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">YModem File Transfer</div>
+              <div class="about-feature-desc">Send files efficiently over active console connection sessions.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">Comprehensive Logging</div>
+              <div class="about-feature-desc">Log connection history and output with timestamps by default.</div>
+            </div>
+          </div>
+          <div class="about-feature-item">
+            <div class="about-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+                <line x1="9" y1="9" x2="21" y2="9" />
+              </svg>
+            </div>
+            <div>
+              <div class="about-feature-title">Modern Tabs & Themes</div>
+              <div class="about-feature-desc">Flexible layouts with Dracula, Solarized, and custom styling.</div>
+            </div>
+          </div>
+        </div>
+        
         <button class="btn btn-secondary" id="about-update-check" style="margin-top: 10px;">Check for Updates</button>
         <div class="about-links">
           <a href="#" id="about-github">GitHub Repository</a>
@@ -1251,37 +1488,86 @@
         <h2>SFTP Browser</h2>
         <button class="modal-close" id="sftp-modal-close">&times;</button>
       </div>
-      <div class="sftp-toolbar">
-        <button class="sftp-btn" id="sftp-btn-up" title="Go Up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <path d="M12 19V5M5 12l7-7 7 7" />
-          </svg>
-        </button>
-        <button class="sftp-btn" id="sftp-btn-refresh" title="Refresh">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <path d="M21 12a9 9 0 11-3-6.7" />
-            <path d="M21 3v6h-6" />
-          </svg>
-        </button>
-        <div class="sftp-path">
-          <input type="text" id="sftp-current-path" value="/" readonly />
+      
+      <div class="sftp-panes-container">
+        <!-- Local Filesystem Pane -->
+        <div class="sftp-pane" id="sftp-pane-local">
+          <div class="sftp-pane-header">
+            <h3>Local Filesystem</h3>
+            <div class="sftp-toolbar">
+              <button class="sftp-btn" id="sftp-local-btn-up" title="Go Up">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+              <button class="sftp-btn" id="sftp-local-btn-refresh" title="Refresh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M21 12a9 9 0 11-3-6.7" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+              <div class="sftp-path">
+                <input type="text" id="sftp-local-path" value="" />
+              </div>
+            </div>
+          </div>
+          <div class="sftp-pane-content">
+            <div class="sftp-file-list" id="sftp-local-file-list">
+              <div class="sftp-empty">Loading local files...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Remote Server Pane -->
+        <div class="sftp-pane" id="sftp-pane-remote">
+          <div class="sftp-pane-header">
+            <h3>Remote Server</h3>
+            <div class="sftp-toolbar">
+              <button class="sftp-btn" id="sftp-btn-up" title="Go Up">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+              <button class="sftp-btn" id="sftp-btn-refresh" title="Refresh">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                  <path d="M21 12a9 9 0 11-3-6.7" />
+                  <path d="M21 3v6h-6" />
+                </svg>
+              </button>
+              <div class="sftp-path">
+                <input type="text" id="sftp-current-path" value="/" readonly />
+              </div>
+            </div>
+          </div>
+          <div class="sftp-pane-content">
+            <div class="sftp-file-list" id="sftp-file-list">
+              <div class="sftp-empty">Not connected. Open a connection first.</div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="sftp-content">
-        <div class="sftp-file-list" id="sftp-file-list">
-          <div class="sftp-empty">Not connected. Open a connection first.</div>
+
+      <!-- Transfer Queue Dashboard -->
+      <div class="sftp-queue-container" id="sftp-queue-container">
+        <div class="sftp-queue-header">
+          <span>Transfer Queue & Progress</span>
+          <button class="btn btn-secondary btn-sm" id="sftp-queue-clear" style="padding: 2px 8px; font-size: 11px;">Clear Completed</button>
+        </div>
+        <div class="sftp-queue-list" id="sftp-queue-list">
+          <div class="sftp-queue-empty">No active transfers</div>
         </div>
       </div>
+
       <div class="sftp-actions">
-        <button class="btn btn-secondary" id="sftp-btn-upload">
+        <button class="btn btn-secondary" id="sftp-btn-upload" title="Upload selected local file/folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <path d="M12 19V5M5 12l7-7 7 7" />
+            <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
           Upload
         </button>
-        <button class="btn btn-secondary" id="sftp-btn-download" disabled>
+        <button class="btn btn-secondary" id="sftp-btn-download" disabled title="Download selected remote file/folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <path d="M12 5v14M5 12l7 7 7-7" />
+            <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
           Download
         </button>

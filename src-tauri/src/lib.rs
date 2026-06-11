@@ -8,6 +8,7 @@ pub mod ai;
 pub mod command_storage;
 pub mod commands;
 pub mod import_export;
+pub mod keys;
 pub mod known_hosts;
 pub mod session;
 pub mod settings;
@@ -44,8 +45,16 @@ pub struct ConnectRequest {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub password: String,
+    pub password: Option<String>,
     pub log_directory: Option<String>,
+    #[serde(default = "default_auth_method")]
+    pub auth_method: String,
+    pub private_key_name: Option<String>,
+    pub private_key_passphrase: Option<String>,
+}
+
+fn default_auth_method() -> String {
+    "password".to_string()
 }
 
 /// SSH connection response
@@ -68,6 +77,9 @@ pub struct SavedSession {
     pub log_directory: Option<String>,
     #[serde(default)]
     pub use_global_credentials: bool,
+    #[serde(default = "default_auth_method")]
+    pub auth_method: String,
+    pub private_key_name: Option<String>,
 }
 
 impl SavedSession {
@@ -88,6 +100,8 @@ impl SavedSession {
             username,
             log_directory,
             use_global_credentials: false,
+            auth_method: "password".to_string(),
+            private_key_name: None,
         }
     }
 }
@@ -173,6 +187,14 @@ pub fn run() {
             commands::check_latest_version,
             commands::ssh_start_ymodem_send,
             commands::ssh_cancel_ymodem,
+            commands::generate_key_pair,
+            commands::list_keys,
+            commands::delete_key,
+            commands::is_master_password_set,
+            commands::change_master_password,
+            commands::local_list_dir,
+            commands::local_get_home_dir,
+            commands::local_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -25,7 +25,7 @@ import { elements } from "./ui/elements";
 import { state } from "./state";
 import { escapeHtml, showModal, closeModal } from "./ui/utils";
 import { openSftpBrowser, closeSftpBrowser, loadSftpDirectory, uploadSftpFile, downloadSftpFile, createSftpFolder, deleteSftpFile } from "./features/sftp";
-import { toggleAiPanel, renderAiMessages, showAiError, sendAiMessage, showAiSettingsModal, hideAiSettingsModal, saveAiSettings, updatePrivacyBanner, getTerminalContent } from "./features/ai";
+import { toggleAiPanel, renderAiMessages, sendAiMessage, showAiSettingsModal, hideAiSettingsModal, saveAiSettings, updatePrivacyBanner, getTerminalContent, analyzeTerminal, triggerSmartAutocomplete } from "./features/ai";
 import { startYmodemSend, enableTabKeyboard } from "./features/ymodem";
 
 // Editing state
@@ -120,6 +120,33 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
     connectionParams: null,
     container,
   };
+
+  // Attach Smart Autocomplete key handler
+  terminal.attachCustomKeyEventHandler((arg: KeyboardEvent) => {
+    const isSpace = arg.code === 'Space' || arg.key === ' ' || arg.keyCode === 32;
+    if (arg.ctrlKey && isSpace) {
+      if (arg.type === 'keydown') {
+        triggerSmartAutocomplete(tabInfo);
+      }
+      return false;
+    }
+    
+    // Fix Delete key printing ~ on network devices
+    if (arg.key === 'Delete') {
+      if (arg.type === 'keydown') {
+        if (tabInfo.sessionId && tabInfo.connected) {
+          const encoder = new TextEncoder();
+          invoke('ssh_write', {
+            sessionId: tabInfo.sessionId,
+            data: Array.from(encoder.encode('\x7f')),
+          }).catch(e => console.error('Failed to write delete key:', e));
+        }
+      }
+      return false;
+    }
+
+    return true;
+  });
 
   state.tabs.set(tabId, tabInfo);
   renderTabs();
@@ -487,9 +514,12 @@ async function connect(
   host: string,
   port: number,
   username: string,
-  password: string,
+  password?: string,
   saveSession: boolean = false,
-  log_directory?: string
+  log_directory?: string,
+  authMethod: string = 'password',
+  privateKeyName?: string,
+  privateKeyPassphrase?: string
 ): Promise<void> {
   let tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
 
@@ -512,16 +542,29 @@ async function connect(
         host,
         port,
         username,
-        password,
+        password: password || undefined,
         log_directory,
-    use_global_credentials: elements.sessionUseGlobal.checked,
+        use_global_credentials: elements.sessionUseGlobal.checked,
+        auth_method: authMethod,
+        private_key_name: privateKeyName || undefined,
+        private_key_passphrase: privateKeyPassphrase || undefined,
       } as ConnectRequest,
     });
 
     if (response.success) {
       tab.sessionId = response.session_id;
       tab.connected = true;
-      tab.connectionParams = { host, port, username, password, log_directory }; // Save for reconnect
+      tab.connectionParams = {
+        host,
+        port,
+        username,
+        password: password || undefined,
+        log_directory,
+        use_global_credentials: elements.sessionUseGlobal.checked,
+        auth_method: authMethod,
+        private_key_name: privateKeyName || undefined,
+        private_key_passphrase: privateKeyPassphrase || undefined,
+      } as ConnectRequest;
       renderTabs();
 
       // Listen for terminal data
@@ -597,7 +640,10 @@ async function connect(
             folder: undefined,
             username,
             log_directory,
+            auth_method: authMethod,
+            private_key_name: privateKeyName || undefined,
           } as SavedSession,
+          password: state.masterPassword || null
         });
         await loadSavedSessions();
       }
@@ -613,9 +659,78 @@ async function connect(
 // Session Management
 // ============================================
 
-async function loadSavedSessions(): Promise<void> {
+function promptMasterPassword(description: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const modal = elements.passwordPromptModal;
+    const desc = elements.passwordPromptDescription;
+    const input = elements.passwordPromptInput;
+    const confirmBtn = elements.passwordPromptConfirm;
+    const cancelBtn = elements.passwordPromptCancel;
+    const closeBtn = elements.passwordPromptClose;
+
+    if (!modal || !input || !confirmBtn || !cancelBtn || !closeBtn) {
+      reject(new Error('Password prompt modal elements not found'));
+      return;
+    }
+
+    if (desc) desc.textContent = description;
+    input.value = '';
+    showModal(modal);
+    input.focus();
+
+    const cleanUp = () => {
+      confirmBtn.removeEventListener('click', onConfirm);
+      cancelBtn.removeEventListener('click', onCancel);
+      closeBtn.removeEventListener('click', onCancel);
+      closeModal(modal);
+    };
+
+    const onConfirm = () => {
+      const val = input.value;
+      cleanUp();
+      resolve(val);
+    };
+
+    const onCancel = () => {
+      cleanUp();
+      reject(new Error('USER_CANCELLED'));
+    };
+
+    confirmBtn.addEventListener('click', onConfirm);
+    cancelBtn.addEventListener('click', onCancel);
+    closeBtn.addEventListener('click', onCancel);
+    
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        onConfirm();
+      }
+    };
+  });
+}
+
+async function updateMasterPasswordStatusUI(isSet?: boolean): Promise<void> {
+  const statusEl = document.getElementById('master-password-status');
+  if (statusEl) {
+    const active = isSet !== undefined ? isSet : await invoke<boolean>('is_master_password_set');
+    if (active) {
+      statusEl.textContent = 'Status: Enabled';
+      statusEl.style.color = 'var(--accent-success)';
+    } else {
+      statusEl.textContent = 'Status: Disabled';
+      statusEl.style.color = 'var(--text-muted)';
+    }
+  }
+}
+
+async function loadSavedSessions(pwdToCheck?: string): Promise<void> {
   try {
-    state.savedSessions = await invoke<SavedSession[]>('get_saved_sessions');
+    const pwd = pwdToCheck !== undefined ? pwdToCheck : (state.masterPassword || undefined);
+    const sessions = await invoke<SavedSession[]>('get_saved_sessions', { password: pwd });
+    
+    if (pwd) {
+      state.masterPassword = pwd;
+    }
+    state.savedSessions = sessions;
 
     // Sync folders
     state.savedSessions.forEach(s => {
@@ -624,8 +739,27 @@ async function loadSavedSessions(): Promise<void> {
 
     renderSessionsList();
     renderSessionsTree();
+    await updateMasterPasswordStatusUI(true);
   } catch (error) {
-    console.error('Failed to load sessions:', error);
+    if (error === 'KEY_REQUIRED' || error === 'INVALID_PASSWORD') {
+      try {
+        const promptMsg = error === 'INVALID_PASSWORD' 
+          ? 'Incorrect master password. Please try again:' 
+          : 'Please enter your master password to unlock your sessions:';
+        const inputPwd = await promptMasterPassword(promptMsg);
+        await loadSavedSessions(inputPwd);
+      } catch (promptError) {
+        if (promptError instanceof Error && promptError.message === 'USER_CANCELLED') {
+          console.log('User cancelled master password prompt');
+          state.masterPassword = null;
+          await updateMasterPasswordStatusUI(false);
+        } else {
+          console.error('Prompt error:', promptError);
+        }
+      }
+    } else {
+      console.error('Failed to load sessions:', error);
+    }
   }
 }
 
@@ -667,7 +801,7 @@ function renderSessionsList(): void {
     deleteBtn?.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (sessionId) {
-        await invoke('delete_session', { sessionId });
+        await invoke('delete_session', { sessionId, password: state.masterPassword || null });
         await loadSavedSessions();
       }
     });
@@ -1019,10 +1153,8 @@ async function deleteFolder(path: string, type: 'session' | 'command'): Promise<
   if (type === 'session') {
     // Remove sessions in this folder key
     const toDelete = state.savedSessions.filter(s => s.folder === path || s.folder?.startsWith(path + '/'));
-    // We need 'delete_session' for each? Or bulk delete?
-    // Bulk delete logic:
     for (const s of toDelete) {
-      await invoke('delete_session', { sessionId: s.id });
+      await invoke('delete_session', { sessionId: s.id, password: state.masterPassword || null });
     }
     // Update folders list
     state.sessionFolders = state.sessionFolders.filter(f => f !== path && !f.startsWith(path + '/'));
@@ -1062,6 +1194,18 @@ function showQuickConnectModal(host?: string, port?: number): void {
   elements.inputUsername.value = '';
   elements.inputPassword.value = '';
   elements.inputSaveSession.checked = false;
+
+  const authSelect = document.getElementById('input-auth-method') as HTMLSelectElement | null;
+  if (authSelect) authSelect.value = 'password';
+  const pwdGroup = document.getElementById('quick-password-group');
+  const keyGroup = document.getElementById('quick-key-group');
+  if (pwdGroup) pwdGroup.style.display = 'block';
+  if (keyGroup) keyGroup.style.display = 'none';
+  const passphraseInput = document.getElementById('input-key-passphrase') as HTMLInputElement | null;
+  if (passphraseInput) passphraseInput.value = '';
+
+  populateSshKeysDropdowns();
+
   elements.quickConnectModal.classList.add('show');
   elements.inputHost.focus();
 }
@@ -1409,7 +1553,7 @@ function handleContextMenuAction(action: string): void {
         break;
       case 'delete':
         if (confirm(`Delete session "${session.name}"?`)) {
-          invoke('delete_session', { sessionId: session.id }).then(() => loadSavedSessions());
+          invoke('delete_session', { sessionId: session.id, password: state.masterPassword || null }).then(() => loadSavedSessions());
         }
         break;
     }
@@ -1463,8 +1607,19 @@ function showAddSessionModal(): void {
   elements.sessionPassword.value = '';
   elements.sessionLogDirectory.value = '';
   elements.sessionUseGlobal.checked = false;
+  
+  const authSelect = document.getElementById('session-auth-method') as HTMLSelectElement | null;
+  if (authSelect) authSelect.value = 'password';
+  const pwdGroup = document.getElementById('session-password-group');
+  const keyGroup = document.getElementById('session-key-group');
+  if (pwdGroup) pwdGroup.style.display = 'block';
+  if (keyGroup) keyGroup.style.display = 'none';
+  const passphraseInput = document.getElementById('session-key-passphrase') as HTMLInputElement | null;
+  if (passphraseInput) passphraseInput.value = '';
+
+  populateSshKeysDropdowns();
+
   document.getElementById('session-username-group')!.style.display = 'block';
-  document.getElementById('session-password-group')!.style.display = 'block';
   populateFolderSelect(elements.sessionFolder, 'session');
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
@@ -1480,19 +1635,47 @@ async function showEditSessionModal(session: SavedSession): Promise<void> {
   elements.sessionPassword.value = ''; // Clear initially
   elements.sessionLogDirectory.value = session.log_directory || '';
   elements.sessionUseGlobal.checked = session.use_global_credentials || false;
-  if(session.use_global_credentials) {
+
+  await populateSshKeysDropdowns();
+
+  const authSelect = document.getElementById('session-auth-method') as HTMLSelectElement | null;
+  const authMethod = session.auth_method || 'password';
+  if (authSelect) authSelect.value = authMethod;
+
+  const pwdGroup = document.getElementById('session-password-group');
+  const keyGroup = document.getElementById('session-key-group');
+  const keySelect = document.getElementById('session-key-select') as HTMLSelectElement | null;
+  const passphraseInput = document.getElementById('session-key-passphrase') as HTMLInputElement | null;
+
+  if (passphraseInput) passphraseInput.value = '';
+
+  if (session.use_global_credentials) {
     document.getElementById('session-username-group')!.style.display = 'none';
-    document.getElementById('session-password-group')!.style.display = 'none';
+    if (pwdGroup) pwdGroup.style.display = 'none';
+    if (keyGroup) keyGroup.style.display = 'none';
   } else {
     document.getElementById('session-username-group')!.style.display = 'block';
-    document.getElementById('session-password-group')!.style.display = 'block';
+    if (authMethod === 'publickey') {
+      if (pwdGroup) pwdGroup.style.display = 'none';
+      if (keyGroup) keyGroup.style.display = 'block';
+      if (keySelect && session.private_key_name) {
+        keySelect.value = session.private_key_name;
+      }
+    } else {
+      if (pwdGroup) pwdGroup.style.display = 'block';
+      if (keyGroup) keyGroup.style.display = 'none';
+    }
   }
 
-  // Try to load password securely
+  // Try to load password / passphrase securely
   try {
     const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
     if (password) {
-      elements.sessionPassword.value = password;
+      if (authMethod === 'publickey') {
+        if (passphraseInput) passphraseInput.value = password;
+      } else {
+        elements.sessionPassword.value = password;
+      }
     }
   } catch (e) {
     console.error('Failed to load session password:', e);
@@ -1515,15 +1698,22 @@ async function saveSessionModal(): Promise<void> {
     return;
   }
 
+  const authSelect = document.getElementById('session-auth-method') as HTMLSelectElement | null;
+  const authMethod = authSelect ? authSelect.value : 'password';
+  const keySelect = document.getElementById('session-key-select') as HTMLSelectElement | null;
+  const privateKeyName = authMethod === 'publickey' && keySelect ? (keySelect.value || undefined) : undefined;
+
   const session: SavedSession = {
     id: state.editingSessionId || crypto.randomUUID(),
     name: name || host,
-    host, // 4 spaces
+    host,
     port,
     folder,
     username: elements.sessionUsername.value.trim() || undefined,
     log_directory,
     use_global_credentials: elements.sessionUseGlobal.checked,
+    auth_method: authMethod,
+    private_key_name: privateKeyName,
   };
 
   // Track the folder
@@ -1533,17 +1723,28 @@ async function saveSessionModal(): Promise<void> {
 
   try {
     const sessionId = session.id;
-    await invoke('save_session', { session });
+    await invoke('save_session', { session, password: state.masterPassword || null });
 
-    // Save or clear password
-    const password = elements.sessionPassword.value;
-    if (password) {
-      await invoke('save_session_password', { sessionId, password });
-    } else if (state.editingSessionId) {
-      // Field was cleared on an existing session — delete the stored password
-      try {
-        await invoke('delete_session_password', { sessionId });
-      } catch (_) { /* not stored, ignore */ }
+    // Save or clear password / passphrase
+    if (authMethod === 'publickey') {
+      const passphraseInput = document.getElementById('session-key-passphrase') as HTMLInputElement | null;
+      const passphrase = passphraseInput ? passphraseInput.value : '';
+      if (passphrase) {
+        await invoke('save_session_password', { sessionId, password: passphrase });
+      } else if (state.editingSessionId) {
+        try {
+          await invoke('delete_session_password', { sessionId });
+        } catch (_) {}
+      }
+    } else {
+      const password = elements.sessionPassword.value;
+      if (password) {
+        await invoke('save_session_password', { sessionId, password });
+      } else if (state.editingSessionId) {
+        try {
+          await invoke('delete_session_password', { sessionId });
+        } catch (_) {}
+      }
     }
 
     await loadSavedSessions();
@@ -1722,25 +1923,6 @@ async function saveMoveItemModal(): Promise<void> {
 // Show/hide the privacy banner based on the current AI provider.
 // Cloud providers (Gemini, Grok) may train on submitted data.
 
-async function analyzeTerminal(): Promise<void> {
-  const content = getTerminalContent();
-  if (!content) {
-    showAiError('No terminal content to analyze. Connect to a session first.');
-    return;
-  }
-
-  const prompt = `Analyze this terminal output and tell me:
-1. What type of device/system this appears to be (Cisco, Juniper, Linux, etc.)
-2. Current context or mode
-3. Any errors or notable information
-
-Terminal content:
-\`\`\`
-${content}
-\`\`\``;
-
-  await sendAiMessage(prompt);
-}
 
 async function showCommandHelp(): Promise<void> {
   const terminalContent = getTerminalContent();
@@ -1936,20 +2118,21 @@ async function showLoginModal(session: SavedSession): Promise<void> {
   state.loginSession = session;
   elements.loginModalTitle.textContent = `Connect to ${session.name}`;
 
+  let pass: string | null = null;
   if (session.use_global_credentials) {
     elements.loginUsername.value = currentSettings?.global_username || '';
     elements.loginPassword.value = '';
     try {
-      const gPwd = await invoke<string | null>('get_global_password');
-      if (gPwd) elements.loginPassword.value = gPwd;
+      pass = await invoke<string | null>('get_global_password');
+      if (pass) elements.loginPassword.value = pass;
     } catch(e) {}
   } else {
     elements.loginUsername.value = session.username || '';
     elements.loginPassword.value = '';
     try {
-      const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
-      if (password) {
-        elements.loginPassword.value = password;
+      pass = await invoke<string | null>('get_session_password', { sessionId: session.id });
+      if (pass) {
+        elements.loginPassword.value = pass;
       }
     } catch (e) {
       console.error('Failed to load session password:', e);
@@ -1957,11 +2140,32 @@ async function showLoginModal(session: SavedSession): Promise<void> {
   }
 
   const user = elements.loginUsername.value.trim();
-  const pass = elements.loginPassword.value;
+  const authMethod = session.auth_method || 'password';
+  const privateKeyName = session.private_key_name;
 
-  if (user && pass) {
-    // If we have both, automatically connect and skip the modal
-    await connect(session.host, session.port, user, pass, false, session.log_directory);
+  const loginPwdLabel = document.querySelector('label[for="login-password"]');
+  if (loginPwdLabel) {
+    if (authMethod === 'publickey') {
+      loginPwdLabel.textContent = 'Passphrase:';
+      elements.loginPassword.placeholder = 'Key passphrase (optional)';
+    } else {
+      loginPwdLabel.textContent = 'Password:';
+      elements.loginPassword.placeholder = 'password';
+    }
+  }
+
+  if (user && (authMethod === 'publickey' || pass !== null)) {
+    await connect(
+      session.host,
+      session.port,
+      user,
+      authMethod === 'password' ? (pass || '') : '',
+      false,
+      session.log_directory,
+      authMethod,
+      privateKeyName,
+      authMethod === 'publickey' ? (pass || '') : ''
+    );
     return;
   }
 
@@ -2198,13 +2402,38 @@ function setupEventListeners(): void {
     const password = elements.inputPassword.value;
     const saveSession = elements.inputSaveSession.checked;
 
+    const authSelect = document.getElementById('input-auth-method') as HTMLSelectElement | null;
+    const authMethod = authSelect ? authSelect.value : 'password';
+    const keySelect = document.getElementById('input-key-select') as HTMLSelectElement | null;
+    const privateKeyName = keySelect ? keySelect.value : undefined;
+    const passphraseInput = document.getElementById('input-key-passphrase') as HTMLInputElement | null;
+    const privateKeyPassphrase = passphraseInput ? passphraseInput.value : undefined;
+
     if (!host || !username) {
       alert('Please enter host and username');
       return;
     }
 
     closeModal(elements.quickConnectModal);
-    await connect(host, port, username, password, saveSession);
+    await connect(host, port, username, password, saveSession, undefined, authMethod, privateKeyName, privateKeyPassphrase);
+  });
+
+  // Toggle quick connect auth method fields
+  document.getElementById('input-auth-method')?.addEventListener('change', (e) => {
+    const method = (e.target as HTMLSelectElement).value;
+    const pwdGroup = document.getElementById('quick-password-group');
+    const keyGroup = document.getElementById('quick-key-group');
+    if (pwdGroup) pwdGroup.style.display = method === 'password' ? 'block' : 'none';
+    if (keyGroup) keyGroup.style.display = method === 'publickey' ? 'block' : 'none';
+  });
+
+  // Toggle add/edit session auth method fields
+  document.getElementById('session-auth-method')?.addEventListener('change', (e) => {
+    const method = (e.target as HTMLSelectElement).value;
+    const pwdGroup = document.getElementById('session-password-group');
+    const keyGroup = document.getElementById('session-key-group');
+    if (pwdGroup) pwdGroup.style.display = method === 'password' ? 'block' : 'none';
+    if (keyGroup) keyGroup.style.display = method === 'publickey' ? 'block' : 'none';
   });
 
   // Sessions Modal
@@ -2237,12 +2466,23 @@ function setupEventListeners(): void {
 
   elements.sessionUseGlobal.addEventListener('change', (e) => {
     const checked = (e.target as HTMLInputElement).checked;
+    const authSelect = document.getElementById('session-auth-method') as HTMLSelectElement | null;
+    const method = authSelect ? authSelect.value : 'password';
     if (checked) {
       document.getElementById('session-username-group')!.style.display = 'none';
       document.getElementById('session-password-group')!.style.display = 'none';
+      const keyGroup = document.getElementById('session-key-group');
+      if (keyGroup) keyGroup.style.display = 'none';
+      const authGroup = document.getElementById('session-auth-method-group');
+      if (authGroup) authGroup.style.display = 'none';
     } else {
       document.getElementById('session-username-group')!.style.display = 'block';
-      document.getElementById('session-password-group')!.style.display = 'block';
+      const authGroup = document.getElementById('session-auth-method-group');
+      if (authGroup) authGroup.style.display = 'block';
+      const pwdGroup = document.getElementById('session-password-group');
+      const keyGroup = document.getElementById('session-key-group');
+      if (pwdGroup) pwdGroup.style.display = method === 'password' ? 'block' : 'none';
+      if (keyGroup) keyGroup.style.display = method === 'publickey' ? 'block' : 'none';
     }
   });
 
@@ -2410,7 +2650,21 @@ function setupEventListeners(): void {
     }
 
     closeModal(elements.loginModal);
-    await connect(state.loginSession.host, state.loginSession.port, username, password, false, state.loginSession.log_directory);
+    
+    const authMethod = state.loginSession.auth_method || 'password';
+    const privateKeyName = state.loginSession.private_key_name;
+
+    await connect(
+      state.loginSession.host,
+      state.loginSession.port,
+      username,
+      authMethod === 'password' ? password : '',
+      false,
+      state.loginSession.log_directory,
+      authMethod,
+      privateKeyName,
+      authMethod === 'publickey' ? password : ''
+    );
   });
 
   // Login input enter key
@@ -2758,6 +3012,91 @@ async function deleteHostKey(host: string): Promise<void> {
   }
 }
 
+interface KeyInfo {
+  name: string;
+  algorithm: string;
+  public_key: string;
+  fingerprint: string;
+}
+
+async function populateSshKeysDropdowns(): Promise<void> {
+  const inputSelect = document.getElementById('input-key-select') as HTMLSelectElement | null;
+  const sessionSelect = document.getElementById('session-key-select') as HTMLSelectElement | null;
+
+  try {
+    const keys = await invoke<KeyInfo[]>('list_keys');
+    const optionsHtml = keys.length === 0
+      ? '<option value="">No keys found. Generate one in Settings.</option>'
+      : keys.map(k => `<option value="${escapeHtml(k.name)}">${escapeHtml(k.name)} (${escapeHtml(k.algorithm)})</option>`).join('');
+
+    if (inputSelect) {
+      inputSelect.innerHTML = optionsHtml;
+    }
+    if (sessionSelect) {
+      sessionSelect.innerHTML = optionsHtml;
+    }
+  } catch (e) {
+    console.error('Failed to list keys for dropdowns:', e);
+    const errHtml = '<option value="">Error loading keys</option>';
+    if (inputSelect) inputSelect.innerHTML = errHtml;
+    if (sessionSelect) sessionSelect.innerHTML = errHtml;
+  }
+}
+
+async function refreshSshKeys(): Promise<void> {
+  const container = document.getElementById('ssh-keys-list');
+  if (!container) return;
+
+  container.innerHTML = '<div class="host-key-empty">Loading keys...</div>';
+
+  try {
+    const keys = await invoke<KeyInfo[]>('list_keys');
+    if (keys.length === 0) {
+      container.innerHTML = '<div class="host-key-empty">No SSH keys found. Generate one to get started!</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    keys.forEach(key => {
+      const item = document.createElement('div');
+      item.className = 'host-key-item';
+      const fp = key.fingerprint.length > 50 ? key.fingerprint.substring(0, 50) + '...' : key.fingerprint;
+
+      item.innerHTML = `
+        <div class="host-key-info">
+          <span class="host-key-name">${escapeHtml(key.name)}</span>
+          <span class="host-key-meta">${escapeHtml(key.algorithm)} • ${escapeHtml(fp)}</span>
+        </div>
+        <div class="host-key-actions">
+          <button class="btn btn-secondary btn-sm btn-delete-ssh-key" title="Delete Key">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
+      `;
+
+      const delBtn = item.querySelector('.btn-delete-ssh-key');
+      delBtn?.addEventListener('click', async () => {
+        if (!confirm(`Are you sure you want to delete SSH key "${key.name}"? This cannot be undone.`)) return;
+        try {
+          await invoke('delete_key', { name: key.name });
+          await refreshSshKeys();
+          await populateSshKeysDropdowns();
+        } catch (e) {
+          alert('Failed to delete key: ' + e);
+        }
+      });
+
+      container.appendChild(item);
+    });
+  } catch (e) {
+    console.error('Failed to list SSH keys:', e);
+    container.innerHTML = `<div class="host-key-empty">Failed to load keys: ${e}</div>`;
+  }
+}
+
 // Setup settings modal event listeners
 function setupSettingsListeners(): void {
   // Settings cog button opens modal
@@ -2794,6 +3133,7 @@ function setupSettingsListeners(): void {
       // Load host keys if security tab
       if (tabId === 'security') {
         refreshHostKeys();
+        refreshSshKeys();
       }
     });
   });
@@ -2848,6 +3188,119 @@ function setupSettingsListeners(): void {
       }
     } catch (e) {
       console.error('Failed to open directory picker:', e);
+    }
+  });
+
+  // SSH Key Manager Listeners
+  document.getElementById('btn-generate-key-modal')?.addEventListener('click', () => {
+    const keyModal = document.getElementById('modal-generate-key');
+    if (keyModal) {
+      const nameInput = document.getElementById('new-key-name') as HTMLInputElement | null;
+      const passInput = document.getElementById('new-key-passphrase') as HTMLInputElement | null;
+      if (nameInput) nameInput.value = 'id_ed25519_' + Math.random().toString(36).substr(2, 5);
+      if (passInput) passInput.value = '';
+      showModal(keyModal);
+    }
+  });
+
+  document.getElementById('btn-generate-key-cancel')?.addEventListener('click', () => {
+    const keyModal = document.getElementById('modal-generate-key');
+    if (keyModal) closeModal(keyModal);
+  });
+  document.getElementById('generate-key-close')?.addEventListener('click', () => {
+    const keyModal = document.getElementById('modal-generate-key');
+    if (keyModal) closeModal(keyModal);
+  });
+
+  document.getElementById('btn-generate-key-confirm')?.addEventListener('click', async () => {
+    const nameInput = document.getElementById('new-key-name') as HTMLInputElement | null;
+    const algoSelect = document.getElementById('new-key-algo') as HTMLSelectElement | null;
+    const passInput = document.getElementById('new-key-passphrase') as HTMLInputElement | null;
+
+    const name = nameInput ? nameInput.value.trim() : '';
+    const algorithm = algoSelect ? algoSelect.value : 'ed25519';
+    const passphrase = passInput ? passInput.value : '';
+
+    if (!name) {
+      alert('Key name is required');
+      return;
+    }
+
+    try {
+      await invoke('generate_key_pair', {
+        name,
+        algorithm,
+        passphrase: passphrase || null
+      });
+
+      const keyModal = document.getElementById('modal-generate-key');
+      if (keyModal) closeModal(keyModal);
+
+      await refreshSshKeys();
+      await populateSshKeysDropdowns();
+    } catch (e) {
+      alert('Failed to generate keypair: ' + e);
+    }
+  });
+
+  document.getElementById('btn-refresh-ssh-keys')?.addEventListener('click', () => {
+    refreshSshKeys();
+  });
+
+  // Master Password Settings Listeners
+  document.getElementById('btn-change-master-password')?.addEventListener('click', async () => {
+    const isSet = await invoke<boolean>('is_master_password_set');
+    const oldGroup = document.getElementById('master-pwd-old-group');
+    const titleEl = document.getElementById('master-pwd-modal-title');
+    const oldInput = document.getElementById('master-pwd-old') as HTMLInputElement | null;
+    const newInput = document.getElementById('master-pwd-new') as HTMLInputElement | null;
+
+    if (oldInput) oldInput.value = '';
+    if (newInput) newInput.value = '';
+
+    if (isSet) {
+      if (oldGroup) oldGroup.style.display = 'block';
+      if (titleEl) titleEl.textContent = 'Change Master Password';
+    } else {
+      if (oldGroup) oldGroup.style.display = 'none';
+      if (titleEl) titleEl.textContent = 'Set Master Password';
+    }
+
+    const pwdModal = document.getElementById('modal-change-master-pwd');
+    if (pwdModal) showModal(pwdModal);
+  });
+
+  document.getElementById('btn-master-pwd-cancel')?.addEventListener('click', () => {
+    const pwdModal = document.getElementById('modal-change-master-pwd');
+    if (pwdModal) closeModal(pwdModal);
+  });
+  document.getElementById('master-pwd-close')?.addEventListener('click', () => {
+    const pwdModal = document.getElementById('modal-change-master-pwd');
+    if (pwdModal) closeModal(pwdModal);
+  });
+
+  document.getElementById('btn-master-pwd-save')?.addEventListener('click', async () => {
+    const oldInput = document.getElementById('master-pwd-old') as HTMLInputElement | null;
+    const newInput = document.getElementById('master-pwd-new') as HTMLInputElement | null;
+
+    const oldPassword = oldInput ? oldInput.value : '';
+    const newPassword = newInput ? newInput.value : '';
+
+    try {
+      await invoke('change_master_password', {
+        oldPassword: oldPassword || null,
+        newPassword: newPassword || null
+      });
+
+      state.masterPassword = newPassword || null;
+
+      const pwdModal = document.getElementById('modal-change-master-pwd');
+      if (pwdModal) closeModal(pwdModal);
+
+      await loadSavedSessions();
+      await updateMasterPasswordStatusUI();
+    } catch (e) {
+      alert('Failed to change master password: ' + e);
     }
   });
 }
@@ -3585,6 +4038,7 @@ async function init(): Promise<void> {
   setupSettingsListeners();
   setupImportListeners();
   await loadAppSettings();
+  await populateSshKeysDropdowns();
   await loadQuickCommands();
   await loadSavedSessions();
   await loadAppVersion();

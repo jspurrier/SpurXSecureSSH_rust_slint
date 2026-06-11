@@ -211,6 +211,8 @@ impl SessionBuilder {
             username: self.username,
             log_directory: None,
             use_global_credentials: false,
+            auth_method: "password".to_string(),
+            private_key_name: None,
         })
     }
 }
@@ -326,6 +328,8 @@ fn build_putty_session(name: &str, props: &HashMap<String, String>) -> Option<Sa
         username,
         log_directory: None,
         use_global_credentials: false,
+        auth_method: "password".to_string(),
+        private_key_name: None,
     })
 }
 

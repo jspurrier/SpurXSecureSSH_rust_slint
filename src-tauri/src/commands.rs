@@ -50,6 +50,9 @@ pub async fn ssh_connect(
     let port = request.port;
     let username = request.username.clone();
     let password = request.password.clone();
+    let auth_method = request.auth_method.clone();
+    let private_key_name = request.private_key_name.clone();
+    let private_key_passphrase = request.private_key_passphrase.clone();
     let connection_for_task = connection.clone();
 
     // Spawn connection task - using spawn_blocking for ssh2
@@ -137,7 +140,10 @@ pub async fn ssh_connect(
             &host,
             port,
             &username,
-            &password,
+            password.as_deref(),
+            &auth_method,
+            private_key_name.as_deref(),
+            private_key_passphrase.as_deref(),
             output_tx,
             &mut input_rx,
             debug_mode,
@@ -221,20 +227,20 @@ pub async fn ssh_resize(
 
 /// Get list of saved sessions
 #[command]
-pub async fn get_saved_sessions() -> Result<Vec<SavedSession>, String> {
-    session::load_sessions()
+pub async fn get_saved_sessions(password: Option<String>) -> Result<Vec<SavedSession>, String> {
+    session::load_sessions_secure(password.as_deref())
 }
 
 /// Save a new session
 #[command]
-pub async fn save_session(session: SavedSession) -> Result<(), String> {
-    session::save_session(session)
+pub async fn save_session(session: SavedSession, password: Option<String>) -> Result<(), String> {
+    session::save_session_secure(session, password.as_deref())
 }
 
 /// Delete a session
 #[command]
-pub async fn delete_session(session_id: String) -> Result<(), String> {
-    session::delete_session(&session_id)
+pub async fn delete_session(session_id: String, password: Option<String>) -> Result<(), String> {
+    session::delete_session_secure(&session_id, password.as_deref())
 }
 
 /// Save session password securely
@@ -517,10 +523,22 @@ pub async fn sftp_connect(
     host: String,
     port: u16,
     username: String,
-    password: String,
+    password: Option<String>,
+    auth_method: String,
+    private_key_name: Option<String>,
+    private_key_passphrase: Option<String>,
 ) -> Result<(), String> {
     SFTP_MANAGER
-        .connect(&session_id, &host, port, &username, &password)
+        .connect(
+            &session_id,
+            &host,
+            port,
+            &username,
+            password.as_deref(),
+            &auth_method,
+            private_key_name.as_deref(),
+            private_key_passphrase.as_deref(),
+        )
         .await
 }
 
@@ -540,24 +558,26 @@ pub async fn sftp_list(session_id: String, path: String) -> Result<Vec<SftpFileE
 /// Download file from remote to local
 #[command]
 pub async fn sftp_download(
+    app: AppHandle,
     session_id: String,
     remote_path: String,
     local_path: String,
 ) -> Result<u64, String> {
     SFTP_MANAGER
-        .download(&session_id, &remote_path, &local_path)
+        .download(&session_id, &remote_path, &local_path, app)
         .await
 }
 
 /// Upload file from local to remote
 #[command]
 pub async fn sftp_upload(
+    app: AppHandle,
     session_id: String,
     local_path: String,
     remote_path: String,
 ) -> Result<u64, String> {
     SFTP_MANAGER
-        .upload(&session_id, &local_path, &remote_path)
+        .upload(&session_id, &local_path, &remote_path, app)
         .await
 }
 
@@ -629,3 +649,120 @@ pub async fn ssh_cancel_ymodem(
     }
     Ok(())
 }
+
+// ============================================
+// Key Manager Commands
+// ============================================
+
+use crate::keys::{self, KeyInfo};
+
+/// Generate a new SSH Key Pair
+#[command]
+pub async fn generate_key_pair(
+    name: String,
+    algorithm: String,
+    passphrase: Option<String>,
+) -> Result<KeyInfo, String> {
+    keys::generate_key_pair(&name, &algorithm, passphrase)
+}
+
+/// List all saved SSH Key Pairs
+#[command]
+pub async fn list_keys() -> Result<Vec<KeyInfo>, String> {
+    keys::list_keys()
+}
+
+/// Delete an SSH Key Pair
+#[command]
+pub async fn delete_key(name: String) -> Result<(), String> {
+    keys::delete_key(&name)
+}
+
+// ============================================
+// Master Password Commands
+// ============================================
+
+/// Check if master password lock is active
+#[command]
+pub async fn is_master_password_set() -> Result<bool, String> {
+    session::is_master_password_set()
+}
+
+/// Enable, disable, or change the master password session lock
+#[command]
+pub async fn change_master_password(
+    old_password: Option<String>,
+    new_password: Option<String>,
+) -> Result<(), String> {
+    session::change_master_password(old_password.as_deref(), new_password.as_deref())
+}
+
+// ============================================
+// Local Filesystem Commands
+// ============================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalFileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+/// List contents of a local directory
+#[command]
+pub async fn local_list_dir(path: String) -> Result<Vec<LocalFileEntry>, String> {
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    let entries = std::fs::read_dir(&path_buf)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    let mut list = Vec::new();
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let metadata = entry.metadata().ok();
+            let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            let name = entry.file_name().to_string_lossy().to_string();
+            let entry_path = entry.path().to_string_lossy().to_string();
+            list.push(LocalFileEntry {
+                name,
+                path: entry_path,
+                is_dir,
+                size,
+            });
+        }
+    }
+    Ok(list)
+}
+
+/// Get local user's home directory path
+#[command]
+pub async fn local_get_home_dir() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "Could not find home directory".to_string())
+}
+
+/// Delete a local file or directory
+#[command]
+pub async fn local_delete(path: String) -> Result<(), String> {
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err("Path does not exist".to_string());
+    }
+
+    if path_buf.is_dir() {
+        std::fs::remove_dir_all(path_buf)
+            .map_err(|e| format!("Failed to delete local directory: {}", e))?;
+    } else {
+        std::fs::remove_file(path_buf)
+            .map_err(|e| format!("Failed to delete local file: {}", e))?;
+    }
+    Ok(())
+}
+
+

@@ -143,7 +143,10 @@ pub async fn connect_ssh_async(
     host: &str,
     port: u16,
     username: &str,
-    password: &str,
+    password: Option<&str>,
+    auth_method: &str,
+    private_key_name: Option<&str>,
+    private_key_passphrase: Option<&str>,
     output_tx: mpsc::Sender<Vec<u8>>,
     input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
     debug_mode: bool,
@@ -173,11 +176,44 @@ pub async fn connect_ssh_async(
         let _ = output_tx.send(b"\x1b[36mAuthenticating...\x1b[0m\r\n".to_vec()).await;
     }
 
-    let auth_res = session.authenticate_password(username, password).await
-        .map_err(|e| format!("Auth error: {}", e))?;
+    let auth_res = if auth_method == "publickey" {
+        if let Some(key_name) = private_key_name {
+            let keys_dir = crate::keys::get_keys_dir();
+            let key_path = keys_dir.join(key_name);
+            if !key_path.exists() {
+                let _ = output_tx.send(format!("\x1b[31mPrivate key file not found: {:?}\x1b[0m\r\n", key_path).into_bytes()).await;
+                return Err("Private key not found".to_string());
+            }
+
+            let passphrase_str = private_key_passphrase.filter(|s| !s.is_empty());
+            
+            if debug_mode {
+                let _ = output_tx.send(b"\x1b[36mLoading private key...\x1b[0m\r\n".to_vec()).await;
+            }
+
+            match russh_keys::load_secret_key(&key_path, passphrase_str) {
+                Ok(key_pair) => {
+                    if debug_mode {
+                        let _ = output_tx.send(b"\x1b[36mAuthenticating with public key...\x1b[0m\r\n".to_vec()).await;
+                    }
+                    session.authenticate_publickey(username, Arc::new(key_pair)).await
+                        .map_err(|e| format!("Public key authentication failed: {}", e))?
+                }
+                Err(e) => {
+                    let _ = output_tx.send(format!("\x1b[31mFailed to load private key: {}\x1b[0m\r\n", e).into_bytes()).await;
+                    return Err(format!("Failed to load private key: {}", e));
+                }
+            }
+        } else {
+            return Err("Public key authentication requested but no key name provided".to_string());
+        }
+    } else {
+        session.authenticate_password(username, password.unwrap_or("")).await
+            .map_err(|e| format!("Password authentication failed: {}", e))?
+    };
 
     if !auth_res {
-        let _ = output_tx.send(b"\x1b[31mAuthentication failed (password)!\x1b[0m\r\n".to_vec()).await;
+        let _ = output_tx.send(b"\x1b[31mAuthentication failed!\x1b[0m\r\n".to_vec()).await;
         return Err("Authentication failed".to_string());
     }
 

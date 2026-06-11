@@ -36,5 +36,6 @@ export const state = {
     aiPanelOpen: false,
     aiMessages: [] as Array<{ role: 'user' | 'assistant'; content: string }>,
     aiProvider: 'gemini' as 'gemini' | 'grok' | 'ollama',
+    masterPassword: null as string | null,
 };
     

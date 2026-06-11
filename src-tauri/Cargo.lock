@@ -5026,7 +5026,7 @@ dependencies = [
 
 [[package]]
 name = "spurx-secure-ssh"
-version = "1.9.6"
+version = "2.0.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5047,6 +5047,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "ssh-key",
  "strip-ansi-escapes",
  "tauri",
  "tauri-build",

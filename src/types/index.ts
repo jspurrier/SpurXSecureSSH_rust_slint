@@ -5,9 +5,12 @@ export interface ConnectRequest {
   host: string;
   port: number;
   username: string;
-  password: string;
+  password?: string;
   log_directory?: string;
   use_global_credentials?: boolean;
+  auth_method?: string;
+  private_key_name?: string;
+  private_key_passphrase?: string;
 }
 
 export interface ConnectResponse {
@@ -25,6 +28,8 @@ export interface SavedSession {
   username?: string;
   log_directory?: string;
   use_global_credentials?: boolean;
+  auth_method?: string;
+  private_key_name?: string;
 }
 
 export interface QuickCommand {

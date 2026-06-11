@@ -1,17 +1,22 @@
 # SpurX Secure SSH
 
-**Version 1.0.0**
+**Version 2.0.0**
 
 SpurX Secure SSH is a modern, cross-platform SSH client built with Rust and Tauri, designed for professional system administrators.
 
 ## Features
 
--   **Modern Interface**: Clean tabs, customizable themes, and sidebar navigation.
--   **Session Management**: Organize servers into folders.
--   **Security**: Encrypted password storage, known_hosts verification, and host key management.
--   **AI Assistant**: Integration with Gemini, Grok, and limited local Ollama support.
--   **SFTP Browser**: Built-in file transfer.
--   **Portability**: Can be run as a portable app or installed locally.
+-   **Modern Interface**: Clean tabs, flexible tab grouping, customizable themes (Dracula, Solarized, Dark, Light), and collapsible sidebar navigation.
+-   **Session Management**: Organize servers into nested folders, import/export configurations easily.
+-   **Master Password Lock**: Encrypt and protect your entire saved sessions list and credentials.
+-   **Built-in SSH Key Manager**: Generate and manage secure ED25519 and RSA keypairs directly inside the app.
+-   **Multi-Tab Command Broadcasting**: Broadcast shell commands to multiple connected sessions simultaneously for parallel administration.
+-   **Integrated SFTP Browser**: Seamlessly transfer files with a dual-pane local and remote file browser.
+-   **YModem File Transfer**: Transfer files efficiently over active console connection sessions.
+-   **AI Assistant**: Direct integration with Gemini (Google AI), Grok (xAI), and local Ollama models (100% private & offline) in the sidebar.
+-   **Comprehensive Logging**: Automatically log session outputs with customizable filenames and timestamps.
+-   **Security**: Verification of server host keys, OS secure credential manager integration, and host key management.
+-   **Portability**: Run as a portable app (`.exe`, `.AppImage`) or install locally.
 
 ## User Guide
 

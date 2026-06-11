@@ -23,6 +23,15 @@ pub struct SftpFileEntry {
     pub permissions: Option<u32>,
 }
 
+/// Progress payload for SFTP file transfers
+#[derive(Debug, Clone, Serialize)]
+pub struct SftpProgressPayload {
+    pub file_path: String,
+    pub bytes_transferred: u64,
+    pub total_bytes: u64,
+    pub transfer_type: String,
+}
+
 /// SFTP session manager - stores active SFTP sessions
 pub struct SftpManager {
     sessions: Mutex<HashMap<String, Arc<Mutex<SftpSession>>>>,
@@ -41,14 +50,17 @@ impl SftpManager {
         }
     }
 
-    /// Connect to SFTP using existing credentials
+    /// Connect to SFTP using credentials
     pub async fn connect(
         &self,
         session_id: &str,
         host: &str,
         port: u16,
         username: &str,
-        password: &str,
+        password: Option<&str>,
+        auth_method: &str,
+        private_key_name: Option<&str>,
+        private_key_passphrase: Option<&str>,
     ) -> Result<(), String> {
         let config = Arc::new(crate::ssh::get_russh_config());
 
@@ -63,10 +75,27 @@ impl SftpManager {
             .await
             .map_err(|e| format!("SSH connect failed: {}", e))?;
 
-        let auth_res = session
-            .authenticate_password(username, password)
-            .await
-            .map_err(|e| format!("Auth error: {}", e))?;
+        let auth_res = if auth_method == "publickey" {
+            if let Some(key_name) = private_key_name {
+                let keys_dir = crate::keys::get_keys_dir();
+                let key_path = keys_dir.join(key_name);
+                if !key_path.exists() {
+                    return Err("Private key file not found".to_string());
+                }
+
+                let passphrase_str = private_key_passphrase.filter(|s| !s.is_empty());
+                let key_pair = russh_keys::load_secret_key(&key_path, passphrase_str)
+                    .map_err(|e| format!("Failed to load private key: {}", e))?;
+
+                session.authenticate_publickey(username, Arc::new(key_pair)).await
+                    .map_err(|e| format!("Public key authentication failed: {}", e))?
+            } else {
+                return Err("Public key authentication requested but no key name provided".to_string());
+            }
+        } else {
+            session.authenticate_password(username, password.unwrap_or("")).await
+                .map_err(|e| format!("Password authentication failed: {}", e))?
+        };
 
         if !auth_res {
             return Err("Authentication failed".to_string());
@@ -138,12 +167,18 @@ impl SftpManager {
                 format!("{}/{}", path, file_name_str)
             };
 
+            let is_dir = entry.metadata().is_dir();
+            let size = entry.metadata().size.unwrap_or(0);
+            let modified = entry.metadata().modified().ok()
+                .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs());
+
             entries.push(SftpFileEntry {
                 name: file_name_str,
                 path: full_path,
-                is_dir: false,
-                size: 0,
-                modified: None,
+                is_dir,
+                size,
+                modified,
                 permissions: None,
             });
         }
@@ -157,6 +192,7 @@ impl SftpManager {
         session_id: &str,
         remote_path: &str,
         local_path: &str,
+        app: tauri::AppHandle,
     ) -> Result<u64, String> {
         let sftp_arc = self.get_sftp(session_id).await?;
         let sftp = sftp_arc.lock().await;
@@ -166,17 +202,40 @@ impl SftpManager {
             .await
             .map_err(|e| format!("Failed to open remote file: {}", e))?;
 
+        let metadata = sftp.metadata(remote_path).await.ok();
+        let total_bytes = metadata.and_then(|m| m.size).unwrap_or(0);
+
         let mut local_file = File::create(local_path)
             .await
             .map_err(|e| format!("Failed to create local file: {}", e))?;
 
-        // Note: Read block per block from remote
-        let mut data = Vec::new();
-        remote_file.read_to_end(&mut data).await.map_err(|e| format!("Failed to read SFTP file: {}", e))?;
-        local_file.write_all(&data).await.map_err(|e| e.to_string())?;
-        let total_bytes = data.len() as u64;
+        let mut buffer = [0u8; 32768];
+        let mut bytes_transferred = 0u64;
 
-        Ok(total_bytes)
+        use tauri::Emitter;
+        loop {
+            let n = remote_file.read(&mut buffer).await
+                .map_err(|e| format!("Failed to read SFTP file: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            local_file.write_all(&buffer[..n]).await
+                .map_err(|e| format!("Failed to write to local file: {}", e))?;
+            
+            bytes_transferred += n as u64;
+
+            let _ = app.emit(
+                &format!("sftp-progress-{}", session_id),
+                SftpProgressPayload {
+                    file_path: remote_path.to_string(),
+                    bytes_transferred,
+                    total_bytes,
+                    transfer_type: "download".to_string(),
+                },
+            );
+        }
+
+        Ok(bytes_transferred)
     }
 
     /// Upload file from local to remote
@@ -185,6 +244,7 @@ impl SftpManager {
         session_id: &str,
         local_path: &str,
         remote_path: &str,
+        app: tauri::AppHandle,
     ) -> Result<u64, String> {
         if local_path.contains("..") || remote_path.contains("..") {
             return Err("Path traversal detected: paths cannot contain '..'".to_string());
@@ -193,21 +253,46 @@ impl SftpManager {
         let sftp_arc = self.get_sftp(session_id).await?;
         let sftp = sftp_arc.lock().await;
 
+        let local_metadata = tokio::fs::metadata(local_path).await
+            .map_err(|e| format!("Failed to get local file metadata: {}", e))?;
+        let total_bytes = local_metadata.len();
+
         let mut local_file = File::open(local_path)
             .await
             .map_err(|e| format!("Failed to open local file: {}", e))?;
-
-        let mut buffer = Vec::new();
-        local_file.read_to_end(&mut buffer).await.map_err(|e| e.to_string())?;
 
         let mut remote_file = sftp
             .create(remote_path)
             .await
             .map_err(|e| format!("Failed to create remote file: {}", e))?;
 
-        remote_file.write_all(&buffer).await.map_err(|e| format!("Failed to write to remote file: {}", e))?;
+        let mut buffer = [0u8; 32768];
+        let mut bytes_transferred = 0u64;
 
-        Ok(buffer.len() as u64)
+        use tauri::Emitter;
+        loop {
+            let n = local_file.read(&mut buffer).await
+                .map_err(|e| format!("Failed to read local file: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            remote_file.write_all(&buffer[..n]).await
+                .map_err(|e| format!("Failed to write to remote file: {}", e))?;
+            
+            bytes_transferred += n as u64;
+
+            let _ = app.emit(
+                &format!("sftp-progress-{}", session_id),
+                SftpProgressPayload {
+                    file_path: remote_path.to_string(),
+                    bytes_transferred,
+                    total_bytes,
+                    transfer_type: "upload".to_string(),
+                },
+            );
+        }
+
+        Ok(bytes_transferred)
     }
 
     /// Create directory
