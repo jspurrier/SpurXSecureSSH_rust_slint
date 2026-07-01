@@ -765,4 +765,99 @@ pub async fn local_delete(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageInfo {
+    pub default_path: String,
+    pub current_path: String,
+    pub is_custom: bool,
+}
+
+/// Query storage paths and redirection status
+#[command]
+pub async fn get_storage_info() -> Result<StorageInfo, String> {
+    let default_path = crate::get_default_config_dir();
+    let current_path = crate::get_app_config_dir();
+    let is_custom = default_path != current_path;
+
+    Ok(StorageInfo {
+        default_path: default_path.to_string_lossy().to_string(),
+        current_path: current_path.to_string_lossy().to_string(),
+        is_custom,
+    })
+}
+
+fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Set a new storage location and optionally migrate configuration files
+#[command]
+pub async fn set_storage_location(new_path: String, move_files: bool) -> Result<(), String> {
+    let new_path_buf = std::path::PathBuf::from(&new_path);
+    if !new_path_buf.is_absolute() {
+        return Err("The storage path must be an absolute path".to_string());
+    }
+
+    let default_dir = crate::get_default_config_dir();
+    let current_dir = crate::get_app_config_dir();
+
+    // Ensure the new storage directory exists
+    if !new_path_buf.exists() {
+        std::fs::create_dir_all(&new_path_buf)
+            .map_err(|e| format!("Failed to create new directory: {}", e))?;
+    }
+
+    if move_files && current_dir != new_path_buf {
+        // Move files
+        let files_to_copy = ["sessions.json", "settings.json", "commands.json", "ai_config.json"];
+        for file in &files_to_copy {
+            let src_file = current_dir.join(file);
+            if src_file.exists() && src_file.is_file() {
+                std::fs::copy(&src_file, new_path_buf.join(file))
+                    .map_err(|e| format!("Failed to copy file {}: {}", file, e))?;
+            }
+        }
+
+        let src_keys = current_dir.join("keys");
+        if src_keys.exists() && src_keys.is_dir() {
+            copy_dir_all(&src_keys, new_path_buf.join("keys"))
+                .map_err(|e| format!("Failed to copy keys directory: {}", e))?;
+        }
+    }
+
+    // Write pointer file in the default directory
+    let pointer_file = default_dir.join("storage_path.txt");
+    std::fs::create_dir_all(&default_dir)
+        .map_err(|e| format!("Failed to create default config directory: {}", e))?;
+    std::fs::write(&pointer_file, &new_path)
+        .map_err(|e| format!("Failed to write storage pointer: {}", e))?;
+
+    Ok(())
+}
+
+/// Reset storage location to default path
+#[command]
+pub async fn reset_storage_location() -> Result<(), String> {
+    let default_dir = crate::get_default_config_dir();
+    let pointer_file = default_dir.join("storage_path.txt");
+
+    if pointer_file.exists() {
+        std::fs::remove_file(pointer_file)
+            .map_err(|e| format!("Failed to delete storage pointer: {}", e))?;
+    }
+
+    Ok(())
+}
+
+
 

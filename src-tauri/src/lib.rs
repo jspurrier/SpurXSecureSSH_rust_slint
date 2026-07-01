@@ -118,11 +118,8 @@ pub struct QuickCommand {
     pub example: Option<String>,
 }
 
-/// Get the standardized application configuration directory.
-///
-/// - Windows: %APPDATA%/SpurXSecureSSH
-/// - Linux/macOS: ~/.spurx-secure-ssh
-pub fn get_app_config_dir() -> std::path::PathBuf {
+/// Get the default application configuration directory.
+pub fn get_default_config_dir() -> std::path::PathBuf {
     #[cfg(target_os = "windows")]
     {
         dirs::config_dir()
@@ -135,6 +132,27 @@ pub fn get_app_config_dir() -> std::path::PathBuf {
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".spurx-secure-ssh")
     }
+}
+
+/// Get the standardized application configuration directory.
+///
+/// - Windows: %APPDATA%/SpurXSecureSSH
+/// - Linux/macOS: ~/.spurx-secure-ssh
+pub fn get_app_config_dir() -> std::path::PathBuf {
+    let default_dir = get_default_config_dir();
+    let pointer_file = default_dir.join("storage_path.txt");
+    if pointer_file.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pointer_file) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                let custom_dir = std::path::PathBuf::from(trimmed);
+                if custom_dir.is_absolute() {
+                    return custom_dir;
+                }
+            }
+        }
+    }
+    default_dir
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -195,6 +213,9 @@ pub fn run() {
             commands::local_list_dir,
             commands::local_get_home_dir,
             commands::local_delete,
+            commands::get_storage_info,
+            commands::set_storage_location,
+            commands::reset_storage_location,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

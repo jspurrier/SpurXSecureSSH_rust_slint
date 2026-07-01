@@ -2846,9 +2846,36 @@ async function checkForUpdatesManual(): Promise<void> {
   }
 }
 
+// Query storage path details from Rust and update settings UI
+async function refreshStorageSettingsUI(): Promise<void> {
+  const pathInput = document.getElementById('settings-storage-path') as HTMLInputElement | null;
+  const resetBtn = document.getElementById('settings-reset-storage') as HTMLButtonElement | null;
+  const hintEl = document.getElementById('storage-path-hint') as HTMLElement | null;
+
+  if (!pathInput || !resetBtn || !hintEl) return;
+
+  try {
+    const info = await invoke<{ default_path: string; current_path: string; is_custom: boolean }>('get_storage_info');
+    pathInput.value = info.current_path;
+    if (info.is_custom) {
+      resetBtn.style.display = 'inline-block';
+      hintEl.textContent = 'Currently using a custom folder location.';
+      hintEl.style.color = 'var(--accent-primary)';
+    } else {
+      resetBtn.style.display = 'none';
+      hintEl.textContent = 'Currently using the default home folder location.';
+      hintEl.style.color = 'var(--text-muted)';
+    }
+  } catch (e) {
+    console.error('Failed to get storage info:', e);
+  }
+}
+
 // Populate settings form from current settings
 function populateSettingsForm(): void {
   if (!currentSettings) return;
+
+  refreshStorageSettingsUI();
 
   elements.settingsFontFamily.value = currentSettings.font_family;
   elements.settingsFontSize.value = currentSettings.font_size.toString();
@@ -3301,6 +3328,86 @@ function setupSettingsListeners(): void {
       await updateMasterPasswordStatusUI();
     } catch (e) {
       alert('Failed to change master password: ' + e);
+    }
+  });
+
+  // Storage Redirection Listeners
+  let chosenStoragePath: string | null = null;
+  const storageConfirmModal = document.getElementById('modal-storage-confirm');
+  const storageConfirmPath = document.getElementById('storage-confirm-path');
+
+  document.getElementById('btn-settings-change-storage')?.addEventListener('click', async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Configuration Storage Directory'
+      });
+      if (selected && typeof selected === 'string') {
+        chosenStoragePath = selected;
+        if (storageConfirmPath) {
+          storageConfirmPath.textContent = selected;
+        }
+        if (storageConfirmModal) {
+          showModal(storageConfirmModal);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to open directory picker:', e);
+      alert('Failed to open directory picker: ' + e);
+    }
+  });
+
+  document.getElementById('storage-confirm-close')?.addEventListener('click', () => {
+    if (storageConfirmModal) closeModal(storageConfirmModal);
+    chosenStoragePath = null;
+  });
+
+  document.getElementById('btn-storage-cancel')?.addEventListener('click', () => {
+    if (storageConfirmModal) closeModal(storageConfirmModal);
+    chosenStoragePath = null;
+  });
+
+  document.getElementById('btn-storage-move')?.addEventListener('click', async () => {
+    if (!chosenStoragePath) return;
+    try {
+      await invoke('set_storage_location', { newPath: chosenStoragePath, moveFiles: true });
+      alert('Storage path updated and configuration files migrated successfully! The application will now restart.');
+      if (storageConfirmModal) closeModal(storageConfirmModal);
+      closeModal(elements.settingsModal);
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      alert('Failed to update storage location: ' + e);
+    }
+  });
+
+  document.getElementById('btn-storage-redirect')?.addEventListener('click', async () => {
+    if (!chosenStoragePath) return;
+    try {
+      await invoke('set_storage_location', { newPath: chosenStoragePath, moveFiles: false });
+      alert('Storage path redirected successfully! The application will now restart.');
+      if (storageConfirmModal) closeModal(storageConfirmModal);
+      closeModal(elements.settingsModal);
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      alert('Failed to update storage location: ' + e);
+    }
+  });
+
+  document.getElementById('btn-settings-reset-storage')?.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to reset the configuration directory back to the default path? The application will restart.')) {
+      try {
+        await invoke('reset_storage_location');
+        alert('Storage path reset to default! The application will now restart.');
+        closeModal(elements.settingsModal);
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        await relaunch();
+      } catch (e) {
+        alert('Failed to reset storage location: ' + e);
+      }
     }
   });
 }

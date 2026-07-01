@@ -1020,11 +1020,20 @@
             </div>
           </div>
           <div class="settings-section-divider"></div>
-          <div class="settings-section-title">Application Data</div>
-          <p class="settings-description" style="margin-bottom: 8px;">Backup or restore your sessions and quick commands.</p>
-          <div class="form-row" style="gap: 12px;">
-            <button class="btn btn-secondary" id="btn-settings-import" style="flex: 1;">Import Data...</button>
-            <button class="btn btn-secondary" id="btn-settings-export" style="flex: 1;">Export Data...</button>
+          <div class="settings-section-title">Application Data & Storage</div>
+          <p class="settings-description" style="margin-bottom: 8px;">Backup/restore sessions, or change the directory where your configuration is saved.</p>
+          <div class="form-row" style="gap: 12px; margin-bottom: 12px;">
+            <button type="button" class="btn btn-secondary" id="btn-settings-import" style="flex: 1;">Import Data...</button>
+            <button type="button" class="btn btn-secondary" id="btn-settings-export" style="flex: 1;">Export Data...</button>
+          </div>
+          <div class="form-group">
+            <label>Configuration Directory:</label>
+            <div class="file-input-row" style="display: flex; gap: 8px;">
+              <input type="text" id="settings-storage-path" readonly placeholder="Default" style="flex: 1; background: var(--bg-primary); cursor: default;" />
+              <button type="button" class="btn btn-secondary" id="btn-settings-change-storage" style="white-space: nowrap;">Change...</button>
+              <button type="button" class="btn btn-secondary" id="btn-settings-reset-storage" style="white-space: nowrap; display: none;">Reset</button>
+            </div>
+            <div class="form-hint" id="storage-path-hint">Currently using the default home folder location.</div>
           </div>
         </div>
 
@@ -1366,7 +1375,7 @@
           </svg>
         </div>
         <h3>SpurX Secure SSH</h3>
-        <p class="about-version" id="about-version">Version 2.0.0</p>
+        <p class="about-version" id="about-version">Version 2.0.1</p>
         <p class="about-description">A modern, secure SSH client for professional system administrators.</p>
         
         <div class="about-features-grid">
@@ -1477,6 +1486,30 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" id="btn-about-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Storage Move/Redirect Modal -->
+  <div class="modal-overlay" id="modal-storage-confirm">
+    <div class="modal modal-storage-confirm" style="max-width: 420px;">
+      <div class="modal-header">
+        <h2>Change Storage Location</h2>
+        <button class="modal-close" id="storage-confirm-close">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <p style="font-size: 13px; line-height: 1.5; margin-bottom: 12px; color: var(--text-primary);">
+          You selected a new storage directory: <br/>
+          <strong id="storage-confirm-path" style="word-break: break-all; color: var(--accent-primary); display: block; margin-top: 6px; font-family: monospace; font-size: 11px;"></strong>
+        </p>
+        <p style="font-size: 12px; line-height: 1.5; margin-bottom: 16px; color: var(--text-secondary);">
+          Would you like to move your existing configuration files (sessions, settings, quick commands, and custom keys) to this new directory?
+        </p>
+      </div>
+      <div class="modal-footer" style="flex-direction: column; gap: 8px; padding: 15px 20px;">
+        <button type="button" class="btn btn-primary" id="btn-storage-move" style="width: 100%; text-align: center;">Yes, Move My Existing Files</button>
+        <button type="button" class="btn btn-secondary" id="btn-storage-redirect" style="width: 100%; text-align: center;">No, Just Redirect (Start Fresh/Manual Move)</button>
+        <button type="button" class="btn btn-ghost" id="btn-storage-cancel" style="width: 100%; text-align: center;">Cancel</button>
       </div>
     </div>
   </div>
