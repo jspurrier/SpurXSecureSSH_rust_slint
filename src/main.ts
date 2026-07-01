@@ -1180,6 +1180,14 @@ function executeQuickCommand(command: QuickCommand): void {
     invoke('ssh_write', {
       sessionId: tab.sessionId,
       data: Array.from(encoder.encode(command.command)),
+    }).then(() => {
+      setTimeout(() => {
+        if (tab.terminal) {
+          tab.terminal.focus();
+        }
+      }, 50);
+    }).catch((e) => {
+      console.error('Failed to write quick command:', e);
     });
   }
 }

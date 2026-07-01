@@ -1,6 +1,6 @@
 [package]
 name = "spurx-secure-ssh"
-version = "2.0.1"
+version = "2.0.2"
 description = "SpurX Secure SSH - A Modern SSH Client"
 authors = ["John Spurrier"]
 edition = "2021"

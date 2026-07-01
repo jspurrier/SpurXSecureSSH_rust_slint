@@ -267,6 +267,10 @@ export function runCommandInActiveTab(cmd: string): void {
   invoke('ssh_write', {
     sessionId: tab.sessionId,
     data: data,
+  }).then(() => {
+    setTimeout(() => {
+      if (tab.terminal) tab.terminal.focus();
+    }, 50);
   }).catch((e) => {
     console.error('Failed to execute command in terminal:', e);
   });
