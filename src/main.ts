@@ -2864,7 +2864,8 @@ async function refreshStorageSettingsUI(): Promise<void> {
 
   try {
     const info = await invoke<{ default_path: string; current_path: string; is_custom: boolean }>('get_storage_info');
-    pathInput.value = info.current_path;
+    pathInput.value = info.current_path || info.default_path;
+    pathInput.placeholder = info.default_path;
     if (info.is_custom) {
       resetBtn.style.display = 'inline-block';
       hintEl.textContent = 'Currently using a custom folder location.';
@@ -2881,9 +2882,10 @@ async function refreshStorageSettingsUI(): Promise<void> {
 
 // Populate settings form from current settings
 function populateSettingsForm(): void {
-  if (!currentSettings) return;
-
+  // Always refresh storage settings regardless of currentSettings state
   refreshStorageSettingsUI();
+
+  if (!currentSettings) return;
 
   elements.settingsFontFamily.value = currentSettings.font_family;
   elements.settingsFontSize.value = currentSettings.font_size.toString();
@@ -3135,7 +3137,10 @@ async function refreshSshKeys(): Promise<void> {
 // Setup settings modal event listeners
 function setupSettingsListeners(): void {
   // Settings cog button opens modal
-  document.getElementById('btn-settings')?.addEventListener('click', () => {
+  document.getElementById('btn-settings')?.addEventListener('click', async () => {
+    if (!currentSettings) {
+      await loadAppSettings();
+    }
     populateSettingsForm();
     showModal(elements.settingsModal);
   });
@@ -3547,7 +3552,10 @@ function setupImportListeners(): void {
   });
 
   // Options Menu: Settings
-  document.getElementById('menu-options-settings')?.addEventListener('click', () => {
+  document.getElementById('menu-options-settings')?.addEventListener('click', async () => {
+    if (!currentSettings) {
+      await loadAppSettings();
+    }
     populateSettingsForm();
     showModal(elements.settingsModal);
   });

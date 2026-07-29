@@ -33,12 +33,16 @@ pub fn get_known_hosts() -> Result<Vec<KnownHostEntry>, String> {
             let name = parts[0].to_string();
             let key_type = parts[1].to_string();
 
+            let raw_key = format!("{} {}", parts[1], parts[2]);
+            let fingerprint = match ssh_key::PublicKey::from_openssh(&raw_key) {
+                Ok(pk) => pk.fingerprint(ssh_key::HashAlg::Sha256).to_string(),
+                Err(_) => "SHA256:...".to_string(),
+            };
+
             entries.push(KnownHostEntry {
                 name,
                 key_type,
-                // Russh keys does not easily provide base64->fingerprint parsing for all key formats
-                // without manually instantiating `ssh_key::PublicKey`. So we mock it.
-                fingerprint: "SHA256:...".to_string(),
+                fingerprint,
             });
         }
     }

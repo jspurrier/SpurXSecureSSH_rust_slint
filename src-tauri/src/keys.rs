@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
-use ssh_key::{PrivateKey, LineEnding, Algorithm};
+use ssh_key::{PrivateKey, LineEnding, Algorithm, EcdsaCurve};
 use rand::rngs::OsRng;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -43,6 +43,18 @@ pub fn generate_key_pair(name: &str, algorithm: &str, passphrase: Option<String>
             let rsa_key = ssh_key::private::RsaKeypair::random(&mut rng, 4096)
                 .map_err(|e| format!("Failed to generate RSA key: {}", e))?;
             PrivateKey::from(rsa_key)
+        }
+        "ecdsa-p256" => {
+            PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 })
+                .map_err(|e| format!("Failed to generate ECDSA P-256 key: {}", e))?
+        }
+        "ecdsa-p384" => {
+            PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP384 })
+                .map_err(|e| format!("Failed to generate ECDSA P-384 key: {}", e))?
+        }
+        "ecdsa-p521" => {
+            PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve: EcdsaCurve::NistP521 })
+                .map_err(|e| format!("Failed to generate ECDSA P-521 key: {}", e))?
         }
         _ => return Err(format!("Unsupported algorithm: {}", algorithm)),
     };

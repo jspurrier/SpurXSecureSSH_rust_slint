@@ -76,12 +76,15 @@ impl client::Handler for ClientHandler {
             }
         }
 
+        let key_algo = server_public_key.name();
+
         if verified {
-            let _ = self.output_tx.send(b"\x1b[32mHost key verified.\x1b[0m\r\n".to_vec()).await;
+            let msg = format!("\x1b[32mHost key ({}) verified.\x1b[0m\r\n", key_algo);
+            let _ = self.output_tx.send(msg.into_bytes()).await;
         } else {
             let msg = format!(
-                "\r\n\x1b[33mWARNING: Host '{}' not found in known_hosts (or mismatched). Proceeding...\x1b[0m\r\n",
-                self.host
+                "\r\n\x1b[33mWARNING: Host '{}' ({}) not found in known_hosts (or mismatched). Proceeding...\x1b[0m\r\n",
+                self.host, key_algo
             );
             let _ = self.output_tx.send(msg.into_bytes()).await;
         }
@@ -99,13 +102,17 @@ pub fn get_russh_config() -> client::Config {
             russh::kex::ECDH_SHA2_NISTP256,
             russh::kex::ECDH_SHA2_NISTP384,
             russh::kex::ECDH_SHA2_NISTP521,
+            russh::kex::DH_G16_SHA512,
             russh::kex::DH_G14_SHA256,
             russh::kex::DH_G14_SHA1,  // Legacy: Cisco IOS, older gear
             russh::kex::DH_G1_SHA1,   // Very old legacy
         ]),
-        // Include legacy host key types for old SSH servers
+        // Include ECDSA (P-256, P-384, P-521), Ed25519, RSA, and legacy host key types for old SSH servers
         key: std::borrow::Cow::Owned(vec![
             russh_keys::key::ED25519,
+            russh_keys::key::ECDSA_SHA2_NISTP256,
+            russh_keys::key::ECDSA_SHA2_NISTP384,
+            russh_keys::key::ECDSA_SHA2_NISTP521,
             russh_keys::key::RSA_SHA2_512,
             russh_keys::key::RSA_SHA2_256,
             russh_keys::key::SSH_RSA,    // Legacy RSA - required for very old Cisco
