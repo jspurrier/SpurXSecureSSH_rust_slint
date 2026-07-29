@@ -2857,23 +2857,26 @@ async function checkForUpdatesManual(): Promise<void> {
 // Query storage path details from Rust and update settings UI
 async function refreshStorageSettingsUI(): Promise<void> {
   const pathInput = document.getElementById('settings-storage-path') as HTMLInputElement | null;
-  const resetBtn = document.getElementById('settings-reset-storage') as HTMLButtonElement | null;
+  const resetBtn = document.getElementById('btn-settings-reset-storage') as HTMLButtonElement | null;
   const hintEl = document.getElementById('storage-path-hint') as HTMLElement | null;
 
-  if (!pathInput || !resetBtn || !hintEl) return;
+  if (!pathInput) return;
 
   try {
     const info = await invoke<{ default_path: string; current_path: string; is_custom: boolean }>('get_storage_info');
-    pathInput.value = info.current_path || info.default_path;
-    pathInput.placeholder = info.default_path;
-    if (info.is_custom) {
-      resetBtn.style.display = 'inline-block';
-      hintEl.textContent = 'Currently using a custom folder location.';
-      hintEl.style.color = 'var(--accent-primary)';
-    } else {
-      resetBtn.style.display = 'none';
-      hintEl.textContent = 'Currently using the default home folder location.';
-      hintEl.style.color = 'var(--text-muted)';
+    pathInput.value = info.current_path;
+    pathInput.title = info.current_path;
+    if (resetBtn) {
+      resetBtn.style.display = info.is_custom ? 'inline-block' : 'none';
+    }
+    if (hintEl) {
+      if (info.is_custom) {
+        hintEl.textContent = 'Currently using a custom folder location.';
+        hintEl.style.color = 'var(--accent-primary)';
+      } else {
+        hintEl.textContent = 'Currently using the default application folder location.';
+        hintEl.style.color = 'var(--text-muted)';
+      }
     }
   } catch (e) {
     console.error('Failed to get storage info:', e);
