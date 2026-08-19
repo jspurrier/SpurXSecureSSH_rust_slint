@@ -164,14 +164,6 @@ pub fn get_app_config_dir() -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(target_os = "linux")]
-    {
-        // Work around WebKitGTK DMA-BUF renderer crash with NVIDIA proprietary drivers
-        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        }
-    }
-
     let app_state = Arc::new(AppState::new());
 
     tauri::Builder::default()

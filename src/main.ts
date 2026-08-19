@@ -68,24 +68,17 @@ function createTerminal(): { terminal: Terminal; fitAddon: FitAddon } {
       brightCyan: '#56d4dd',
       brightWhite: '#f0f6fc',
     },
-    fontFamily: '"Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace',
-    fontSize: 14,
+    fontFamily: currentSettings?.font_family || '"Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace',
+    fontSize: currentSettings?.font_size || 14,
     lineHeight: 1.2,
-    cursorBlink: true,
-    cursorStyle: 'block',
+    cursorBlink: currentSettings ? currentSettings.cursor_blink : true,
+    cursorStyle: (currentSettings?.cursor_style as any) || 'block',
+    scrollback: currentSettings?.scrollback_lines || 10000,
     allowProposedApi: true,
   });
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
-
-  // Load WebGL addon
-  try {
-    const webglAddon = new WebglAddon();
-    terminal.loadAddon(webglAddon);
-  } catch (e) {
-    console.warn('WebGL addon could not be loaded:', e);
-  }
 
   return { terminal, fitAddon };
 }
@@ -110,6 +103,18 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
 
   // Open terminal in container immediately
   terminal.open(container);
+
+  // Load WebGL addon for GPU-accelerated rendering after terminal is attached to DOM
+  try {
+    const webglAddon = new WebglAddon();
+    webglAddon.onContextLoss(() => {
+      console.warn('WebGL context lost, disposing WebGL addon');
+      webglAddon.dispose();
+    });
+    terminal.loadAddon(webglAddon);
+  } catch (e) {
+    console.warn('WebGL addon could not be loaded, using fallback renderer:', e);
+  }
 
   const tabInfo: TabInfo = {
     id: tabId,
@@ -3013,6 +3018,20 @@ async function saveAppSettings(): Promise<void> {
     await invoke('save_settings', { settings });
     currentSettings = settings;
     
+    // Update all active terminals with new settings
+    for (const tab of state.tabs.values()) {
+      if (tab.terminal) {
+        tab.terminal.options.fontFamily = settings.font_family;
+        tab.terminal.options.fontSize = settings.font_size;
+        tab.terminal.options.cursorStyle = settings.cursor_style as any;
+        tab.terminal.options.cursorBlink = settings.cursor_blink;
+        tab.terminal.options.scrollback = settings.scrollback_lines;
+        try {
+          tab.fitAddon.fit();
+        } catch (_) {}
+      }
+    }
+
     const globalPwdInput = document.getElementById('settings-global-password') as HTMLInputElement;
     if (globalPwdInput && globalPwdInput.value) {
       await invoke('save_global_password', { password: globalPwdInput.value });

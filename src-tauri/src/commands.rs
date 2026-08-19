@@ -114,7 +114,14 @@ pub async fn ssh_connect(
 
     tokio::spawn(async move {
         use std::io::Write;
-        while let Some(data) = output_rx.recv().await {
+        while let Some(mut data) = output_rx.recv().await {
+            // Coalesce rapid pending bursts to avoid flooding the IPC event loop
+            while let Ok(more) = output_rx.try_recv() {
+                data.extend(more);
+                if data.len() >= 65536 {
+                    break;
+                }
+            }
             if let Some(ref mut file) = log_file {
                 let stripped_data = strip_ansi_escapes::strip(&data);
                 let _ = file.write_all(&stripped_data);
