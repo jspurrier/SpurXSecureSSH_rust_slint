@@ -23,7 +23,7 @@ export function enableTabKeyboard(tab: TabInfo): void {
     if (tab.sessionId && tab.connected) {
       invoke('ssh_write', {
         sessionId: tab.sessionId,
-        data: Array.from(textEncoder.encode(data)),
+        data,
       });
     }
   });

@@ -6,6 +6,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
 
 // Tauri API
@@ -106,16 +107,34 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
   // Open terminal in container immediately
   terminal.open(container);
 
-  // Load WebGL addon for GPU-accelerated rendering after terminal is attached to DOM
+  // Load high-performance bitmap canvas / WebGL rendering after terminal is attached to DOM
   try {
-    const webglAddon = new WebglAddon();
-    webglAddon.onContextLoss(() => {
-      console.warn('WebGL context lost, disposing WebGL addon');
-      webglAddon.dispose();
-    });
-    terminal.loadAddon(webglAddon);
+    const isLinux = typeof navigator !== 'undefined' && /linux/i.test(navigator.userAgent);
+    if (isLinux) {
+      try {
+        const canvasAddon = new CanvasAddon();
+        terminal.loadAddon(canvasAddon);
+      } catch {
+        try {
+          const webglAddon = new WebglAddon();
+          webglAddon.onContextLoss(() => webglAddon.dispose());
+          terminal.loadAddon(webglAddon);
+        } catch {}
+      }
+    } else {
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        terminal.loadAddon(webglAddon);
+      } catch {
+        try {
+          const canvasAddon = new CanvasAddon();
+          terminal.loadAddon(canvasAddon);
+        } catch {}
+      }
+    }
   } catch (e) {
-    console.warn('WebGL addon could not be loaded, using fallback renderer:', e);
+    console.warn('Hardware canvas/WebGL addons could not be loaded, using DOM fallback:', e);
   }
 
   const tabInfo: TabInfo = {
@@ -144,7 +163,7 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
       if (tabInfo.sessionId && tabInfo.connected) {
         invoke('ssh_write', {
           sessionId: tabInfo.sessionId,
-          data: [127],
+          data: '\x7f',
         }).catch(e => console.error('Failed to write delete key:', e));
       }
       return false;
@@ -226,8 +245,7 @@ async function closeTabGroup(groupId: string): Promise<void> {
 }
 
 function broadcastCommand(command: string, groupId?: string): void {
-  const encoder = new TextEncoder();
-  const data = Array.from(encoder.encode(command + '\r'));
+  const data = command + '\r';
   let sent = 0;
   state.tabs.forEach(tab => {
     if (!tab.connected || !tab.sessionId) return;
@@ -581,11 +599,14 @@ async function connect(
       }
 
       // Listen for terminal data
-      const unlistenData = await listen<number[]>(
+      const unlistenData = await listen<string | number[]>(
         `terminal-data-${response.session_id}`,
         (event) => {
-          const data = new Uint8Array(event.payload);
-          tab!.terminal.write(data);
+          if (typeof event.payload === 'string') {
+            tab!.terminal.write(event.payload);
+          } else {
+            tab!.terminal.write(new Uint8Array(event.payload));
+          }
         }
       );
       tab.unlisteners.push(unlistenData);
@@ -1189,10 +1210,9 @@ async function deleteFolder(path: string, type: 'session' | 'command'): Promise<
 function executeQuickCommand(command: QuickCommand): void {
   const tab = state.activeTabId ? state.tabs.get(state.activeTabId) : null;
   if (tab && tab.sessionId) {
-    const encoder = new TextEncoder();
     invoke('ssh_write', {
       sessionId: tab.sessionId,
-      data: Array.from(encoder.encode(command.command)),
+      data: command.command,
     }).then(() => {
       setTimeout(() => {
         if (tab.terminal) {

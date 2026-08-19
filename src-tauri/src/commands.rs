@@ -122,8 +122,11 @@ pub async fn ssh_connect(
                     break;
                 }
             }
+            // Convert byte stream to UTF-8 string for zero-copy string IPC serialization
+            let text_data = String::from_utf8_lossy(&data).to_string();
+
             // Emit terminal data to UI immediately (zero disk latency)
-            let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), data.clone());
+            let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), text_data);
 
             // Write to session log asynchronously after UI emit
             if let Some(ref mut file) = log_file {
@@ -201,17 +204,34 @@ pub async fn ssh_disconnect(
     Ok(())
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum SshInputData {
+    Str(String),
+    Bytes(Vec<u8>),
+}
+
+impl SshInputData {
+    pub fn into_bytes(self) -> Vec<u8> {
+        match self {
+            SshInputData::Str(s) => s.into_bytes(),
+            SshInputData::Bytes(b) => b,
+        }
+    }
+}
+
 /// Write data to an SSH session
 #[command]
 pub async fn ssh_write(
     state: State<'_, Arc<AppState>>,
     session_id: String,
-    data: Vec<u8>,
+    data: SshInputData,
 ) -> Result<(), String> {
+    let bytes = data.into_bytes();
     let senders = state.input_senders.read();
     if let Some(sender) = senders.get(&session_id) {
         sender
-            .send(SshInput::Data(data))
+            .send(SshInput::Data(bytes))
             .map_err(|e| format!("Failed to send data: {}", e))?;
     }
     Ok(())

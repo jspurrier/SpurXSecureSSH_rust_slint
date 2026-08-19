@@ -262,11 +262,9 @@ export function runCommandInActiveTab(cmd: string): void {
     return;
   }
 
-  const encoder = new TextEncoder();
-  const data = Array.from(encoder.encode(cmd.trim() + '\n'));
   invoke('ssh_write', {
     sessionId: tab.sessionId,
-    data: data,
+    data: cmd.trim() + '\n',
   }).then(() => {
     setTimeout(() => {
       if (tab.terminal) tab.terminal.focus();
@@ -468,10 +466,9 @@ function insertSuggestion(tab: any, cmd: string): void {
     
     const remainingCmd = cmd.substring(overlap.length);
     if (remainingCmd) {
-      const encoder = new TextEncoder();
       invoke('ssh_write', {
         sessionId: tab.sessionId,
-        data: Array.from(encoder.encode(remainingCmd)),
+        data: remainingCmd,
       }).catch(e => console.error('Failed to write suggestion:', e));
     }
   }
