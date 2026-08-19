@@ -166,9 +166,15 @@ pub fn get_app_config_dir() -> std::path::PathBuf {
 pub fn run() {
     #[cfg(target_os = "linux")]
     {
-        // Work around WebKitGTK DMA-BUF / EGL renderer crash with NVIDIA drivers
+        // Work around WebKitGTK DMA-BUF / EGL renderer crash with NVIDIA drivers while preserving GPU acceleration
         if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+        if std::env::var_os("WEBKIT_FORCE_COMPOSITING_MODE").is_none() {
+            std::env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        }
+        if std::env::var_os("WEBKIT_USE_GL").is_none() {
+            std::env::set_var("WEBKIT_USE_GL", "gles");
         }
     }
 

@@ -21,6 +21,13 @@ export function enableTabKeyboard(tab: TabInfo): void {
   }
   tab.onDataDisposable = tab.terminal.onData((data) => {
     if (tab.sessionId && tab.connected) {
+      // Optimistic local echo for instant 0ms visual feedback on typing & backspace
+      if (data === '\x7f' || data === '\x08') {
+        tab.terminal.write('\b \b');
+      } else if (data.length === 1 && data >= ' ' && data <= '~') {
+        tab.terminal.write(data);
+      }
+
       invoke('ssh_write', {
         sessionId: tab.sessionId,
         data: Array.from(textEncoder.encode(data)),
