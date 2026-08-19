@@ -1,6 +1,6 @@
 # SpurX Secure SSH
 
-**Version 2.0.8**
+**Version 2.0.9**
 
 SpurX Secure SSH is a modern, cross-platform SSH client built with Rust and Tauri, designed for professional system administrators.
 
