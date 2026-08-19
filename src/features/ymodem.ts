@@ -13,16 +13,17 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+const textEncoder = new TextEncoder();
+
 export function enableTabKeyboard(tab: TabInfo): void {
   if (tab.onDataDisposable) {
     tab.onDataDisposable.dispose();
   }
   tab.onDataDisposable = tab.terminal.onData((data) => {
     if (tab.sessionId && tab.connected) {
-      const encoder = new TextEncoder();
       invoke('ssh_write', {
         sessionId: tab.sessionId,
-        data: Array.from(encoder.encode(data)),
+        data: Array.from(textEncoder.encode(data)),
       });
     }
   });

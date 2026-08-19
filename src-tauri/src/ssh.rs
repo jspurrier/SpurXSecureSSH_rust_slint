@@ -175,7 +175,12 @@ pub async fn connect_ssh_async(
         let _ = output_tx.send(b"\x1b[36mPerforming SSH handshake...\x1b[0m\r\n".to_vec()).await;
     }
 
-    let mut session = client::connect(config, (host, port), handler)
+    let socket = tokio::net::TcpStream::connect((host, port))
+        .await
+        .map_err(|e| format!("SSH connect failed: {}", e))?;
+    let _ = socket.set_nodelay(true);
+
+    let mut session = client::connect_stream(config, socket, handler)
         .await
         .map_err(|e| format!("SSH connect failed: {}", e))?;
 

@@ -658,6 +658,7 @@ pub async fn connect<H: Handler + Send + 'static, A: ToSocketAddrs>(
     let socket = TcpStream::connect(addrs)
         .await
         .map_err(crate::Error::from)?;
+    let _ = socket.set_nodelay(true);
     connect_stream(config, socket, handler).await
 }
 

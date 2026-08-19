@@ -74,6 +74,8 @@ function createTerminal(): { terminal: Terminal; fitAddon: FitAddon } {
     cursorBlink: currentSettings ? currentSettings.cursor_blink : true,
     cursorStyle: (currentSettings?.cursor_style as any) || 'block',
     scrollback: currentSettings?.scrollback_lines || 10000,
+    smoothScrollDuration: 0,
+    scrollOnUserInput: true,
     allowProposedApi: true,
   });
 
