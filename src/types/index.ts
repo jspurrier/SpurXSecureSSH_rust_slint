@@ -19,6 +19,29 @@ export interface ConnectResponse {
   error?: string;
 }
 
+export interface TunnelConfig {
+  id: string;
+  name: string;
+  session_id?: string;
+  tunnel_type: string; // "local" | "remote" | "dynamic"
+  local_host: string;
+  local_port: number;
+  remote_host: string;
+  remote_port: number;
+  auto_start?: boolean;
+}
+
+export interface TunnelStatus {
+  id: string;
+  running: boolean;
+  error?: string;
+  active_connections: number;
+  bytes_rx: number;
+  bytes_tx: number;
+  local_address: string;
+  remote_target: string;
+}
+
 export interface SavedSession {
   id: string;
   name: string;
@@ -30,6 +53,8 @@ export interface SavedSession {
   use_global_credentials?: boolean;
   auth_method?: string;
   private_key_name?: string;
+  tunnels?: TunnelConfig[];
+  auto_start_tunnels?: boolean;
 }
 
 export interface QuickCommand {

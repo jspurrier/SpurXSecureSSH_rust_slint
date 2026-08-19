@@ -3541,4 +3541,319 @@ body {
   opacity: 0.85;
 }
 
+/* ============================================
+   SSH Tunnels & Port Forwarding
+   ============================================ */
+.modal-tunnels {
+  width: 860px;
+  max-width: 95vw;
+}
+
+.modal-edit-tunnel {
+  width: 520px;
+  max-width: 95vw;
+}
+
+.tunnels-header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-secondary, #1e1e2e);
+  border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+}
+
+.tunnels-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tunnels-select-filter {
+  padding: 5px 10px;
+  font-size: 12px;
+  border-radius: 6px;
+  background: var(--bg-primary, #181825);
+  color: var(--text-primary, #cdd6f4);
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.12));
+}
+
+.tunnels-global-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tunnels-modal-body {
+  padding: 16px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tunnels-table-container {
+  width: 100%;
+}
+
+.tunnels-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tunnels-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted, #9ca3af);
+  border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+}
+
+.tunnels-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-secondary, rgba(255, 255, 255, 0.04));
+  vertical-align: middle;
+}
+
+.tunnels-table tr:hover td {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.02));
+}
+
+.tunnel-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tunnel-status-badge.status-active {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.tunnel-status-badge.status-stopped {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-active .status-dot {
+  box-shadow: 0 0 6px #10b981;
+}
+
+.tunnel-conn-count {
+  display: block;
+  font-size: 10px;
+  color: #10b981;
+  margin-top: 2px;
+}
+
+.tunnel-name {
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+}
+
+.tunnel-session-sub {
+  font-size: 11px;
+  color: var(--text-muted, #9ca3af);
+  margin-top: 2px;
+}
+
+.tunnel-port-pill {
+  display: inline-block;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.tunnel-port-pill.local-port {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.tunnel-port-pill.remote-port {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.tunnel-traffic-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  color: var(--text-muted, #9ca3af);
+}
+
+.tunnel-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.btn-success {
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+}
+
+.btn-success:hover {
+  background: #059669;
+}
+
+.btn-outline-primary {
+  background: transparent;
+  color: var(--accent-primary, #6366f1);
+  border: 1px solid var(--accent-primary, #6366f1);
+}
+
+.btn-outline-primary:hover {
+  background: var(--accent-primary, #6366f1);
+  color: #ffffff;
+}
+
+.tunnels-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted, #9ca3af);
+}
+
+.tunnels-empty-state .empty-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+}
+
+.tunnels-empty-state h3 {
+  color: var(--text-primary, #ffffff);
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+
+.tunnels-empty-state p {
+  max-width: 480px;
+  margin: 0 auto 16px auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Session Modal Tunnels Section */
+.session-section-divider {
+  height: 1px;
+  background: var(--border-primary, rgba(255, 255, 255, 0.08));
+  margin: 16px 0;
+}
+
+.session-tunnels-section {
+  background: var(--bg-primary, #181825);
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.session-tunnels-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.session-tunnels-list-container {
+  margin-bottom: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-secondary, rgba(255, 255, 255, 0.06));
+  border-radius: 6px;
+  background: var(--bg-secondary, #1e1e2e);
+}
+
+.session-tunnels-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted, #9ca3af);
+}
+
+.session-tunnels-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.session-tunnels-table th {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted, #9ca3af);
+  border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.08));
+}
+
+.session-tunnels-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-secondary, rgba(255, 255, 255, 0.04));
+  vertical-align: middle;
+}
+
+.add-tunnel-inline-form {
+  padding: 10px;
+  background: var(--bg-secondary, #1e1e2e);
+  border-radius: 6px;
+  border: 1px dashed var(--border-primary, rgba(255, 255, 255, 0.12));
+}
+
+.inline-fields-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.inline-fields-row .tunnel-input-name {
+  flex: 2;
+  min-width: 120px;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.inline-fields-row .tunnel-input-port {
+  width: 85px;
+  font-size: 12px;
+  padding: 5px 6px;
+}
+
+.inline-fields-row .tunnel-input-host {
+  flex: 2;
+  min-width: 100px;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.inline-fields-row .inline-arrow {
+  color: var(--accent-primary, #6366f1);
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.inline-options-row {
+  margin-top: 6px;
+}
+
+
 

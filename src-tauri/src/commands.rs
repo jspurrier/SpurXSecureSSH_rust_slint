@@ -859,5 +859,116 @@ pub async fn reset_storage_location() -> Result<(), String> {
     Ok(())
 }
 
+// ============================================
+// SSH TUNNEL / PORT FORWARDING COMMANDS
+// ============================================
+
+use crate::tunnels::{TunnelConfig, TunnelStatus, TUNNEL_MANAGER};
+
+/// Start an individual SSH tunnel
+#[command]
+pub async fn start_tunnel(
+    tunnel: TunnelConfig,
+    connection: ConnectRequest,
+) -> Result<(), String> {
+    TUNNEL_MANAGER.start_tunnel(tunnel, connection).await
+}
+
+/// Stop an individual SSH tunnel
+#[command]
+pub async fn stop_tunnel(tunnel_id: String) -> Result<(), String> {
+    TUNNEL_MANAGER.stop_tunnel(&tunnel_id).await;
+    Ok(())
+}
+
+/// Stop all tunnels across all sessions
+#[command]
+pub async fn stop_all_tunnels() -> Result<(), String> {
+    TUNNEL_MANAGER.stop_all_tunnels().await;
+    Ok(())
+}
+
+/// Get status of all active running tunnels
+#[command]
+pub async fn get_active_tunnels() -> Result<Vec<TunnelStatus>, String> {
+    Ok(TUNNEL_MANAGER.get_statuses().await)
+}
+
+/// Start all configured tunnels for a given saved session
+#[command]
+pub async fn start_session_tunnels(
+    session_id: String,
+    password: Option<String>,
+) -> Result<usize, String> {
+    let sessions = session::load_sessions_secure(password.as_deref())?;
+    let target_session = sessions
+        .iter()
+        .find(|s| s.id == session_id)
+        .ok_or_else(|| "Session not found".to_string())?;
+
+    if target_session.tunnels.is_empty() {
+        return Ok(0);
+    }
+
+    // Resolve password if needed
+    let session_pwd = if target_session.use_global_credentials {
+        session::get_password("__global__").ok().flatten()
+    } else {
+        session::get_password(&target_session.id).ok().flatten()
+    };
+
+    // Resolve private key passphrase if needed
+    let key_passphrase = if target_session.auth_method == "publickey" {
+        if let Some(ref key_name) = target_session.private_key_name {
+            session::get_password(&format!("key:{}", key_name)).ok().flatten()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let connect_req = ConnectRequest {
+        host: target_session.host.clone(),
+        port: target_session.port,
+        username: target_session.username.clone().unwrap_or_default(),
+        password: session_pwd,
+        log_directory: target_session.log_directory.clone(),
+        auth_method: target_session.auth_method.clone(),
+        private_key_name: target_session.private_key_name.clone(),
+        private_key_passphrase: key_passphrase,
+    };
+
+    let mut started_count = 0;
+    for tunnel in &target_session.tunnels {
+        let mut tunnel_cfg = tunnel.clone();
+        tunnel_cfg.session_id = Some(session_id.clone());
+        if let Err(e) = TUNNEL_MANAGER.start_tunnel(tunnel_cfg, connect_req.clone()).await {
+            eprintln!("Failed to start tunnel '{}': {}", tunnel.name, e);
+        } else {
+            started_count += 1;
+        }
+    }
+
+    Ok(started_count)
+}
+
+/// Stop all tunnels for a given saved session
+#[command]
+pub async fn stop_session_tunnels(session_id: String) -> Result<(), String> {
+    TUNNEL_MANAGER.stop_session_tunnels(&session_id).await;
+    Ok(())
+}
+
+/// Open a URL in the default web browser (e.g. for HTTP/HTTPS tunnels)
+#[command]
+pub async fn open_tunnel_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&url, None::<&str>)
+        .map_err(|e| format!("Failed to open browser URL {}: {}", url, e))
+}
+
+
 
 

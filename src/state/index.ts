@@ -1,5 +1,5 @@
 
-import { TabInfo, TabGroup, SavedSession, QuickCommand, SftpFileEntry, ConnectRequest } from '../types';
+import { TabInfo, TabGroup, SavedSession, QuickCommand, SftpFileEntry, ConnectRequest, TunnelConfig, TunnelStatus } from '../types';
 
 export const state = {
     tabs: new Map<string, TabInfo>(),
@@ -37,5 +37,9 @@ export const state = {
     aiMessages: [] as Array<{ role: 'user' | 'assistant'; content: string }>,
     aiProvider: 'gemini' as 'gemini' | 'grok' | 'ollama',
     masterPassword: null as string | null,
+
+    activeTunnels: [] as TunnelStatus[],
+    sessionTunnelsBeingEdited: [] as TunnelConfig[],
+    tunnelPollInterval: null as any,
 };
     

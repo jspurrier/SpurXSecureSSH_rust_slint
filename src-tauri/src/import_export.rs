@@ -213,6 +213,8 @@ impl SessionBuilder {
             use_global_credentials: false,
             auth_method: "password".to_string(),
             private_key_name: None,
+            tunnels: Vec::new(),
+            auto_start_tunnels: false,
         })
     }
 }
@@ -330,6 +332,8 @@ fn build_putty_session(name: &str, props: &HashMap<String, String>) -> Option<Sa
         use_global_credentials: false,
         auth_method: "password".to_string(),
         private_key_name: None,
+        tunnels: Vec::new(),
+        auto_start_tunnels: false,
     })
 }
 

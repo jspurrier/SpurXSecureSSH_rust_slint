@@ -14,6 +14,7 @@ pub mod session;
 pub mod settings;
 pub mod sftp;
 pub mod ssh;
+pub mod tunnels;
 pub mod ymodem;
 
 /// Application state shared across Tauri commands
@@ -80,6 +81,10 @@ pub struct SavedSession {
     #[serde(default = "default_auth_method")]
     pub auth_method: String,
     pub private_key_name: Option<String>,
+    #[serde(default)]
+    pub tunnels: Vec<tunnels::TunnelConfig>,
+    #[serde(default)]
+    pub auto_start_tunnels: bool,
 }
 
 impl SavedSession {
@@ -102,6 +107,8 @@ impl SavedSession {
             use_global_credentials: false,
             auth_method: "password".to_string(),
             private_key_name: None,
+            tunnels: Vec::new(),
+            auto_start_tunnels: false,
         }
     }
 }
@@ -157,6 +164,14 @@ pub fn get_app_config_dir() -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    {
+        // Work around WebKitGTK DMA-BUF renderer crash with NVIDIA proprietary drivers
+        if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+            std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        }
+    }
+
     let app_state = Arc::new(AppState::new());
 
     tauri::Builder::default()
@@ -216,6 +231,13 @@ pub fn run() {
             commands::get_storage_info,
             commands::set_storage_location,
             commands::reset_storage_location,
+            commands::start_tunnel,
+            commands::stop_tunnel,
+            commands::stop_all_tunnels,
+            commands::get_active_tunnels,
+            commands::start_session_tunnels,
+            commands::stop_session_tunnels,
+            commands::open_tunnel_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

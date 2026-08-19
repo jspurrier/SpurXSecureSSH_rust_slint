@@ -27,6 +27,7 @@ import { escapeHtml, showModal, closeModal } from "./ui/utils";
 import { openSftpBrowser, closeSftpBrowser, loadSftpDirectory, uploadSftpFile, downloadSftpFile, createSftpFolder, deleteSftpFile } from "./features/sftp";
 import { toggleAiPanel, renderAiMessages, sendAiMessage, showAiSettingsModal, hideAiSettingsModal, saveAiSettings, updatePrivacyBanner, getTerminalContent, analyzeTerminal, triggerSmartAutocomplete } from "./features/ai";
 import { startYmodemSend, enableTabKeyboard } from "./features/ymodem";
+import { initTunnels, renderSessionModalTunnelsEditor, handleSessionConnected } from "./features/tunnels";
 
 // Editing state
 // Command folders
@@ -566,6 +567,14 @@ async function connect(
         private_key_passphrase: privateKeyPassphrase || undefined,
       } as ConnectRequest;
       renderTabs();
+
+      // Trigger auto-start SSH tunnels for matching saved session
+      const matchedSession = state.savedSessions.find(
+        (s) => s.host === host && s.port === port && (!s.username || s.username === username)
+      );
+      if (matchedSession) {
+        handleSessionConnected(matchedSession.id);
+      }
 
       // Listen for terminal data
       const unlistenData = await listen<number[]>(
@@ -1629,6 +1638,12 @@ function showAddSessionModal(): void {
 
   document.getElementById('session-username-group')!.style.display = 'block';
   populateFolderSelect(elements.sessionFolder, 'session');
+
+  // Reset tunnels section
+  const autoStartCheck = document.getElementById('session-auto-start-tunnels') as HTMLInputElement | null;
+  if (autoStartCheck) autoStartCheck.checked = false;
+  renderSessionModalTunnelsEditor([]);
+
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
 }
@@ -1675,6 +1690,11 @@ async function showEditSessionModal(session: SavedSession): Promise<void> {
     }
   }
 
+  // Load session tunnels
+  const autoStartCheck = document.getElementById('session-auto-start-tunnels') as HTMLInputElement | null;
+  if (autoStartCheck) autoStartCheck.checked = !!session.auto_start_tunnels;
+  renderSessionModalTunnelsEditor(session.tunnels || []);
+
   // Try to load password / passphrase securely
   try {
     const password = await invoke<string | null>('get_session_password', { sessionId: session.id });
@@ -1710,6 +1730,7 @@ async function saveSessionModal(): Promise<void> {
   const authMethod = authSelect ? authSelect.value : 'password';
   const keySelect = document.getElementById('session-key-select') as HTMLSelectElement | null;
   const privateKeyName = authMethod === 'publickey' && keySelect ? (keySelect.value || undefined) : undefined;
+  const autoStartCheck = document.getElementById('session-auto-start-tunnels') as HTMLInputElement | null;
 
   const session: SavedSession = {
     id: state.editingSessionId || crypto.randomUUID(),
@@ -1722,6 +1743,8 @@ async function saveSessionModal(): Promise<void> {
     use_global_credentials: elements.sessionUseGlobal.checked,
     auth_method: authMethod,
     private_key_name: privateKeyName,
+    tunnels: state.sessionTunnelsBeingEdited || [],
+    auto_start_tunnels: autoStartCheck ? autoStartCheck.checked : false,
   };
 
   // Track the folder
@@ -4163,6 +4186,7 @@ async function init(): Promise<void> {
   setupEventListeners();
   setupSettingsListeners();
   setupImportListeners();
+  initTunnels();
   await loadAppSettings();
   await populateSshKeysDropdowns();
   await loadQuickCommands();

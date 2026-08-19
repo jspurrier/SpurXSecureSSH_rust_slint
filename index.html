@@ -74,6 +74,10 @@
       <div class="menu-item-wrapper">
         <div class="menu-item" data-menu="options">Options</div>
         <div class="menu-dropdown" id="menu-dropdown-options">
+          <div class="menu-dropdown-item" id="menu-options-tunnels">
+            <span>SSH Tunnels...</span>
+          </div>
+          <div class="menu-dropdown-separator"></div>
           <div class="menu-dropdown-item" id="menu-options-settings">
             <span>Settings...</span>
           </div>
@@ -179,6 +183,14 @@
       <button class="toolbar-btn" id="btn-ymodem-send" title="YModem Send File">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+        </svg>
+      </button>
+      <div class="toolbar-separator"></div>
+      <button class="toolbar-btn" id="btn-toolbar-tunnels" title="SSH Tunnels & Port Forwarding">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="6" cy="12" r="3" />
+          <circle cx="18" cy="12" r="3" />
+          <path d="M9 12h6M12 9l3 3-3 3" />
         </svg>
       </button>
       <div class="toolbar-spacer"></div>
@@ -552,6 +564,43 @@
           <div class="form-group">
             <label for="session-log-directory">Log Directory (Optional):</label>
             <input type="text" id="session-log-directory" placeholder="Leave blank for global default" />
+          </div>
+          
+          <div class="session-section-divider"></div>
+          
+          <div class="session-tunnels-section">
+            <div class="session-tunnels-header">
+              <label style="font-weight: 600; margin-bottom: 0;">SSH Port Forwarding (Tunnels)</label>
+              <div class="form-check" style="margin-bottom: 0;">
+                <input type="checkbox" id="session-auto-start-tunnels" />
+                <label for="session-auto-start-tunnels">Auto-start on connect</label>
+              </div>
+            </div>
+            <p class="section-hint" style="font-size: 12px; color: var(--text-secondary, #9ca3af); margin: 4px 0 10px 0;">
+              Forward local ports (e.g. <code>localhost:8080</code>) through this SSH server to remote internal web interfaces or services.
+            </p>
+
+            <!-- Table of added tunnels -->
+            <div id="session-tunnels-list" class="session-tunnels-list-container">
+              <div class="session-tunnels-empty">No port forwarding tunnels configured.</div>
+            </div>
+
+            <!-- Inline Add Tunnel inputs -->
+            <div class="add-tunnel-inline-form">
+              <div class="inline-fields-row">
+                <input type="text" id="new-tunnel-name" placeholder="Rule Name (e.g. Web UI)" class="tunnel-input-name" />
+                <input type="number" id="new-tunnel-localport" placeholder="Local Port (8080)" class="tunnel-input-port" min="1" max="65535" />
+                <span class="inline-arrow">➔</span>
+                <input type="text" id="new-tunnel-remotehost" placeholder="Remote Host (127.0.0.1)" class="tunnel-input-host" value="127.0.0.1" />
+                <input type="number" id="new-tunnel-remoteport" placeholder="Remote Port (80)" class="tunnel-input-port" min="1" max="65535" value="80" />
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-add-session-tunnel-rule" title="Add Port Forward Rule">+ Add</button>
+              </div>
+              <div class="inline-options-row">
+                <label class="form-check-inline" style="font-size: 12px;">
+                  <input type="checkbox" id="new-tunnel-autostart" /> Auto-start this tunnel
+                </label>
+              </div>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1625,6 +1674,112 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-sftp-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SSH Tunnels Manager Modal -->
+  <div class="modal-overlay" id="modal-tunnels">
+    <div class="modal modal-tunnels">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" style="color: var(--accent-primary, #6366f1);">
+            <circle cx="6" cy="12" r="3" />
+            <circle cx="18" cy="12" r="3" />
+            <path d="M9 12h6M12 9l3 3-3 3" />
+          </svg>
+          <h2>SSH Tunnels & Port Forwarding</h2>
+        </div>
+        <button class="modal-close" id="tunnels-modal-close">&times;</button>
+      </div>
+
+      <div class="tunnels-header-toolbar">
+        <div class="tunnels-filter-group">
+          <label for="tunnels-session-filter" style="font-size: 12px; margin-bottom: 0; color: var(--text-secondary, #9ca3af);">Session:</label>
+          <select id="tunnels-session-filter" class="tunnels-select-filter">
+            <option value="">All Sessions & Tunnels</option>
+          </select>
+        </div>
+        <div class="tunnels-global-actions">
+          <button class="btn btn-secondary btn-sm" id="btn-tunnels-start-all">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Start All
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btn-tunnels-stop-all">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+              <rect x="6" y="6" width="12" height="12"/>
+            </svg>
+            Stop All
+          </button>
+          <button class="btn btn-primary btn-sm" id="btn-add-tunnel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Tunnel
+          </button>
+        </div>
+      </div>
+
+      <div class="modal-body tunnels-modal-body">
+        <div id="tunnels-list" class="tunnels-table-container">
+          <div class="tunnels-empty-state">Loading tunnels...</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-tunnels-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Tunnel Modal -->
+  <div class="modal-overlay" id="modal-edit-tunnel">
+    <div class="modal modal-edit-tunnel">
+      <div class="modal-header">
+        <h2 id="edit-tunnel-title">Add SSH Tunnel</h2>
+        <button class="modal-close" id="tunnel-edit-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="tunnel-edit-id" />
+        <div class="form-group">
+          <label for="tunnel-edit-session">Target Session (SSH Host):</label>
+          <select id="tunnel-edit-session"></select>
+        </div>
+        <div class="form-group">
+          <label for="tunnel-edit-name">Tunnel Name / Description:</label>
+          <input type="text" id="tunnel-edit-name" placeholder="e.g. Edge Router Web UI, Internal DB" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="tunnel-edit-localhost">Local Bind Address:</label>
+            <input type="text" id="tunnel-edit-localhost" value="127.0.0.1" />
+          </div>
+          <div class="form-group">
+            <label for="tunnel-edit-localport">Local Port (Listen):</label>
+            <input type="number" id="tunnel-edit-localport" value="8080" min="1" max="65535" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="tunnel-edit-remotehost">Remote Host / IP:</label>
+            <input type="text" id="tunnel-edit-remotehost" value="127.0.0.1" placeholder="127.0.0.1 or 192.168.1.50" />
+          </div>
+          <div class="form-group">
+            <label for="tunnel-edit-remoteport">Remote Port (Target):</label>
+            <input type="number" id="tunnel-edit-remoteport" value="80" min="1" max="65535" />
+          </div>
+        </div>
+        <div class="form-check" style="margin-top: 6px;">
+          <input type="checkbox" id="tunnel-edit-autostart" />
+          <label for="tunnel-edit-autostart">Auto-start when session connects</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-tunnel-edit-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-tunnel-edit-save">Save Tunnel</button>
       </div>
     </div>
   </div>
