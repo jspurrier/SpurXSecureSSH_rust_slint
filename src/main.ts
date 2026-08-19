@@ -1644,6 +1644,12 @@ function showAddSessionModal(): void {
   if (autoStartCheck) autoStartCheck.checked = false;
   renderSessionModalTunnelsEditor([]);
 
+  // Reset tabs to General
+  document.querySelectorAll('.session-modal-tab').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.session-modal-panel').forEach((p) => p.classList.remove('active'));
+  document.querySelector('.session-modal-tab[data-tab="general"]')?.classList.add('active');
+  document.getElementById('session-tab-general')?.classList.add('active');
+
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
 }
@@ -1710,6 +1716,13 @@ async function showEditSessionModal(session: SavedSession): Promise<void> {
   }
 
   populateFolderSelect(elements.sessionFolder, 'session', session.folder);
+
+  // Reset tabs to General
+  document.querySelectorAll('.session-modal-tab').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.session-modal-panel').forEach((p) => p.classList.remove('active'));
+  document.querySelector('.session-modal-tab[data-tab="general"]')?.classList.add('active');
+  document.getElementById('session-tab-general')?.classList.add('active');
+
   elements.addSessionModal.classList.add('show');
   elements.sessionName.focus();
 }
@@ -2487,6 +2500,17 @@ function setupEventListeners(): void {
   });
 
   // Add Session Modal
+  document.querySelectorAll('.session-modal-tab').forEach((tabBtn) => {
+    tabBtn.addEventListener('click', () => {
+      const tabName = (tabBtn as HTMLElement).dataset.tab;
+      document.querySelectorAll('.session-modal-tab').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.session-modal-panel').forEach((p) => p.classList.remove('active'));
+      tabBtn.classList.add('active');
+      const panel = document.getElementById(`session-tab-${tabName}`);
+      if (panel) panel.classList.add('active');
+    });
+  });
+
   document.getElementById('session-modal-close')?.addEventListener('click', () => {
     closeModal(elements.addSessionModal);
   });

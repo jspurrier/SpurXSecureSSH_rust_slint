@@ -30,3 +30,7 @@ src-tauri/target/
 
 # Security keys
 spurx_private.key
+
+# Sync conflicts
+*[conflicted]*
+*conflicted*

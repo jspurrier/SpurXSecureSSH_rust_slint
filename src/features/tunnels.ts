@@ -583,9 +583,14 @@ export function renderSessionModalTunnelsEditor(tunnels: TunnelConfig[]) {
  */
 export function updateSessionModalTunnelsListUI() {
     const list = document.getElementById('session-tunnels-list');
+    const badge = document.getElementById('session-modal-tunnels-badge');
+    if (badge) {
+        badge.textContent = (state.sessionTunnelsBeingEdited?.length || 0).toString();
+    }
+
     if (!list) return;
 
-    if (state.sessionTunnelsBeingEdited.length === 0) {
+    if (!state.sessionTunnelsBeingEdited || state.sessionTunnelsBeingEdited.length === 0) {
         list.innerHTML = `
             <div class="session-tunnels-empty">
                 No port forwarding tunnels configured for this session.
@@ -598,12 +603,12 @@ export function updateSessionModalTunnelsListUI() {
         <table class="session-tunnels-table">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Local Port</th>
+                    <th>Rule Name</th>
+                    <th>Local (Your PC)</th>
                     <th>➔</th>
-                    <th>Remote Target</th>
+                    <th>Remote LAN / Target</th>
                     <th>Auto-Start</th>
-                    <th></th>
+                    <th style="text-align: right;"></th>
                 </tr>
             </thead>
             <tbody>
@@ -614,11 +619,11 @@ export function updateSessionModalTunnelsListUI() {
             <tr>
                 <td><strong>${escapeHtml(t.name || 'Port ' + t.local_port)}</strong></td>
                 <td><span class="tunnel-port-pill local-port">${escapeHtml(t.local_host || '127.0.0.1')}:${t.local_port}</span></td>
-                <td style="color: var(--accent-primary, #6366f1); font-weight: bold;">➔</td>
+                <td style="color: var(--accent-primary, #6366f1); font-weight: bold; text-align: center;">➔</td>
                 <td><span class="tunnel-port-pill remote-port">${escapeHtml(t.remote_host)}:${t.remote_port}</span></td>
-                <td>${t.auto_start ? '<span style="color:#10b981;">Yes</span>' : '<span style="color:#6b7280;">No</span>'}</td>
+                <td>${t.auto_start ? '<span style="color:#10b981; font-weight: 500;">Yes</span>' : '<span style="color:#6b7280;">No</span>'}</td>
                 <td style="text-align: right;">
-                    <button type="button" class="btn btn-sm btn-ghost btn-remove-session-tunnel" data-index="${index}" title="Remove rule">
+                    <button type="button" class="btn btn-sm btn-ghost btn-remove-session-tunnel" data-index="${index}" title="Remove rule" style="color: #ef4444;">
                         &times;
                     </button>
                 </td>
