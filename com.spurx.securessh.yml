@@ -9,16 +9,36 @@ sdk-extensions:
 command: spurx-secure-ssh
 
 finish-args:
-  # UI
+  # UI & Display
   - --socket=x11
   - --socket=wayland
   - --share=ipc
-  # Network for SSH connections
+  - --device=dri
+
+  # Network for SSH connections & AI APIs
   - --share=network
+
   # Sound (if terminal bell/beeps are used)
   - --socket=pulseaudio
-  # Filesystem access for SSH keys and SFTP
+
+  # Filesystem access for SSH keys, configs, logs, downloads, and SFTP file browsing
+  - --filesystem=home
   - --filesystem=host
+  - --filesystem=xdg-config/gtk-3.0:ro
+  - --filesystem=xdg-config/kdeglobals:ro
+  - --filesystem=xdg-data/themes:ro
+  - --filesystem=~/.themes:ro
+
+  # System Keyring / Master Password DBus access
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FdoStyle
+  - --talk-name=org.freedesktop.portal.FileChooser
+  - --talk-name=org.freedesktop.portal.Settings
+  - --talk-name=org.freedesktop.Notifications
+
+  # Force dark GTK theme default for window titlebar / decorations
+  - --env=GTK_THEME=Adwaita:dark
 
 build-options:
   append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
