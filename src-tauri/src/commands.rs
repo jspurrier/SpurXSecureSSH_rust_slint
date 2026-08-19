@@ -122,12 +122,14 @@ pub async fn ssh_connect(
                     break;
                 }
             }
+            // Emit terminal data to UI immediately (zero disk latency)
+            let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), data.clone());
+
+            // Write to session log asynchronously after UI emit
             if let Some(ref mut file) = log_file {
                 let stripped_data = strip_ansi_escapes::strip(&data);
                 let _ = file.write_all(&stripped_data);
             }
-            // Emit terminal data to frontend
-            let _ = app_for_output.emit(&format!("terminal-data-{}", sid_for_output), data);
         }
     });
 

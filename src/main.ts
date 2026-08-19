@@ -131,24 +131,21 @@ async function createTab(title: string = 'New Tab'): Promise<TabInfo> {
 
   // Attach Smart Autocomplete key handler
   terminal.attachCustomKeyEventHandler((arg: KeyboardEvent) => {
+    if (arg.type !== 'keydown') return true;
+
     const isSpace = arg.code === 'Space' || arg.key === ' ' || arg.keyCode === 32;
     if (arg.ctrlKey && isSpace) {
-      if (arg.type === 'keydown') {
-        triggerSmartAutocomplete(tabInfo);
-      }
+      triggerSmartAutocomplete(tabInfo);
       return false;
     }
     
     // Fix Delete key printing ~ on network devices
     if (arg.key === 'Delete') {
-      if (arg.type === 'keydown') {
-        if (tabInfo.sessionId && tabInfo.connected) {
-          const encoder = new TextEncoder();
-          invoke('ssh_write', {
-            sessionId: tabInfo.sessionId,
-            data: Array.from(encoder.encode('\x7f')),
-          }).catch(e => console.error('Failed to write delete key:', e));
-        }
+      if (tabInfo.sessionId && tabInfo.connected) {
+        invoke('ssh_write', {
+          sessionId: tabInfo.sessionId,
+          data: [127],
+        }).catch(e => console.error('Failed to write delete key:', e));
       }
       return false;
     }
