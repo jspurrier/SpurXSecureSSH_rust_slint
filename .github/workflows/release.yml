@@ -1,4 +1,4 @@
-﻿name: Release Build
+name: Release Build
 
 on:
   push:
@@ -332,6 +332,7 @@ jobs:
 
       - name: Build Flatpak Bundle
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        continue-on-error: true
         with:
           bundle: spurx-secure-ssh.flatpak
           manifest-path: com.spurx.securessh.yml
@@ -340,6 +341,7 @@ jobs:
 
       - name: Upload Flatpak artifact
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: spurx-secure-ssh-flatpak
           path: spurx-secure-ssh.flatpak
@@ -351,19 +353,23 @@ jobs:
     name: Publish GitHub Release
     needs: [build-windows, build-macos, build-linux, build-flatpak]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && startsWith(github.ref, 'refs/tags/v') && !cancelled()
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: release-artifacts
           merge-multiple: true
 
       - name: Display release artifacts
-        run: ls -la release-artifacts/
+        run: |
+          mkdir -p release-artifacts
+          ls -la release-artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        if: success() || always()
         with:
           files: release-artifacts/*
           generate_release_notes: true
