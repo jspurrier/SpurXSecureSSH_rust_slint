@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
@@ -293,8 +293,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let expanded_session_folders = Arc::new(parking_lot::Mutex::new(HashSet::<String>::new()));
     let expanded_command_folders = Arc::new(parking_lot::Mutex::new(HashSet::<String>::new()));
-    let session_cache = Arc::new(parking_lot::RwLock::new(session::load_sessions().unwrap_or_default()));
-    let command_cache = Arc::new(parking_lot::RwLock::new(command_storage::load_commands().unwrap_or_default()));
+    let session_cache = Arc::new(parking_lot::RwLock::new(
+        session::load_sessions().unwrap_or_default(),
+    ));
+    let command_cache = Arc::new(parking_lot::RwLock::new(
+        command_storage::load_commands().unwrap_or_default(),
+    ));
 
     // If remember_expanded_folders is enabled, restore the saved expanded folder paths
     if app_cfg.remember_expanded_folders {
@@ -359,9 +363,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.set_ai_settings_lmstudio_model(ai_cfg.lmstudio_model.clone().into());
     app.set_ai_settings_lmstudio_key(ai_cfg.lmstudio_api_key.clone().unwrap_or_default().into());
     app.set_ai_settings_gemini_key(ai_cfg.gemini_api_key.clone().unwrap_or_default().into());
-    app.set_ai_settings_gemini_model(ai_cfg.gemini_model.clone().unwrap_or_else(|| "gemini-3.6-flash".to_string()).into());
+    app.set_ai_settings_gemini_model(
+        ai_cfg
+            .gemini_model
+            .clone()
+            .unwrap_or_else(|| "gemini-3.6-flash".to_string())
+            .into(),
+    );
     app.set_ai_settings_grok_key(ai_cfg.grok_api_key.clone().unwrap_or_default().into());
-    app.set_ai_settings_grok_model(ai_cfg.grok_model.clone().unwrap_or_else(|| "grok-4.5".to_string()).into());
+    app.set_ai_settings_grok_model(
+        ai_cfg
+            .grok_model
+            .clone()
+            .unwrap_or_else(|| "grok-4.5".to_string())
+            .into(),
+    );
 
     let prov = ai_cfg
         .provider
@@ -412,44 +428,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .timeout(tokio::time::Duration::from_secs(10))
             .build();
         if let Ok(client) = client {
-            let urls = [
-                "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_slint/releases/latest",
-                "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest",
-            ];
-            for url in urls {
-                if let Ok(resp) = client.get(url).send().await {
-                    if let Ok(val) = resp.json::<serde_json::Value>().await {
-                        if let Some(tag) = val.get("tag_name").and_then(|t| t.as_str()) {
-                            let parse_parts = |s: &str| -> Vec<u64> {
-                                s.trim_start_matches('v')
-                                    .split('.')
-                                    .map(|p| {
-                                        p.chars()
-                                            .take_while(|c| c.is_ascii_digit())
-                                            .collect::<String>()
-                                            .parse::<u64>()
-                                            .unwrap_or(0)
-                                    })
-                                    .collect()
-                            };
-                            let curr_parts = parse_parts(env!("CARGO_PKG_VERSION"));
-                            let latest_parts = parse_parts(tag);
-                            if latest_parts > curr_parts {
-                                let html_url = val
-                                    .get("html_url")
-                                    .and_then(|u| u.as_str())
-                                    .unwrap_or("https://github.com/jspurrier/SpurXSecureSSH_rust_slint/releases/latest")
-                                    .to_string();
-                                let tag_str = tag.to_string();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(app) = app_weak_update.upgrade() {
-                                        app.set_update_toast_version(tag_str.into());
-                                        app.set_update_toast_url(html_url.into());
-                                        app.set_update_toast_visible(true);
-                                    }
-                                });
-                                break;
-                            }
+            let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_slint/releases/latest";
+            if let Ok(resp) = client.get(url).send().await {
+                if let Ok(val) = resp.json::<serde_json::Value>().await {
+                    if let Some(tag) = val.get("tag_name").and_then(|t| t.as_str()) {
+                        let parse_parts = |s: &str| -> Vec<u64> {
+                            s.trim_start_matches('v')
+                                .split('.')
+                                .map(|p| {
+                                    p.chars()
+                                        .take_while(|c| c.is_ascii_digit())
+                                        .collect::<String>()
+                                        .parse::<u64>()
+                                        .unwrap_or(0)
+                                })
+                                .collect()
+                        };
+                        let curr_parts = parse_parts(env!("CARGO_PKG_VERSION"));
+                        let latest_parts = parse_parts(tag);
+                        if latest_parts > curr_parts {
+                            let html_url = val
+                                .get("html_url")
+                                .and_then(|u| u.as_str())
+                                .unwrap_or("https://github.com/jspurrier/SpurXSecureSSH_rust_slint/releases/latest")
+                                .to_string();
+                            let tag_str = tag.to_string();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(app) = app_weak_update.upgrade() {
+                                    app.set_update_toast_version(tag_str.into());
+                                    app.set_update_toast_url(html_url.into());
+                                    app.set_update_toast_visible(true);
+                                }
+                            });
                         }
                     }
                 }
@@ -826,7 +836,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let is_dark_mode = theme::ThemeMode::from_str(&th_m) == theme::ThemeMode::Dark
-                || (theme::ThemeMode::from_str(&th_m) == theme::ThemeMode::System && theme::detect_system_is_dark());
+                || (theme::ThemeMode::from_str(&th_m) == theme::ThemeMode::System
+                    && theme::detect_system_is_dark());
             let effective_scheme = theme::get_effective_scheme(&col_sch, is_dark_mode);
             app_cfg.color_scheme = effective_scheme.clone();
 
@@ -896,7 +907,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut app_cfg = settings::load_settings();
             let current_is_dark = app.global::<Theme>().get_is_dark();
             let new_mode = if current_is_dark { "light" } else { "dark" };
-            let new_scheme = if current_is_dark { "Clean Light" } else { "GitHub Dark" };
+            let new_scheme = if current_is_dark {
+                "Clean Light"
+            } else {
+                "GitHub Dark"
+            };
             app_cfg.theme = new_mode.to_string();
             app_cfg.color_scheme = new_scheme.to_string();
             let _ = settings::save_settings(&app_cfg);
@@ -906,7 +921,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 theme::apply_theme(&theme_global, new_mode, new_scheme, &app_cfg.accent_color);
             app.set_settings_theme_mode(new_mode.into());
             app.set_settings_color_scheme(effective_scheme.into());
-            app.set_status_text(format!("Switched to {} theme", if is_dark { "Dark" } else { "Light" }).into());
+            app.set_status_text(
+                format!(
+                    "Switched to {} theme",
+                    if is_dark { "Dark" } else { "Light" }
+                )
+                .into(),
+            );
         }
     });
 
@@ -925,11 +946,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_request_open_log_dir(move || {
         if let Some(app) = app_weak.upgrade() {
             let dir_str = app.get_settings_log_dir().to_string();
-            let p = if !dir_str.trim().is_empty() && settings::is_valid_path_for_current_os(&dir_str) {
-                std::path::PathBuf::from(dir_str)
-            } else {
-                settings::get_default_log_dir()
-            };
+            let p =
+                if !dir_str.trim().is_empty() && settings::is_valid_path_for_current_os(&dir_str) {
+                    std::path::PathBuf::from(dir_str)
+                } else {
+                    settings::get_default_log_dir()
+                };
             let _ = std::fs::create_dir_all(&p);
             let _ = open::that(&p);
         }
@@ -1180,7 +1202,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let sid = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
-                        let (text, offset, total, scroll_off, vis_rows) = buf.lock().get_visible_text();
+                        let (text, offset, total, scroll_off, vis_rows) =
+                            buf.lock().get_visible_text();
                         app.set_terminal_scroll_total(total as i32);
                         app.set_terminal_scroll_offset(scroll_off as i32);
                         app.set_terminal_scroll_visible(vis_rows as i32);
@@ -1473,7 +1496,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let buffers = state.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
-                        buf.lock().process_bytes(b"\r\n\x1b[33m=== Session Disconnected ===\x1b[0m\r\n");
+                        buf.lock()
+                            .process_bytes(b"\r\n\x1b[33m=== Session Disconnected ===\x1b[0m\r\n");
                     }
                     drop(buffers);
 
@@ -1658,7 +1682,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_clone = app_state.clone();
     app.on_request_create_tab_group(move |tab_idx, group_name| {
         let name = group_name.trim().to_string();
-        if name.is_empty() { return; }
+        if name.is_empty() {
+            return;
+        }
         if let Some(app) = app_weak.upgrade() {
             let tabs = app.get_tabs();
             let tab_idx = tab_idx as usize;
@@ -1735,7 +1761,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_clone = app_state.clone();
     app.on_request_rename_tab_group(move |group_id, new_name| {
         let name = new_name.trim().to_string();
-        if name.is_empty() { return; }
+        if name.is_empty() {
+            return;
+        }
         if let Some(app) = app_weak.upgrade() {
             {
                 let mut groups = state_clone.tab_groups.write();
@@ -1804,7 +1832,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(g) = groups.get(&gid) {
                 app.set_broadcast_selected_group_name(g.name.clone().into());
                 let senders = state_clone.input_senders.read();
-                let active_count = g.tab_ids.iter().filter(|id| senders.contains_key(*id)).count();
+                let active_count = g
+                    .tab_ids
+                    .iter()
+                    .filter(|id| senders.contains_key(*id))
+                    .count();
                 app.set_broadcast_target_count(active_count as i32);
             }
         }
@@ -1824,7 +1856,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(g) = groups.get(&sc) {
                     app.set_broadcast_selected_group_name(g.name.clone().into());
                     let senders = state_clone.input_senders.read();
-                    let active_count = g.tab_ids.iter().filter(|id| senders.contains_key(*id)).count();
+                    let active_count = g
+                        .tab_ids
+                        .iter()
+                        .filter(|id| senders.contains_key(*id))
+                        .count();
                     app.set_broadcast_target_count(active_count as i32);
                 }
             }
@@ -1908,8 +1944,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak.upgrade() {
             app.set_ai_selected_provider(prov_str.clone().into());
             let mod_name = match prov_str.as_str() {
-                "gemini" => ai_cfg.gemini_model.clone().unwrap_or_else(|| "gemini-3.6-flash".to_string()),
-                "grok" => ai_cfg.grok_model.clone().unwrap_or_else(|| "grok-4.5".to_string()),
+                "gemini" => ai_cfg
+                    .gemini_model
+                    .clone()
+                    .unwrap_or_else(|| "gemini-3.6-flash".to_string()),
+                "grok" => ai_cfg
+                    .grok_model
+                    .clone()
+                    .unwrap_or_else(|| "grok-4.5".to_string()),
                 "lmstudio" => {
                     if ai_cfg.lmstudio_model.is_empty() {
                         "local-model".to_string()
@@ -2087,9 +2129,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.set_ai_settings_lmstudio_model(ai_cfg.lmstudio_model.into());
             app.set_ai_settings_lmstudio_key(ai_cfg.lmstudio_api_key.unwrap_or_default().into());
             app.set_ai_settings_gemini_key(ai_cfg.gemini_api_key.unwrap_or_default().into());
-            app.set_ai_settings_gemini_model(ai_cfg.gemini_model.unwrap_or_else(|| "gemini-3.6-flash".to_string()).into());
+            app.set_ai_settings_gemini_model(
+                ai_cfg
+                    .gemini_model
+                    .unwrap_or_else(|| "gemini-3.6-flash".to_string())
+                    .into(),
+            );
             app.set_ai_settings_grok_key(ai_cfg.grok_api_key.unwrap_or_default().into());
-            app.set_ai_settings_grok_model(ai_cfg.grok_model.unwrap_or_else(|| "grok-4.5".to_string()).into());
+            app.set_ai_settings_grok_model(
+                ai_cfg
+                    .grok_model
+                    .unwrap_or_else(|| "grok-4.5".to_string())
+                    .into(),
+            );
             let mut ui_st = app.get_ui_state();
             ui_st.active_modal = "ai_settings".into();
             app.set_ui_state(ui_st);
@@ -2098,59 +2150,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Setup Save AI Settings callback
     let app_weak = app.as_weak();
-    app.on_request_save_ai_settings(move |provider, host, ollama_mod, lm_host, lm_mod, lm_key, gemini_key, gemini_mod, grok_key, grok_mod| {
-        let mut ai_cfg = ai::load_config();
-        let prov_str = provider.to_string();
-        ai_cfg.provider = Some(prov_str.clone());
-        ai_cfg.ollama_host = host.to_string();
-        ai_cfg.ollama_model = ollama_mod.to_string();
-        ai_cfg.lmstudio_host = lm_host.to_string();
-        ai_cfg.lmstudio_model = lm_mod.to_string();
-        ai_cfg.lmstudio_api_key = if lm_key.trim().is_empty() {
-            None
-        } else {
-            Some(lm_key.trim().to_string())
-        };
-        ai_cfg.gemini_api_key = if gemini_key.trim().is_empty() {
-            None
-        } else {
-            Some(gemini_key.trim().to_string())
-        };
-        ai_cfg.gemini_model = if gemini_mod.trim().is_empty() {
-            Some("gemini-3.6-flash".to_string())
-        } else {
-            Some(gemini_mod.trim().to_string())
-        };
-        ai_cfg.grok_api_key = if grok_key.trim().is_empty() {
-            None
-        } else {
-            Some(grok_key.trim().to_string())
-        };
-        ai_cfg.grok_model = if grok_mod.trim().is_empty() {
-            Some("grok-4.5".to_string())
-        } else {
-            Some(grok_mod.trim().to_string())
-        };
-        let _ = ai::save_config(&ai_cfg);
-
-        if let Some(app) = app_weak.upgrade() {
-            app.set_ai_selected_provider(provider);
-            let current_model = match prov_str.as_str() {
-                "gemini" => ai_cfg.gemini_model.unwrap_or_else(|| "gemini-3.6-flash".to_string()),
-                "grok" => ai_cfg.grok_model.unwrap_or_else(|| "grok-4.5".to_string()),
-                "lmstudio" => {
-                    if ai_cfg.lmstudio_model.is_empty() {
-                        "local-model".to_string()
-                    } else {
-                        ai_cfg.lmstudio_model
-                    }
-                }
-                _ => ai_cfg.ollama_model,
+    app.on_request_save_ai_settings(
+        move |provider,
+              host,
+              ollama_mod,
+              lm_host,
+              lm_mod,
+              lm_key,
+              gemini_key,
+              gemini_mod,
+              grok_key,
+              grok_mod| {
+            let mut ai_cfg = ai::load_config();
+            let prov_str = provider.to_string();
+            ai_cfg.provider = Some(prov_str.clone());
+            ai_cfg.ollama_host = host.to_string();
+            ai_cfg.ollama_model = ollama_mod.to_string();
+            ai_cfg.lmstudio_host = lm_host.to_string();
+            ai_cfg.lmstudio_model = lm_mod.to_string();
+            ai_cfg.lmstudio_api_key = if lm_key.trim().is_empty() {
+                None
+            } else {
+                Some(lm_key.trim().to_string())
             };
-            app.set_ai_selected_model(current_model.into());
-            app.set_status_text("AI settings saved successfully".into());
-        }
-    });
+            ai_cfg.gemini_api_key = if gemini_key.trim().is_empty() {
+                None
+            } else {
+                Some(gemini_key.trim().to_string())
+            };
+            ai_cfg.gemini_model = if gemini_mod.trim().is_empty() {
+                Some("gemini-3.6-flash".to_string())
+            } else {
+                Some(gemini_mod.trim().to_string())
+            };
+            ai_cfg.grok_api_key = if grok_key.trim().is_empty() {
+                None
+            } else {
+                Some(grok_key.trim().to_string())
+            };
+            ai_cfg.grok_model = if grok_mod.trim().is_empty() {
+                Some("grok-4.5".to_string())
+            } else {
+                Some(grok_mod.trim().to_string())
+            };
+            let _ = ai::save_config(&ai_cfg);
+
+            if let Some(app) = app_weak.upgrade() {
+                app.set_ai_selected_provider(provider);
+                let current_model = match prov_str.as_str() {
+                    "gemini" => ai_cfg
+                        .gemini_model
+                        .unwrap_or_else(|| "gemini-3.6-flash".to_string()),
+                    "grok" => ai_cfg.grok_model.unwrap_or_else(|| "grok-4.5".to_string()),
+                    "lmstudio" => {
+                        if ai_cfg.lmstudio_model.is_empty() {
+                            "local-model".to_string()
+                        } else {
+                            ai_cfg.lmstudio_model
+                        }
+                    }
+                    _ => ai_cfg.ollama_model,
+                };
+                app.set_ai_selected_model(current_model.into());
+                app.set_status_text("AI settings saved successfully".into());
+            }
+        },
+    );
 
     // Setup Open URL callback (for releases and documentation)
     app.on_request_open_url(move |url| {
@@ -2179,21 +2244,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut release_url = "https://github.com/jspurrier/SpurXSecureSSH_rust_slint".to_string();
 
                 if let Ok(client) = client {
-                    let urls = [
-                        "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_slint/releases/latest",
-                        "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_tauri/releases/latest",
-                    ];
-
-                    for url in urls {
-                        if let Ok(resp) = client.get(url).send().await {
-                            if resp.status().is_success() {
-                                if let Ok(json) = resp.json::<serde_json::Value>().await {
-                                    if let Some(tag) = json.get("tag_name").and_then(|t| t.as_str()) {
-                                        latest_tag = Some(tag.to_string());
-                                        if let Some(html_url) = json.get("html_url").and_then(|u| u.as_str()) {
-                                            release_url = html_url.to_string();
-                                        }
-                                        break;
+                    let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_slint/releases/latest";
+                    if let Ok(resp) = client.get(url).send().await {
+                        if resp.status().is_success() {
+                            if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                if let Some(tag) = json.get("tag_name").and_then(|t| t.as_str()) {
+                                    latest_tag = Some(tag.to_string());
+                                    if let Some(html_url) = json.get("html_url").and_then(|u| u.as_str()) {
+                                        release_url = html_url.to_string();
                                     }
                                 }
                             }
@@ -2664,7 +2722,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak.upgrade() {
             match res {
                 Ok(k) => {
-                    app.set_status_text(format!("Generated SSH key {} at {}", k.name, k.path).into());
+                    app.set_status_text(
+                        format!("Generated SSH key {} at {}", k.name, k.path).into(),
+                    );
                     refresh_keys_ui(&app);
                 }
                 Err(e) => {
@@ -2724,7 +2784,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_master_password_is_set(
                         session::is_master_password_set().unwrap_or(false),
                     );
-                    refresh_sessions_ui(&app, &sess_cache_pwd, &exp_sess_pwd, &filter_for_pwd.lock());
+                    refresh_sessions_ui(
+                        &app,
+                        &sess_cache_pwd,
+                        &exp_sess_pwd,
+                        &filter_for_pwd.lock(),
+                    );
                 }
             }
             Err(e) => {
@@ -2757,7 +2822,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = command_storage::delete_command(&id);
         *cmd_cache_del.write() = command_storage::load_commands().unwrap_or_default();
         if let Some(app) = app_weak.upgrade() {
-            refresh_commands_ui(&app, &cmd_cache_del, &exp_cmd_del, &filter_for_cmddel.lock());
+            refresh_commands_ui(
+                &app,
+                &cmd_cache_del,
+                &exp_cmd_del,
+                &filter_for_cmddel.lock(),
+            );
         }
     });
 
@@ -3061,7 +3131,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             *sess_cache_save.write() = session::load_sessions().unwrap_or_default();
             if let Some(app) = app_weak.upgrade() {
                 app.set_status_text(format!("Saved session {}", name).into());
-                refresh_sessions_ui(&app, &sess_cache_save, &exp_sess_save, &filter_for_save.lock());
+                refresh_sessions_ui(
+                    &app,
+                    &sess_cache_save,
+                    &exp_sess_save,
+                    &filter_for_save.lock(),
+                );
             }
         },
     );
@@ -3126,7 +3201,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         *cmd_cache_save.write() = command_storage::load_commands().unwrap_or_default();
         if let Some(app) = app_weak.upgrade() {
             app.set_status_text(format!("Saved command {}", name).into());
-            refresh_commands_ui(&app, &cmd_cache_save, &exp_cmd_save, &filter_for_cmd_save.lock());
+            refresh_commands_ui(
+                &app,
+                &cmd_cache_save,
+                &exp_cmd_save,
+                &filter_for_cmd_save.lock(),
+            );
         }
     });
 
@@ -3399,7 +3479,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(sessions);
             *sess_cache_domove.write() = session::load_sessions().unwrap_or_default();
             if let Some(app) = app_weak.upgrade() {
-                refresh_sessions_ui(&app, &sess_cache_domove, &exp_sess_domove, &filter_domove.lock());
+                refresh_sessions_ui(
+                    &app,
+                    &sess_cache_domove,
+                    &exp_sess_domove,
+                    &filter_domove.lock(),
+                );
             }
         } else {
             let mut cmds = cmd_cache_domove.write();
@@ -3410,7 +3495,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             drop(cmds);
             *cmd_cache_domove.write() = command_storage::load_commands().unwrap_or_default();
             if let Some(app) = app_weak.upgrade() {
-                refresh_commands_ui(&app, &cmd_cache_domove, &exp_cmd_domove, &filter_domove.lock());
+                refresh_commands_ui(
+                    &app,
+                    &cmd_cache_domove,
+                    &exp_cmd_domove,
+                    &filter_domove.lock(),
+                );
             }
         }
     });
@@ -3459,8 +3549,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let buffers = state_ai_auto.terminal_buffers.read();
             if let Some(buf) = buffers.get(&sid) {
                 let lines = buf.lock().get_lines();
-                let banner = lines.iter().take(30).cloned().collect::<Vec<_>>().join("\n");
-                let recent = lines.iter().rev().take(30).cloned().collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                let banner = lines
+                    .iter()
+                    .take(30)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let recent = lines
+                    .iter()
+                    .rev()
+                    .take(30)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 (banner, recent)
             } else {
                 (String::new(), String::new())
@@ -3470,7 +3574,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak.upgrade() {
             // Instant 0ms heuristic detection & tailored platform suggestions
             let full_text = format!("{}\n{}", banner, recent_lines);
-            let (instant_detected, typed_cmd, instant_suggestions) = ai::detect_platform_and_suggestions(&full_text);
+            let (instant_detected, typed_cmd, instant_suggestions) =
+                ai::detect_platform_and_suggestions(&full_text);
             let initial_models: Vec<AiAutocompleteItemModel> = instant_suggestions
                 .iter()
                 .map(|s| AiAutocompleteItemModel {
@@ -3494,9 +3599,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let app_weak_res = app_weak.clone();
 
             rt_handle.spawn(async move {
-                let (detected, suggestions) = ai::get_inline_autocomplete(&banner, &recent_lines, &prov)
-                    .await
-                    .unwrap_or_else(|_| (instant_detected, instant_suggestions));
+                let (detected, suggestions) =
+                    ai::get_inline_autocomplete(&banner, &recent_lines, &prov)
+                        .await
+                        .unwrap_or_else(|_| (instant_detected, instant_suggestions));
 
                 let header_final = if !typed_cmd.is_empty() {
                     format!("{} • Subcommands for \"{}\"", detected, typed_cmd)
@@ -4246,79 +4352,89 @@ async fn connect_ssh_session(
     tokio::spawn(async move {
         let mut buffer_dirty = false;
         let mut in_burst = false;
-        let last_rendered = Arc::new(parking_lot::Mutex::new((String::new(), -1i32, -1i32, -1i32, -1i32, false)));
+        let last_rendered = Arc::new(parking_lot::Mutex::new((
+            String::new(),
+            -1i32,
+            -1i32,
+            -1i32,
+            -1i32,
+            false,
+        )));
         let last_rend_clone = last_rendered.clone();
 
-        let render_term = move |app_weak: &slint::Weak<AppWindow>, sid: &str, buf: &Arc<parking_lot::Mutex<TerminalBuffer>>| {
-            let app_weak = app_weak.clone();
-            let sid_chk = sid.to_string();
-            let buf_clone = buf.clone();
-            let last_rend = last_rend_clone.clone();
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(app) = app_weak.upgrade() {
-                    let active_idx = app.get_active_tab_index() as usize;
-                    let tabs = app.get_tabs();
-                    if active_idx < tabs.row_count() {
-                        if let Some(t) = tabs.row_data(active_idx) {
-                            if t.id == sid_chk {
-                                let needs_init = {
-                                    let mut state = last_rend.lock();
-                                    if !state.5 {
-                                        state.5 = true;
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                };
-
-                                if needs_init {
-                                    let term_h = app.invoke_get_terminal_viewport_height();
-                                    let calculated_rows = if term_h > 20.0 {
-                                        ((term_h - 8.0) / 17.6).floor().max(8.0) as usize
-                                    } else {
-                                        24
+        let render_term =
+            move |app_weak: &slint::Weak<AppWindow>,
+                  sid: &str,
+                  buf: &Arc<parking_lot::Mutex<TerminalBuffer>>| {
+                let app_weak = app_weak.clone();
+                let sid_chk = sid.to_string();
+                let buf_clone = buf.clone();
+                let last_rend = last_rend_clone.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = app_weak.upgrade() {
+                        let active_idx = app.get_active_tab_index() as usize;
+                        let tabs = app.get_tabs();
+                        if active_idx < tabs.row_count() {
+                            if let Some(t) = tabs.row_data(active_idx) {
+                                if t.id == sid_chk {
+                                    let needs_init = {
+                                        let mut state = last_rend.lock();
+                                        if !state.5 {
+                                            state.5 = true;
+                                            true
+                                        } else {
+                                            false
+                                        }
                                     };
-                                    buf_clone.lock().set_visible_rows(calculated_rows);
-                                    app.invoke_focus_terminal();
-                                }
 
-                                let (full_text, offset, total, scroll_off, vis_rows) = {
-                                    let b = buf_clone.lock();
-                                    b.get_visible_text()
-                                };
+                                    if needs_init {
+                                        let term_h = app.invoke_get_terminal_viewport_height();
+                                        let calculated_rows = if term_h > 20.0 {
+                                            ((term_h - 8.0) / 17.6).floor().max(8.0) as usize
+                                        } else {
+                                            24
+                                        };
+                                        buf_clone.lock().set_visible_rows(calculated_rows);
+                                        app.invoke_focus_terminal();
+                                    }
 
-                                let total_i32 = total as i32;
-                                let scroll_off_i32 = scroll_off as i32;
-                                let vis_rows_i32 = vis_rows as i32;
-                                let offset_i32 = offset as i32;
+                                    let (full_text, offset, total, scroll_off, vis_rows) = {
+                                        let b = buf_clone.lock();
+                                        b.get_visible_text()
+                                    };
 
-                                let mut state = last_rend.lock();
-                                if total_i32 != state.1 {
-                                    state.1 = total_i32;
-                                    app.set_terminal_scroll_total(total_i32);
-                                }
-                                if scroll_off_i32 != state.2 {
-                                    state.2 = scroll_off_i32;
-                                    app.set_terminal_scroll_offset(scroll_off_i32);
-                                }
-                                if vis_rows_i32 != state.3 {
-                                    state.3 = vis_rows_i32;
-                                    app.set_terminal_scroll_visible(vis_rows_i32);
-                                }
-                                if full_text != state.0 {
-                                    state.0 = full_text.clone();
-                                    app.set_terminal_full_text(full_text.into());
-                                }
-                                if offset_i32 != state.4 {
-                                    state.4 = offset_i32;
-                                    app.invoke_set_terminal_cursor_pos(offset_i32);
+                                    let total_i32 = total as i32;
+                                    let scroll_off_i32 = scroll_off as i32;
+                                    let vis_rows_i32 = vis_rows as i32;
+                                    let offset_i32 = offset as i32;
+
+                                    let mut state = last_rend.lock();
+                                    if total_i32 != state.1 {
+                                        state.1 = total_i32;
+                                        app.set_terminal_scroll_total(total_i32);
+                                    }
+                                    if scroll_off_i32 != state.2 {
+                                        state.2 = scroll_off_i32;
+                                        app.set_terminal_scroll_offset(scroll_off_i32);
+                                    }
+                                    if vis_rows_i32 != state.3 {
+                                        state.3 = vis_rows_i32;
+                                        app.set_terminal_scroll_visible(vis_rows_i32);
+                                    }
+                                    if full_text != state.0 {
+                                        state.0 = full_text.clone();
+                                        app.set_terminal_full_text(full_text.into());
+                                    }
+                                    if offset_i32 != state.4 {
+                                        state.4 = offset_i32;
+                                        app.invoke_set_terminal_cursor_pos(offset_i32);
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
-        };
+                });
+            };
 
         let mut ticker = tokio::time::interval(tokio::time::Duration::from_millis(12));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

@@ -72,7 +72,10 @@ pub fn detect_system_is_dark() -> bool {
             {
                 let out_str = String::from_utf8_lossy(&output.stdout).to_lowercase();
                 if !out_str.trim().is_empty() {
-                    if out_str.contains("dark") || out_str.contains("black") || out_str.contains("breeze-dark") {
+                    if out_str.contains("dark")
+                        || out_str.contains("black")
+                        || out_str.contains("breeze-dark")
+                    {
                         return true;
                     } else if out_str.contains("light") || out_str.contains("white") {
                         return false;
@@ -1097,8 +1100,8 @@ mod tests {
     #[test]
     fn test_12_accent_colors() {
         let accents = [
-            "cyan", "sky", "purple", "emerald", "orange", "rose", "amber", "slate", "pink",
-            "lime", "indigo", "teal",
+            "cyan", "sky", "purple", "emerald", "orange", "rose", "amber", "slate", "pink", "lime",
+            "indigo", "teal",
         ];
         for acc in &accents {
             let dark_rgb = get_accent_rgb(acc, true);

@@ -304,7 +304,8 @@ pub async fn connect_ssh_async(
                 last_err = format!("SSH handshake failed: {}", e);
                 if attempt < 2 {
                     if debug_mode {
-                        let _ = output_tx.send(b"Handshake interrupted; retrying in 150ms...\r\n".to_vec());
+                        let _ = output_tx
+                            .send(b"Handshake interrupted; retrying in 150ms...\r\n".to_vec());
                     }
                     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
                     continue;

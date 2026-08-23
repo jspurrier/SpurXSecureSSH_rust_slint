@@ -96,9 +96,7 @@ fn get_settings_path() -> Result<PathBuf, String> {
 }
 
 pub fn get_default_log_dir() -> PathBuf {
-    let base_docs = dirs::document_dir().or_else(|| {
-        dirs::home_dir().map(|h| h.join("Documents"))
-    });
+    let base_docs = dirs::document_dir().or_else(|| dirs::home_dir().map(|h| h.join("Documents")));
 
     if let Some(docs) = base_docs {
         docs.join("SpurXSecureSSH").join("logs")
@@ -125,7 +123,9 @@ pub fn is_valid_path_for_current_os(path_str: &str) -> bool {
 
     #[cfg(not(target_os = "windows"))]
     {
-        if (path_str.len() >= 2 && path_str.chars().nth(1) == Some(':')) || path_str.starts_with(r"\\") {
+        if (path_str.len() >= 2 && path_str.chars().nth(1) == Some(':'))
+            || path_str.starts_with(r"\\")
+        {
             return false;
         }
         if !path_str.starts_with('/') && !path_str.starts_with('~') {
@@ -141,7 +141,9 @@ pub fn load_settings() -> AppSettings {
         Ok(path) => {
             if path.exists() {
                 match fs::read_to_string(&path) {
-                    Ok(content) => serde_json::from_str::<AppSettings>(&content).unwrap_or_default(),
+                    Ok(content) => {
+                        serde_json::from_str::<AppSettings>(&content).unwrap_or_default()
+                    }
                     Err(_) => AppSettings::default(),
                 }
             } else {
@@ -152,7 +154,11 @@ pub fn load_settings() -> AppSettings {
     };
 
     let current_os = std::env::consts::OS.to_string();
-    let os_changed = settings.os.as_ref().map(|o| o != &current_os).unwrap_or(false);
+    let os_changed = settings
+        .os
+        .as_ref()
+        .map(|o| o != &current_os)
+        .unwrap_or(false);
 
     if os_changed {
         settings.os = Some(current_os.clone());
@@ -197,7 +203,11 @@ mod tests {
     #[test]
     fn test_default_log_dir_location() {
         let log_dir = get_default_log_dir();
-        assert!(log_dir.ends_with("SpurXSecureSSH/logs") || log_dir.ends_with("SpurXSecureSSH\\logs") || log_dir.ends_with("logs"));
+        assert!(
+            log_dir.ends_with("SpurXSecureSSH/logs")
+                || log_dir.ends_with("SpurXSecureSSH\\logs")
+                || log_dir.ends_with("logs")
+        );
     }
 
     #[test]
@@ -205,12 +215,16 @@ mod tests {
         #[cfg(target_os = "linux")]
         {
             assert!(is_valid_path_for_current_os("/home/john/Documents/logs"));
-            assert!(!is_valid_path_for_current_os(r"C:\Users\john\Documents\logs"));
+            assert!(!is_valid_path_for_current_os(
+                r"C:\Users\john\Documents\logs"
+            ));
         }
 
         #[cfg(target_os = "windows")]
         {
-            assert!(is_valid_path_for_current_os(r"C:\Users\john\Documents\logs"));
+            assert!(is_valid_path_for_current_os(
+                r"C:\Users\john\Documents\logs"
+            ));
             assert!(!is_valid_path_for_current_os("/home/john/Documents/logs"));
         }
     }

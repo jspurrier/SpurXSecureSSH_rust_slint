@@ -85,8 +85,7 @@ pub fn delete_known_host(host_name: &str) -> Result<(), String> {
 pub fn clear_all_known_hosts() -> Result<(), String> {
     let path = get_known_hosts_path().ok_or("Could not determine home directory")?;
     if path.exists() {
-        fs::write(&path, "")
-            .map_err(|e| format!("Failed to clear known_hosts: {}", e))?;
+        fs::write(&path, "").map_err(|e| format!("Failed to clear known_hosts: {}", e))?;
     }
     Ok(())
 }
@@ -101,4 +100,3 @@ mod tests {
         assert!(path.is_some());
     }
 }
-

@@ -3,7 +3,6 @@ runtime: org.gnome.Platform
 runtime-version: '47'
 sdk: org.gnome.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.node20
   - org.freedesktop.Sdk.Extension.rust-stable
 
 command: spurx-secure-ssh
@@ -18,7 +17,7 @@ finish-args:
   # Network for SSH connections & AI APIs
   - --share=network
 
-  # Sound (if terminal bell/beeps are used)
+  # Sound
   - --socket=pulseaudio
 
   # Filesystem access for SSH keys, configs, logs, downloads, and SFTP file browsing
@@ -37,11 +36,11 @@ finish-args:
   - --talk-name=org.freedesktop.portal.Settings
   - --talk-name=org.freedesktop.Notifications
 
-  # Force dark GTK theme default for window titlebar / decorations
+  # Dark GTK theme preference for window decorations
   - --env=GTK_THEME=Adwaita:dark
 
 build-options:
-  append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/rust-stable/bin
   build-args:
     - --share=network
   env:
@@ -51,27 +50,21 @@ modules:
   - name: spurx-secure-ssh
     buildsystem: simple
     build-commands:
-      # Install Node dependencies offline using the generated sources
-      - npm ci
-      # Build the application
-      - npm run tauri build -- --bundles appimage
-      # Extract the built executable and assets
-      - mkdir -p /app/bin /app/share/applications /app/share/icons/hicolor/128x128/apps
-      # Assuming tauri outputs the executable here
-      - cp src-tauri/target/release/spurx-secure-ssh /app/bin/
-      # Install icons
-      - cp src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/com.spurx.securessh.png
-      # Create a simple desktop file
+      - cargo build --release
+      - mkdir -p /app/bin /app/share/applications /app/share/icons/hicolor/512x512/apps
+      - cp target/release/spurx-secure-ssh /app/bin/
+      - cp assets/icon_512x512.png /app/share/icons/hicolor/512x512/apps/com.spurx.securessh.png
       - |
         cat <<EOF > /app/share/applications/com.spurx.securessh.desktop
         [Desktop Entry]
         Name=SpurX Secure SSH
+        Comment=A Modern Slint-based SSH Client
         Exec=spurx-secure-ssh
         Icon=com.spurx.securessh
         Type=Application
         Categories=Network;Utility;
+        Terminal=false
         EOF
     sources:
       - type: dir
         path: .
-      - cargo-sources.json

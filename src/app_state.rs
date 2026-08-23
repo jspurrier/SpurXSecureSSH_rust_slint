@@ -171,4 +171,3 @@ mod tests {
         assert_eq!(g.tab_ids, vec!["tab-2".to_string()]);
     }
 }
-

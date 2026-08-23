@@ -243,11 +243,7 @@ impl<'a> Perform for BufferPerformer<'a> {
                     .lines
                     .len()
                     .saturating_sub(self.buffer.visible_rows);
-                self.buffer.cursor_row = self
-                    .buffer
-                    .cursor_row
-                    .saturating_sub(count)
-                    .max(min_row);
+                self.buffer.cursor_row = self.buffer.cursor_row.saturating_sub(count).max(min_row);
             }
             'B' => {
                 let max_row = self.buffer.lines.len().saturating_sub(1);

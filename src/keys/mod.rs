@@ -80,7 +80,8 @@ pub fn generate_key_pair(
         _ => get_default_ssh_dir(),
     };
 
-    fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create storage directory: {}", e))?;
+    fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("Failed to create storage directory: {}", e))?;
 
     let priv_path = target_dir.join(trimmed_name);
     let pub_path = target_dir.join(format!("{}.pub", trimmed_name));
@@ -233,7 +234,8 @@ pub fn list_keys() -> Result<Vec<KeyInfo>, String> {
 
                                 if let Ok(pub_key) = PublicKey::from_openssh(&pub_content) {
                                     let algo_display = format_algo_name("", &pub_key);
-                                    let fingerprint = pub_key.fingerprint(Default::default()).to_string();
+                                    let fingerprint =
+                                        pub_key.fingerprint(Default::default()).to_string();
 
                                     list.push(KeyInfo {
                                         name: key_name,
@@ -266,11 +268,21 @@ pub fn delete_key(path_or_name: &str) -> Result<(), String> {
         (priv_p, pub_p)
     } else {
         let in_ssh = get_default_ssh_dir().join(path_or_name);
-        if in_ssh.exists() || get_default_ssh_dir().join(format!("{}.pub", path_or_name)).exists() {
-            (in_ssh.clone(), get_default_ssh_dir().join(format!("{}.pub", path_or_name)))
+        if in_ssh.exists()
+            || get_default_ssh_dir()
+                .join(format!("{}.pub", path_or_name))
+                .exists()
+        {
+            (
+                in_ssh.clone(),
+                get_default_ssh_dir().join(format!("{}.pub", path_or_name)),
+            )
         } else {
             let in_app = get_app_keys_dir().join(path_or_name);
-            (in_app.clone(), get_app_keys_dir().join(format!("{}.pub", path_or_name)))
+            (
+                in_app.clone(),
+                get_app_keys_dir().join(format!("{}.pub", path_or_name)),
+            )
         }
     };
 
