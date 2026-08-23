@@ -898,11 +898,18 @@ pub fn get_accent_rgb(accent: &str, is_dark: bool) -> (u8, u8, u8) {
                 (0xea, 0x58, 0x0c)
             }
         }
-        "rose" | "red" => {
+        "rose" => {
             if is_dark {
                 (0xf4, 0x3f, 0x5e)
             } else {
-                (0xdc, 0x26, 0x26)
+                (0xe1, 0x1d, 0x48)
+            }
+        }
+        "red" | "bright red" | "crimson" => {
+            if is_dark {
+                (0xff, 0x00, 0x00) // Pure vivid RGB (255, 0, 0)
+            } else {
+                (0xef, 0x00, 0x00)
             }
         }
         "amber" | "yellow" => {
@@ -1098,9 +1105,9 @@ mod tests {
     }
 
     #[test]
-    fn test_12_accent_colors() {
+    fn test_13_accent_colors() {
         let accents = [
-            "cyan", "sky", "purple", "emerald", "orange", "rose", "amber", "slate", "pink", "lime",
+            "cyan", "sky", "purple", "emerald", "orange", "rose", "red", "amber", "slate", "pink", "lime",
             "indigo", "teal",
         ];
         for acc in &accents {
@@ -1109,5 +1116,7 @@ mod tests {
             assert_ne!(dark_rgb, (0, 0, 0));
             assert_ne!(light_rgb, (0, 0, 0));
         }
+        // Verify red is pure bright red
+        assert_eq!(get_accent_rgb("red", true), (255, 0, 0));
     }
 }

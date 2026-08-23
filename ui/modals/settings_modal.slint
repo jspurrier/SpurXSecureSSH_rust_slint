@@ -650,7 +650,7 @@ export component SettingsModal inherits Rectangle {
                                 HorizontalLayout {
                                     alignment: space-between;
                                     Text {
-                                        text: "✨  Accent Highlight Color (12 Options)";
+                                        text: "✨  Accent Highlight Color (13 Options)";
                                         font-size: 12px;
                                         font-weight: 700;
                                         color: Theme.text-primary;
@@ -736,13 +736,22 @@ export component SettingsModal inherits Rectangle {
                                         TouchArea { clicked => { root.accent-color = "orange"; root.accent-color-changed("orange"); } }
                                     }
 
-                                    // Crimson Rose
+                                    // Crimson Rose (Pinkish Red)
                                     Rectangle {
                                         width: 28px; height: 28px; border-radius: 14px; background: #f43f5e;
                                         border-width: root.accent-color == "rose" ? 2.5px : 1px;
                                         border-color: root.accent-color == "rose" ? #ffffff : #00000040;
                                         if root.accent-color == "rose" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
                                         TouchArea { clicked => { root.accent-color = "rose"; root.accent-color-changed("rose"); } }
+                                    }
+
+                                    // Vivid Bright Red (Pure RGB 255,0,0)
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #ff0000;
+                                        border-width: root.accent-color == "red" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "red" ? #ffffff : #00000040;
+                                        if root.accent-color == "red" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "red"; root.accent-color-changed("red"); } }
                                     }
 
                                     // Hot Pink / Magenta

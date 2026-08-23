@@ -41,21 +41,21 @@ export global Theme {
     in-out property <color> term-white: #c9d1d9;
 
     // Dimensions
-    in-out property <length> menu-height: 28px;
-    in-out property <length> toolbar-height: 40px;
-    in-out property <length> tab-height: 32px;
-    in-out property <length> status-height: 24px;
-    in-out property <length> sidebar-width: 260px;
-    in-out property <length> ai-panel-width: 340px;
+    in-out property <length> menu-height: 30px;
+    in-out property <length> toolbar-height: 44px;
+    in-out property <length> tab-height: 34px;
+    in-out property <length> status-height: 26px;
+    in-out property <length> sidebar-width: 275px;
+    in-out property <length> ai-panel-width: 350px;
 }
 
 export component SpurxButton inherits Rectangle {
     in property <string> text: "";
     in property <string> variant: "primary"; // "primary", "secondary", "danger", "ghost", "accent"
     in property <bool> enabled: true;
-    in property <length> custom-height: 28px;
-    in property <length> custom-padding: 12px;
-    in property <length> font-size: 12px;
+    in property <length> custom-height: 30px;
+    in property <length> custom-padding: 14px;
+    in property <length> font-size: 13px;
     callback clicked();
 
     height: custom-height;
