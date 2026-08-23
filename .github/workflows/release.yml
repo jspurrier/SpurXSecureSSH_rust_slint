@@ -34,7 +34,7 @@ jobs:
       - name: Package Windows artifacts
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v2.0.0" }
+          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v2.0.1" }
           $outDir = "dist-windows"
           New-Item -ItemType Directory -Path $outDir -Force
           Copy-Item "target/release/spurx-secure-ssh.exe" -Destination "$outDir/"
@@ -74,7 +74,7 @@ jobs:
 
       - name: Create Universal Binary & App Bundle
         run: |
-          TAG="${GITHUB_REF_NAME:-v2.0.0}"
+          TAG="${GITHUB_REF_NAME:-v2.0.1}"
           mkdir -p target/universal/release
           lipo -create -output target/universal/release/spurx-secure-ssh \
             target/aarch64-apple-darwin/release/spurx-secure-ssh \
@@ -103,7 +103,7 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>2.0.0</string>
+              <string>2.0.1</string>
               <key>LSMinimumSystemVersion</key>
               <string>10.15</string>
               <key>NSHighResolutionCapable</key>
@@ -174,38 +174,45 @@ jobs:
 
       - name: Package Linux tar.gz
         run: |
-          TAG="${GITHUB_REF_NAME:-v2.0.0}"
+          TAG="${GITHUB_REF_NAME:-v2.0.1}"
           PKG_DIR="spurx-secure-ssh-linux-x86_64"
           mkdir -p "${PKG_DIR}"
           cp target/release/spurx-secure-ssh "${PKG_DIR}/"
           cp README.md LICENSE "${PKG_DIR}/"
           cp assets/icon_512x512.png "${PKG_DIR}/icon.png"
+          cp assets/icon_512x512.png "${PKG_DIR}/spurx-secure-ssh.png"
           tar -czvf "spurx-secure-ssh-${TAG}-linux-x86_64.tar.gz" "${PKG_DIR}"
 
       - name: Package Debian (.deb)
         run: |
-          TAG="${GITHUB_REF_NAME:-v2.0.0}"
+          TAG="${GITHUB_REF_NAME:-v2.0.1}"
           VERSION="${TAG#v}"
           DEB_ROOT="deb_root"
           mkdir -p "${DEB_ROOT}/usr/bin"
           mkdir -p "${DEB_ROOT}/usr/share/applications"
           mkdir -p "${DEB_ROOT}/usr/share/icons/hicolor/512x512/apps"
+          mkdir -p "${DEB_ROOT}/usr/share/pixmaps"
           mkdir -p "${DEB_ROOT}/DEBIAN"
 
           cp target/release/spurx-secure-ssh "${DEB_ROOT}/usr/bin/"
           chmod 755 "${DEB_ROOT}/usr/bin/spurx-secure-ssh"
+          cp assets/icon_512x512.png "${DEB_ROOT}/usr/share/icons/hicolor/512x512/apps/spurx-secure-ssh.png"
           cp assets/icon_512x512.png "${DEB_ROOT}/usr/share/icons/hicolor/512x512/apps/com.spurx.securessh.png"
+          cp assets/icon_512x512.png "${DEB_ROOT}/usr/share/pixmaps/spurx-secure-ssh.png"
+          cp assets/icon_512x512.png "${DEB_ROOT}/usr/share/pixmaps/com.spurx.securessh.png"
 
-          cat << EOF > "${DEB_ROOT}/usr/share/applications/com.spurx.securessh.desktop"
+          cat << EOF > "${DEB_ROOT}/usr/share/applications/spurx-secure-ssh.desktop"
           [Desktop Entry]
           Name=SpurX Secure SSH
           Comment=A Modern Slint-based SSH Client
-          Exec=/usr/bin/spurx-secure-ssh
-          Icon=com.spurx.securessh
+          Exec=/usr/bin/spurx-secure-ssh %U
+          Icon=spurx-secure-ssh
           Type=Application
           Categories=Network;Utility;
           Terminal=false
+          StartupWMClass=spurx-secure-ssh
           EOF
+          cp "${DEB_ROOT}/usr/share/applications/spurx-secure-ssh.desktop" "${DEB_ROOT}/usr/share/applications/com.spurx.securessh.desktop"
 
           cat << EOF > "${DEB_ROOT}/DEBIAN/control"
           Package: spurx-secure-ssh
@@ -222,7 +229,7 @@ jobs:
 
       - name: Package Red Hat / Fedora (.rpm)
         run: |
-          TAG="${GITHUB_REF_NAME:-v2.0.0}"
+          TAG="${GITHUB_REF_NAME:-v2.0.1}"
           VERSION="${TAG#v}"
           RPM_ROOT="${HOME}/rpmbuild"
           mkdir -p "${RPM_ROOT}/BUILD" "${RPM_ROOT}/RPMS" "${RPM_ROOT}/SOURCES" "${RPM_ROOT}/SPECS" "${RPM_ROOT}/SRPMS"
@@ -242,25 +249,45 @@ jobs:
           mkdir -p %{buildroot}%{_bindir}
           mkdir -p %{buildroot}%{_datadir}/applications
           mkdir -p %{buildroot}%{_datadir}/icons/hicolor/512x512/apps
+          mkdir -p %{buildroot}%{_datadir}/pixmaps
 
           install -m 755 ${GITHUB_WORKSPACE}/target/release/spurx-secure-ssh %{buildroot}%{_bindir}/spurx-secure-ssh
+          install -m 644 ${GITHUB_WORKSPACE}/assets/icon_512x512.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/spurx-secure-ssh.png
           install -m 644 ${GITHUB_WORKSPACE}/assets/icon_512x512.png %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/com.spurx.securessh.png
+          install -m 644 ${GITHUB_WORKSPACE}/assets/icon_512x512.png %{buildroot}%{_datadir}/pixmaps/spurx-secure-ssh.png
+          install -m 644 ${GITHUB_WORKSPACE}/assets/icon_512x512.png %{buildroot}%{_datadir}/pixmaps/com.spurx.securessh.png
 
-          cat << 'DESK' > %{buildroot}%{_datadir}/applications/com.spurx.securessh.desktop
+          cat << 'DESK' > %{buildroot}%{_datadir}/applications/spurx-secure-ssh.desktop
           [Desktop Entry]
           Name=SpurX Secure SSH
           Comment=A Modern Slint-based SSH Client
-          Exec=spurx-secure-ssh
-          Icon=com.spurx.securessh
+          Exec=/usr/bin/spurx-secure-ssh %U
+          Icon=spurx-secure-ssh
           Type=Application
           Categories=Network;Utility;
           Terminal=false
+          StartupWMClass=spurx-secure-ssh
           DESK
+          cp %{buildroot}%{_datadir}/applications/spurx-secure-ssh.desktop %{buildroot}%{_datadir}/applications/com.spurx.securessh.desktop
+
+          %post
+          /bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+          /usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+          /usr/bin/update-desktop-database %{_datadir}/applications &>/dev/null || :
+
+          %postun
+          /bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+          /usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+          /usr/bin/update-desktop-database %{_datadir}/applications &>/dev/null || :
 
           %files
           %{_bindir}/spurx-secure-ssh
+          %{_datadir}/applications/spurx-secure-ssh.desktop
           %{_datadir}/applications/com.spurx.securessh.desktop
+          %{_datadir}/icons/hicolor/512x512/apps/spurx-secure-ssh.png
           %{_datadir}/icons/hicolor/512x512/apps/com.spurx.securessh.png
+          %{_datadir}/pixmaps/spurx-secure-ssh.png
+          %{_datadir}/pixmaps/com.spurx.securessh.png
           EOF
 
           rpmbuild -bb "${RPM_ROOT}/SPECS/spurx-secure-ssh.spec"
@@ -268,7 +295,7 @@ jobs:
 
       - name: Package AppImage
         run: |
-          TAG="${GITHUB_REF_NAME:-v2.0.0}"
+          TAG="${GITHUB_REF_NAME:-v2.0.1}"
           VERSION="${TAG#v}"
           APP_DIR="AppDir"
           mkdir -p "${APP_DIR}/usr/bin"
@@ -276,21 +303,25 @@ jobs:
           mkdir -p "${APP_DIR}/usr/share/icons/hicolor/512x512/apps"
 
           cp target/release/spurx-secure-ssh "${APP_DIR}/usr/bin/"
+          cp assets/icon_512x512.png "${APP_DIR}/usr/share/icons/hicolor/512x512/apps/spurx-secure-ssh.png"
           cp assets/icon_512x512.png "${APP_DIR}/usr/share/icons/hicolor/512x512/apps/com.spurx.securessh.png"
+          cp assets/icon_512x512.png "${APP_DIR}/spurx-secure-ssh.png"
           cp assets/icon_512x512.png "${APP_DIR}/com.spurx.securessh.png"
           cp assets/icon_512x512.png "${APP_DIR}/.DirIcon"
 
-          cat << 'EOF' > "${APP_DIR}/com.spurx.securessh.desktop"
+          cat << 'EOF' > "${APP_DIR}/spurx-secure-ssh.desktop"
           [Desktop Entry]
           Name=SpurX Secure SSH
           Comment=A Modern Slint-based SSH Client
-          Exec=spurx-secure-ssh
-          Icon=com.spurx.securessh
+          Exec=spurx-secure-ssh %U
+          Icon=spurx-secure-ssh
           Type=Application
           Categories=Network;Utility;
           Terminal=false
+          StartupWMClass=spurx-secure-ssh
           EOF
-          cp "${APP_DIR}/com.spurx.securessh.desktop" "${APP_DIR}/usr/share/applications/"
+          cp "${APP_DIR}/spurx-secure-ssh.desktop" "${APP_DIR}/usr/share/applications/"
+          cp "${APP_DIR}/spurx-secure-ssh.desktop" "${APP_DIR}/usr/share/applications/com.spurx.securessh.desktop"
 
           cat << 'EOF' > "${APP_DIR}/AppRun"
           #!/bin/sh
