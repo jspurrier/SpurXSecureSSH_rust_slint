@@ -287,6 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let app = AppWindow::new()?;
+    app.set_about_app_version(format!("Version {} (Slint Native Edition)", env!("CARGO_PKG_VERSION")).into());
     let app_state = Arc::new(AppState::new());
 
     let app_cfg = settings::load_settings();

@@ -2,6 +2,7 @@ import { Theme, SpurxButton, ModalCard } from "../theme.slint";
 
 export component AboutModal inherits Rectangle {
     in property <bool> is-open: false;
+    in-out property <string> app-version: "Version 2.0.0 (Slint Native Edition)";
     in-out property <string> update-status: "";
     in-out property <bool> is-checking-update: false;
     in-out property <bool> update-available: false;
@@ -42,7 +43,7 @@ export component AboutModal inherits Rectangle {
             }
 
             Text {
-                text: "Version 2.0.0 (Slint Native Edition)";
+                text: root.app-version;
                 font-size: 12px;
                 color: Theme.text-secondary;
                 horizontal-alignment: center;
