@@ -50,7 +50,7 @@ modules:
   - name: spurx-secure-ssh
     buildsystem: simple
     build-commands:
-      - cargo build --release
+      - cargo build --release --locked
       - mkdir -p /app/bin /app/share/applications /app/share/icons/hicolor/512x512/apps
       - cp target/release/spurx-secure-ssh /app/bin/
       - cp assets/icon_512x512.png /app/share/icons/hicolor/512x512/apps/com.spurx.securessh.png

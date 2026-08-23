@@ -6790,9 +6790,9 @@ dependencies = [
 
 [[package]]
 name = "typed-index-collections"
-version = "3.5.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898160f1dfd383b4e92e17f0512a7d62f3c51c44937b23b6ffc3a1614a8eaccd"
+checksum = "5318ee4ce62a4e948a33915574021a7a953d83e84fba6e25c72ffcfd7dad35ff"
 dependencies = [
  "bincode",
  "serde",
