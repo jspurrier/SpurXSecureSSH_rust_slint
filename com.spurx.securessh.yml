@@ -1,0 +1,77 @@
+app-id: com.spurx.securessh
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: spurx-secure-ssh
+
+finish-args:
+  # UI & Display
+  - --socket=x11
+  - --socket=wayland
+  - --share=ipc
+  - --device=dri
+
+  # Network for SSH connections & AI APIs
+  - --share=network
+
+  # Sound (if terminal bell/beeps are used)
+  - --socket=pulseaudio
+
+  # Filesystem access for SSH keys, configs, logs, downloads, and SFTP file browsing
+  - --filesystem=home
+  - --filesystem=host
+  - --filesystem=xdg-config/gtk-3.0:ro
+  - --filesystem=xdg-config/kdeglobals:ro
+  - --filesystem=xdg-data/themes:ro
+  - --filesystem=~/.themes:ro
+
+  # System Keyring / Master Password DBus access
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.FdoStyle
+  - --talk-name=org.freedesktop.portal.FileChooser
+  - --talk-name=org.freedesktop.portal.Settings
+  - --talk-name=org.freedesktop.Notifications
+
+  # Force dark GTK theme default for window titlebar / decorations
+  - --env=GTK_THEME=Adwaita:dark
+
+build-options:
+  append-path: /usr/lib/sdk/node20/bin:/usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/spurx-secure-ssh/cargo
+
+modules:
+  - name: spurx-secure-ssh
+    buildsystem: simple
+    build-commands:
+      # Install Node dependencies offline using the generated sources
+      - npm ci
+      # Build the application
+      - npm run tauri build -- --bundles appimage
+      # Extract the built executable and assets
+      - mkdir -p /app/bin /app/share/applications /app/share/icons/hicolor/128x128/apps
+      # Assuming tauri outputs the executable here
+      - cp src-tauri/target/release/spurx-secure-ssh /app/bin/
+      # Install icons
+      - cp src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/com.spurx.securessh.png
+      # Create a simple desktop file
+      - |
+        cat <<EOF > /app/share/applications/com.spurx.securessh.desktop
+        [Desktop Entry]
+        Name=SpurX Secure SSH
+        Exec=spurx-secure-ssh
+        Icon=com.spurx.securessh
+        Type=Application
+        Categories=Network;Utility;
+        EOF
+    sources:
+      - type: dir
+        path: .
+      - cargo-sources.json

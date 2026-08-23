@@ -1,0 +1,536 @@
+export global Theme {
+    // Mode
+    in-out property <bool> is-dark: true;
+
+    // Colors
+    in-out property <color> bg-primary: #0a0e14;
+    in-out property <color> bg-secondary: #0f1419;
+    in-out property <color> bg-tertiary: #151b23;
+    in-out property <color> bg-elevated: #1a222d;
+    in-out property <color> bg-hover: #232d3b;
+    in-out property <color> bg-active: #2d3a4d;
+
+    in-out property <color> accent-primary: #00d4ff;
+    in-out property <color> accent-secondary: #7c3aed;
+    in-out property <color> accent-success: #10b981;
+    in-out property <color> accent-warning: #f59e0b;
+    in-out property <color> accent-danger: #ef4444;
+
+    in-out property <color> text-primary: #e6edf3;
+    in-out property <color> text-secondary: #8b949e;
+    in-out property <color> text-muted: #6e7681;
+    in-out property <color> text-accent: #00d4ff;
+    in-out property <color> text-on-accent: #000000;
+
+    in-out property <color> border-primary: #30363d;
+    in-out property <color> border-secondary: #21262d;
+    in-out property <color> border-accent: #00d4ff4d;
+
+    // Terminal colors
+    in-out property <color> term-bg: #0d1117;
+    in-out property <color> term-fg: #c9d1d9;
+    in-out property <color> term-cursor: #58a6ff;
+    in-out property <color> term-selection: #264f78;
+    in-out property <color> term-black: #0d1117;
+    in-out property <color> term-red: #ff7b72;
+    in-out property <color> term-green: #3fb950;
+    in-out property <color> term-yellow: #d29922;
+    in-out property <color> term-blue: #58a6ff;
+    in-out property <color> term-magenta: #bc8cff;
+    in-out property <color> term-cyan: #39c5cf;
+    in-out property <color> term-white: #c9d1d9;
+
+    // Dimensions
+    in-out property <length> menu-height: 28px;
+    in-out property <length> toolbar-height: 40px;
+    in-out property <length> tab-height: 32px;
+    in-out property <length> status-height: 24px;
+    in-out property <length> sidebar-width: 260px;
+    in-out property <length> ai-panel-width: 340px;
+}
+
+export component SpurxButton inherits Rectangle {
+    in property <string> text: "";
+    in property <string> variant: "primary"; // "primary", "secondary", "danger", "ghost", "accent"
+    in property <bool> enabled: true;
+    in property <length> custom-height: 28px;
+    in property <length> custom-padding: 12px;
+    in property <length> font-size: 12px;
+    callback clicked();
+
+    height: custom-height;
+    border-radius: 4px;
+    background: !enabled ? Theme.bg-tertiary :
+        touch.pressed ? (
+            variant == "primary" ? Theme.accent-primary.darker(0.2) :
+            variant == "secondary" ? Theme.bg-active :
+            variant == "danger" ? #dc2626 :
+            variant == "accent" ? Theme.accent-secondary.darker(0.2) : Theme.bg-hover
+        ) : touch.has-hover ? (
+            variant == "primary" ? Theme.accent-primary.brighter(0.2) :
+            variant == "secondary" ? Theme.bg-hover :
+            variant == "danger" ? #f87171 :
+            variant == "accent" ? Theme.accent-secondary.brighter(0.2) : Theme.bg-tertiary
+        ) : (
+            variant == "primary" ? Theme.accent-primary :
+            variant == "secondary" ? Theme.bg-elevated :
+            variant == "danger" ? Theme.accent-danger :
+            variant == "accent" ? Theme.accent-secondary : Colors.transparent
+        );
+    border-width: (variant == "secondary" || variant == "ghost") ? 1px : 0px;
+    border-color: Theme.border-primary;
+
+    HorizontalLayout {
+        padding-left: custom-padding;
+        padding-right: custom-padding;
+        alignment: center;
+        Text {
+            text: root.text;
+            color: !enabled ? Theme.text-muted :
+                (variant == "primary" ? Theme.text-on-accent :
+                 variant == "danger" ? #ffffff :
+                 variant == "accent" ? #ffffff : Theme.text-primary);
+            font-size: root.font-size;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SpurxIconButton inherits Rectangle {
+    in property <string> icon-text: "";
+    in property <string> tooltip: "";
+    in property <bool> active: false;
+    in property <length> size: 28px;
+    callback clicked();
+
+    width: size;
+    height: size;
+    border-radius: 4px;
+    background: touch.pressed ? Theme.bg-active :
+        (active || touch.has-hover) ? Theme.bg-hover : Colors.transparent;
+
+    Text {
+        text: root.icon-text;
+        font-size: 13px;
+        color: root.active ? Theme.accent-primary : (touch.has-hover ? Theme.text-primary : Theme.text-secondary);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SpurxTextInput inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder: "";
+    in property <bool> is-password: false;
+    in property <bool> read-only: false;
+    in property <length> font-size: 12px;
+    callback edited(string);
+    callback accepted();
+
+    public function focus-input() {
+        input.focus();
+    }
+
+    public function select-all() {
+        input.select-all();
+    }
+
+    public function clear-selection() {
+        input.clear-selection();
+    }
+
+    public function copy() {
+        input.copy();
+    }
+
+    public function cut() {
+        input.cut();
+    }
+
+    public function paste() {
+        input.paste();
+    }
+
+    forward-focus: input;
+
+    height: 28px;
+    border-radius: 4px;
+    background: Theme.bg-tertiary;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent-primary : Theme.border-secondary;
+    clip: true;
+
+    // NOTE: No TouchArea here — TextInput handles its own mouse events.
+    // A TouchArea would intercept and consume all pointer events (mouse down/move/up)
+    // before TextInput receives them, breaking cursor placement and drag selection.
+
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        font-size: root.font-size;
+        color: Theme.text-primary;
+        read-only: root.read-only;
+        single-line: true;
+        vertical-alignment: center;
+        input-type: root.is-password ? InputType.password : InputType.text;
+        selection-background-color: #00d4ff60;
+        selection-foreground-color: #ffffff;
+        edited => { root.edited(self.text); }
+        accepted => { root.accepted(); }
+    }
+
+    Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.placeholder;
+        font-size: root.font-size;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        visible: input.text == "" && !input.has-focus;
+    }
+}
+
+export component SpurxCheckBox inherits Rectangle {
+    in-out property <bool> checked: false;
+    in property <string> text: "";
+    callback toggled(bool);
+
+    height: 24px;
+    background: Colors.transparent;
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        box := Rectangle {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border-width: 1.5px;
+            border-color: root.checked ? Theme.accent-primary : (touch.has-hover ? Theme.text-secondary : Theme.border-primary);
+            background: root.checked ? Theme.accent-primary : (touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary);
+
+            if root.checked : Text {
+                text: "✓";
+                font-size: 12px;
+                font-weight: 800;
+                color: #000000;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: root.text;
+            font-size: 12px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+export component ModalBackdrop inherits Rectangle {
+    in property <bool> is-open: false;
+    callback close-requested();
+
+    background: #000000aa;
+    visible: root.is-open;
+
+    // Absorb clicks on backdrop so underlying application controls cannot be clicked
+    TouchArea {}
+}
+
+export component ModalCard inherits Rectangle {
+    in property <string> title: "";
+    in property <length> card-width: 480px;
+    in property <length> card-height: 400px;
+    callback close-requested();
+
+    width: root.card-width;
+    height: root.card-height;
+    background: Theme.bg-secondary;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border-primary;
+    drop-shadow-blur: 20px;
+    drop-shadow-color: #00000088;
+    clip: true;
+
+    // Absorb all clicks on the modal card surface so they never close the modal
+    TouchArea {}
+
+    VerticalLayout {
+        // Modal Header
+        Rectangle {
+            height: 44px;
+            background: Theme.bg-tertiary;
+            border-width: 1px;
+            border-color: Theme.border-secondary;
+
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 14px;
+                alignment: space-between;
+
+                Text {
+                    text: root.title;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+
+                SpurxIconButton {
+                    icon-text: "✕";
+                    size: 26px;
+                    clicked => { root.close-requested(); }
+                }
+            }
+        }
+
+        // Modal Content Slot
+        @children
+    }
+}
+
+export component FolderIcon inherits Path {
+    in property <color> icon-color: #8b5cf6;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: icon-color;
+    commands: "M10 4 H4 c-1.1 0-2 .9-2 2 v12 c0 1.1.9 2 2 2 h16 c1.1 0 2-.9 2-2 V8 c0-1.1-.9-2-2-2 h-8 l-2-2 z";
+}
+
+export component ServerIcon inherits Path {
+    in property <color> icon-color: #00d4ff;
+    in property <length> icon-size: 16px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M2 4 h20 v12 H2 z M8 20 h8 M12 16 v4";
+}
+
+export component ChevronIcon inherits Path {
+    in property <bool> expanded: false;
+    in property <color> icon-color: #64748b;
+    in property <length> icon-size: 10px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: icon-color;
+    commands: expanded ? "M7 10 l5 5 5-5 z" : "M10 17 l5-5-5-5 z";
+}
+
+export component EditIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 14px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M17 3 a2.828 2.828 0 1 1 4 4 L7.5 20.5 2 22 l1.5-5.5 L17 3 z";
+}
+
+export component CloseIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 12px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2.2px;
+    commands: "M18 6 L6 18 M6 6 L18 18";
+}
+
+export component SidebarIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M3 3 h18 v18 H3 z M9 3 v18";
+}
+
+export component LightningIcon inherits Path {
+    in property <color> icon-color: #00d4ff;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: icon-color;
+    commands: "M13 2 L3 14 h9 l-1 8 10-12 h-9 l1-8 z";
+}
+
+export component PlusIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 16px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2.5px;
+    commands: "M12 5 v14 M5 12 h14";
+}
+
+export component PlayIcon inherits Path {
+    in property <color> icon-color: #00d4ff;
+    in property <length> icon-size: 16px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: icon-color;
+    commands: "M8 5 v14 l11-7 z";
+}
+
+export component TunnelIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M6 9 v6 M18 9 v6 M6 12 h12 M3 9 h3 M18 9 h3 M3 15 h3 M18 15 h3";
+}
+
+export component KeyIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M21 2 l-2 2 m-2-2 l2 2 M15.5 7.5 l-3-3 a6.5 6.5 0 1 0 0 9.2 l3-3";
+}
+
+export component SftpIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M7 17 V3 M3 7 l4-4 4 4 M17 7 v14 M13 17 l4 4 4-4";
+}
+
+export component AiIcon inherits Path {
+    in property <color> icon-color: #8b5cf6;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M12 2 a2 2 0 0 1 2 2 v2 h4 a2 2 0 0 1 2 2 v8 a2 2 0 0 1-2 2 H6 a2 2 0 0 1-2-2 V8 a2 2 0 0 1 2-2 h4 V4 a2 2 0 0 1 2-2 z M9 13 a1 1 0 1 0 0-2 1 1 0 0 0 0 2 z M15 13 a1 1 0 1 0 0-2 1 1 0 0 0 0 2 z";
+}
+
+export component GearIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 18px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M12 15 a3 3 0 1 0 0-6 3 3 0 0 0 0 6 z M19.4 15 a1.65 1.65 0 0 0 .33 1.82 l.06.06 a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0 l-.06-.06 a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51 V21 a2 2 0 0 1-2 2 2 2 0 0 1-2-2 v-.09 A1.65 1.65 0 0 0 9 19.4 a1.65 1.65 0 0 0-1.82.33 l-.06.06 a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83 l.06-.06 a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1 H3 a2 2 0 0 1-2-2 2 2 0 0 1 2-2 h.09 A1.65 1.65 0 0 0 4.6 9 a1.65 1.65 0 0 0-.33-1.82 l-.06-.06 a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0 l.06.06 a1.65 1.65 0 0 0 1.82.33 H9 a1.65 1.65 0 0 0 1-1.51 V3 a2 2 0 0 1 2-2 2 2 0 0 1 2 2 v.09 a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33 l.06-.06 a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83 l-.06.06 a1.65 1.65 0 0 0-.33 1.82 V9 a1.65 1.65 0 0 0 1.51 1 H21 a2 2 0 0 1 2 2 2 2 0 0 1-2 2 h-.09 a1.65 1.65 0 0 0-1.51 1 z";
+}
+
+export component ImportIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 16px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M21 15 v4 a2 2 0 0 1-2 2 H5 a2 2 0 0 1-2-2 v-4 M7 10 l5 5 5-5 M12 15 V3";
+}
+
+export component NewFolderIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 16px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2px;
+    commands: "M22 19 a2 2 0 0 1-2 2 H4 a2 2 0 0 1-2-2 V5 a2 2 0 0 1 2-2 h5 l2 3 h9 a2 2 0 0 1 2 2 z M12 11 v6 M9 14 h6";
+}
+

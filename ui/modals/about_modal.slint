@@ -1,0 +1,149 @@
+import { Theme, SpurxButton, ModalCard } from "../theme.slint";
+
+export component AboutModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <string> update-status: "";
+    in-out property <bool> is-checking-update: false;
+    in-out property <bool> update-available: false;
+    in-out property <string> release-url: "https://github.com/jspurrier/SpurXSecureSSH_rust_slint";
+
+    callback close();
+    callback check-for-updates();
+    callback open-release-url(string);
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "About SpurX Secure SSH";
+        card-width: 520px;
+        card-height: 560px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 20px;
+            spacing: 10px;
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    source: @image-url("../assets/app_icon.png");
+                    width: 64px;
+                    height: 64px;
+                }
+            }
+
+            Text {
+                text: "SpurX Secure SSH";
+                font-size: 18px;
+                font-weight: 800;
+                color: Theme.accent-primary;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "Version 2.0.16 (Slint Native Edition)";
+                font-size: 12px;
+                color: Theme.text-secondary;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "A modern, ultra-fast, and secure SSH client built in pure Rust & Slint for professional network engineers and system administrators.";
+                font-size: 11px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
+
+            Rectangle {
+                border-radius: 6px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 6px;
+
+                    Text { text: "✓ Multi-tab SSH2 terminal emulation (VT100 / ANSI)"; font-size: 11px; color: Theme.text-primary; }
+                    Text { text: "✓ Dual-pane SFTP file browser with upload/download queue"; font-size: 11px; color: Theme.text-primary; }
+                    Text { text: "✓ SSH Port Forwarding & Tunnels manager"; font-size: 11px; color: Theme.text-primary; }
+                    Text { text: "✓ Integrated AI Assistant (Ollama, Gemini, Grok)"; font-size: 11px; color: Theme.text-primary; }
+                    Text { text: "✓ AES-256-GCM Master Password session encryption"; font-size: 11px; color: Theme.text-primary; }
+                    Text { text: "✓ YModem file transfer support"; font-size: 11px; color: Theme.text-primary; }
+                }
+            }
+
+            // Update Check Section
+            VerticalLayout {
+                spacing: 6px;
+                alignment: center;
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+
+                    SpurxButton {
+                        text: root.is-checking-update ? "Checking GitHub..." : "Check for Updates";
+                        variant: "secondary";
+                        custom-height: 28px;
+                        custom-padding: 14px;
+                        clicked => {
+                            root.check-for-updates();
+                        }
+                    }
+
+                    if root.update-available : SpurxButton {
+                        text: "View Release Notes";
+                        variant: "primary";
+                        custom-height: 28px;
+                        custom-padding: 14px;
+                        clicked => {
+                            root.open-release-url(root.release-url);
+                        }
+                    }
+                }
+
+                if root.update-status != "" : Rectangle {
+                    height: 28px;
+                    border-radius: 4px;
+                    background: root.update-available ? #1e3a8a : (root.is-checking-update ? #1e293b : #064e3b);
+                    border-width: 1px;
+                    border-color: root.update-available ? #3b82f6 : (root.is-checking-update ? #475569 : #10b981);
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        alignment: center;
+
+                        Text {
+                            text: root.update-status;
+                            font-size: 11px;
+                            color: #f1f5f9;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "© 2026 SpurX Technologies. MIT License.";
+                font-size: 11px;
+                color: Theme.text-muted;
+                horizontal-alignment: center;
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                SpurxButton {
+                    text: "Close";
+                    variant: "primary";
+                    width: 100px;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+}

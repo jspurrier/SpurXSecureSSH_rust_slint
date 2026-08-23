@@ -1,0 +1,68 @@
+import { Theme } from "theme.slint";
+
+export component StatusBar inherits Rectangle {
+    height: Theme.status-height;
+    background: Theme.bg-secondary;
+    border-color: Theme.border-secondary;
+
+    in property <string> connection-status: "Ready";
+    in property <string> cipher-info: "-";
+    in property <string> cursor-position: "-";
+    in property <string> terminal-size: "80x24";
+    in property <string> terminal-type: "VT100";
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        alignment: start;
+
+        // Connection Status
+        Text {
+            text: root.connection-status;
+            font-size: 11px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: 1px; height: 14px; background: Theme.border-secondary; y: 5px; }
+
+        // Cipher Info
+        Text {
+            text: "Cipher: " + root.cipher-info;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: 1px; height: 14px; background: Theme.border-secondary; y: 5px; }
+
+        // Position
+        Text {
+            text: root.cursor-position;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: 1px; height: 14px; background: Theme.border-secondary; y: 5px; }
+
+        // Terminal Size
+        Text {
+            text: root.terminal-size;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+
+        Rectangle { width: 1px; height: 14px; background: Theme.border-secondary; y: 5px; }
+
+        // Terminal Type
+        Text {
+            text: root.terminal-type;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+}

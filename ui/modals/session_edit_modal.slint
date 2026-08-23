@@ -1,0 +1,761 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxCheckBox, SpurxIconButton, ModalCard } from "../theme.slint";
+
+export struct SessionTunnelRuleModel {
+    name: string,
+    local-port: int,
+    remote-host: string,
+    remote-port: int,
+    auto-start: bool,
+}
+
+export component SessionEditModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <bool> is-new: true;
+    in-out property <string> session-id: "";
+    in-out property <string> session-name: "";
+    in-out property <string> host: "";
+    in-out property <string> port: "22";
+    in-out property <string> folder: "";
+    in property <[string]> available-folders: [];
+    in-out property <bool> folder-dropdown-open: false;
+    in-out property <bool> use-global-credentials: false;
+    in-out property <string> username: "";
+    in-out property <string> password: "";
+    in-out property <string> auth-method: "password";
+    in-out property <string> log-directory: "";
+    in-out property <bool> auto-start-tunnels: false;
+
+    // Tunnels tab state
+    in-out property <int> active-tab: 0; // 0: General, 1: Tunnels
+    in-out property <[SessionTunnelRuleModel]> tunnel-rules: [];
+    in-out property <string> new-rule-name: "";
+    in-out property <string> new-rule-local-port: "8080";
+    in-out property <string> new-rule-remote-host: "127.0.0.1";
+    in-out property <string> new-rule-remote-port: "80";
+    in-out property <bool> new-rule-autostart: true;
+
+    callback close();
+    callback save-session(string, string, string, string, string, bool, string, string, string, string, bool);
+    callback add-tunnel-rule(string, string, string, string, bool);
+    callback remove-tunnel-rule(int);
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: root.is-new ? "Add Session" : "Edit Session";
+        card-width: 530px;
+        card-height: 640px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
+
+            // Tab Switcher Row (General vs Port Forwarding)
+            Rectangle {
+                height: 46px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    spacing: 10px;
+
+                    // General Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.active-tab == 0 ? Theme.bg-active : Colors.transparent;
+                        border-width: root.active-tab == 0 ? 1.5px : 1px;
+                        border-color: root.active-tab == 0 ? Theme.accent-primary : Theme.border-secondary;
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            Text {
+                                text: "🗎";
+                                font-size: 13px;
+                                color: root.active-tab == 0 ? Theme.accent-primary : Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "General";
+                                font-size: 12px;
+                                font-weight: root.active-tab == 0 ? 700 : 500;
+                                color: root.active-tab == 0 ? Theme.text-primary : Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+                        TouchArea { clicked => { root.active-tab = 0; } }
+                    }
+
+                    // Port Forwarding (Tunnels) Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.active-tab == 1 ? Theme.bg-active : Colors.transparent;
+                        border-width: root.active-tab == 1 ? 1.5px : 1px;
+                        border-color: root.active-tab == 1 ? Theme.accent-primary : Theme.border-secondary;
+
+                        HorizontalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: "⚯";
+                                    font-size: 15px;
+                                    color: root.active-tab == 1 ? Theme.accent-primary : Theme.text-secondary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Text {
+                                    text: "Port Forwarding (Tunnels)";
+                                    font-size: 12px;
+                                    font-weight: root.active-tab == 1 ? 700 : 500;
+                                    color: root.active-tab == 1 ? Theme.accent-primary : Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Badge for count
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 18px;
+                                    height: 18px;
+                                    border-radius: 9px;
+                                    background: root.tunnel-rules.length > 0 ? Theme.accent-primary.darker(0.4) : Theme.bg-hover;
+                                    Text {
+                                        text: root.tunnel-rules.length;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        color: root.tunnel-rules.length > 0 ? Theme.accent-primary : Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                        TouchArea { clicked => { root.active-tab = 1; } }
+                    }
+                }
+            }
+
+            // General Tab Content
+            if root.active-tab == 0 : VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+                alignment: start;
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text { text: "Session Name:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                    SpurxTextInput { text <=> root.session-name; placeholder: "e.g. Core Router, Ubuntu Server"; }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        horizontal-stretch: 1;
+                        Text { text: "Host / IP Address:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.host; placeholder: "192.168.1.1"; }
+                    }
+                    VerticalLayout {
+                        width: 80px;
+                        spacing: 4px;
+                        alignment: start;
+                        Text { text: "Port:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.port; }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    z: 50;
+                    Text { text: "Folder:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        SpurxTextInput {
+                            text <=> root.folder;
+                            placeholder: "None (Root) or pick from dropdown...";
+                            horizontal-stretch: 1;
+                        }
+
+                        // Dropdown trigger button
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            border-radius: 4px;
+                            background: fld-dd-touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: root.folder-dropdown-open ? Theme.accent-primary : Theme.border-secondary;
+
+                            Text {
+                                text: root.folder-dropdown-open ? "▴" : "▾";
+                                font-size: 12px;
+                                color: fld-dd-touch.has-hover ? Theme.text-primary : Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            fld-dd-touch := TouchArea {
+                                clicked => { root.folder-dropdown-open = !root.folder-dropdown-open; }
+                            }
+                        }
+                    }
+
+                    // Folder Dropdown List
+                    if root.folder-dropdown-open : Rectangle {
+                        height: min(160px, max(60px, (root.available-folders.length + 1) * 28px + 10px));
+                        border-radius: 6px;
+                        background: #111827;
+                        border-width: 1px;
+                        border-color: #374151;
+                        drop-shadow-blur: 14px;
+                        drop-shadow-color: #000000aa;
+                        z: 100;
+
+                        Flickable {
+                            viewport-height: (root.available-folders.length + 1) * 28px + 8px;
+
+                            VerticalLayout {
+                                padding: 4px;
+                                spacing: 2px;
+
+                                // Option 1: Root / No Folder
+                                Rectangle {
+                                    height: 26px;
+                                    border-radius: 4px;
+                                    background: root.folder == "" ? #1e293b : (r-touch.has-hover ? #1f2937 : Colors.transparent);
+                                    HorizontalLayout {
+                                        padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: space-between;
+                                        Text { text: "📁 / (Root Level / No Folder)"; font-size: 11px; color: root.folder == "" ? #00d4ff : #9ca3af; vertical-alignment: center; }
+                                        if root.folder == "" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                    }
+                                    r-touch := TouchArea {
+                                        clicked => {
+                                            root.folder = "";
+                                            root.folder-dropdown-open = false;
+                                        }
+                                    }
+                                }
+
+                                // Existing Folders & Subfolders
+                                for fld[idx] in root.available-folders : Rectangle {
+                                    height: 26px;
+                                    border-radius: 4px;
+                                    background: root.folder == fld ? #1e293b : (f-touch.has-hover ? #1f2937 : Colors.transparent);
+                                    HorizontalLayout {
+                                        padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: space-between;
+                                        HorizontalLayout {
+                                            spacing: 6px; alignment: start;
+                                            Text { text: "📁"; font-size: 10px; vertical-alignment: center; }
+                                            Text { text: fld; font-size: 11px; color: root.folder == fld ? #00d4ff : #e5e7eb; vertical-alignment: center; }
+                                        }
+                                        if root.folder == fld : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                    }
+                                    f-touch := TouchArea {
+                                        clicked => {
+                                            root.folder = fld;
+                                            root.folder-dropdown-open = false;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SpurxCheckBox {
+                    checked <=> root.use-global-credentials;
+                    text: "Use Global Credentials";
+                }
+
+                if !root.use-global-credentials : VerticalLayout {
+                    spacing: 10px;
+                    alignment: start;
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        Text { text: "Username:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.username; placeholder: "username (optional)"; }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        Text { text: "Auth Method:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        Rectangle {
+                            height: 28px;
+                            border-radius: 4px;
+                            background: Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                alignment: space-between;
+                                Text {
+                                    text: root.auth-method == "key" ? "SSH Key" : "Password";
+                                    font-size: 12px;
+                                    color: Theme.text-primary;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "▾";
+                                    font-size: 11px;
+                                    color: Theme.text-muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: start;
+                        Text { text: "Password:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.password; placeholder: "password (optional - stored securely)"; is-password: true; }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text { text: "Log Directory (Optional):"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                    SpurxTextInput { text <=> root.log-directory; placeholder: "Leave blank for global default"; }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+            }
+
+            // Port Forwarding (Tunnels) Tab Content
+            if root.active-tab == 1 : VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+                alignment: start;
+                vertical-stretch: 1;
+
+                // 1. Diagram Banner Card
+                Rectangle {
+                    height: 70px;
+                    border-radius: 8px;
+                    background: #08101e;
+                    border-width: 1px;
+                    border-color: #1e2a3c;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+                        alignment: center;
+
+                        HorizontalLayout {
+                            spacing: 16px;
+                            alignment: center;
+
+                            // Left: YOUR PC
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                Rectangle {
+                                    height: 18px;
+                                    width: 72px;
+                                    border-radius: 3px;
+                                    background: #2e2554;
+                                    border-width: 1px;
+                                    border-color: #6366f140;
+                                    Text {
+                                        text: "YOUR PC";
+                                        font-size: 9px;
+                                        font-weight: 700;
+                                        color: #c4b5fd;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    text: "localhost:8080";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: #f1f5f9;
+                                    horizontal-alignment: center;
+                                }
+                            }
+
+                            // Center: SSH Tunnel Arrow
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 1px;
+                                Text { text: "➔"; font-size: 11px; color: #00d4ff; horizontal-alignment: center; }
+                                Text { text: "SSH TUNNEL"; font-size: 8px; font-weight: 700; color: #64748b; horizontal-alignment: center; }
+                                Text { text: "➔"; font-size: 11px; color: #00d4ff; horizontal-alignment: center; }
+                            }
+
+                            // Right: REMOTE LAN DEVICE
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 2px;
+                                Rectangle {
+                                    height: 18px;
+                                    width: 130px;
+                                    border-radius: 3px;
+                                    background: #063b28;
+                                    border-width: 1px;
+                                    border-color: #10b98150;
+                                    Text {
+                                        text: "REMOTE LAN DEVICE";
+                                        font-size: 9px;
+                                        font-weight: 700;
+                                        color: #34d399;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                                Text {
+                                    text: "192.168.1.50:80";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: #f1f5f9;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Access web GUIs (e.g. Algo intercom, router, printer, camera) or internal services on the remote server's LAN through this SSH session.";
+                            font-size: 10px;
+                            color: #64748b;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // 2. CONFIGURED TUNNEL RULES Header & Checkbox
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "CONFIGURED TUNNEL RULES";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #64748b;
+                        vertical-alignment: center;
+                    }
+
+                    SpurxCheckBox {
+                        checked <=> root.auto-start-tunnels;
+                        text: "Auto-start on connect";
+                    }
+                }
+
+                // 3. Configured Rules Table Container / Empty State
+                Rectangle {
+                    height: root.tunnel-rules.length == 0 ? 54px : min(120px, 28px + root.tunnel-rules.length * 36px);
+                    border-radius: 6px;
+                    background: #090e17;
+                    border-width: 1px;
+                    border-color: #1c2636;
+                    clip: true;
+
+                    if root.tunnel-rules.length == 0 : Rectangle {
+                        height: 52px;
+                        Text {
+                            text: "No port forwarding tunnels configured for this session.";
+                            font-size: 11px;
+                            color: #64748b;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if root.tunnel-rules.length > 0 : VerticalLayout {
+                        spacing: 0px;
+                        padding: 0px;
+
+                        // Table Header
+                        Rectangle {
+                            height: 26px;
+                            background: #0e1520;
+                            border-width: 1px;
+                            border-color: #1c2636;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                alignment: space-between;
+
+                                Text { text: "RULE NAME"; font-size: 10px; font-weight: 700; color: #64748b; width: 110px; vertical-alignment: center; }
+                                Text { text: "LOCAL (YOUR PC)"; font-size: 10px; font-weight: 700; color: #64748b; width: 120px; vertical-alignment: center; }
+                                Text { text: "➔"; font-size: 10px; color: #64748b; width: 20px; horizontal-alignment: center; vertical-alignment: center; }
+                                Text { text: "REMOTE LAN / TARGET"; font-size: 10px; font-weight: 700; color: #64748b; horizontal-stretch: 1; vertical-alignment: center; }
+                                Text { text: "AUTO-START"; font-size: 10px; font-weight: 700; color: #64748b; width: 70px; vertical-alignment: center; }
+                                Text { text: ""; width: 20px; }
+                            }
+                        }
+
+                        // Table Rows List
+                        Flickable {
+                            viewport-height: root.tunnel-rules.length * 34px + 4px;
+
+                            VerticalLayout {
+                                padding: 2px;
+                                spacing: 2px;
+
+                                for rule[idx] in root.tunnel-rules : Rectangle {
+                                    height: 32px;
+                                    border-radius: 4px;
+                                    background: #111823;
+                                    border-width: 1px;
+                                    border-color: #1c2738;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        alignment: space-between;
+
+                                        // Rule Name
+                                        Text {
+                                            text: rule.name;
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            color: #f1f5f9;
+                                            width: 110px;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+
+                                        // Local Port Pill (Purple)
+                                        Rectangle {
+                                            width: 116px;
+                                            height: 22px;
+                                            border-radius: 4px;
+                                            background: #252140;
+                                            border-width: 1px;
+                                            border-color: #6366f160;
+                                            y: 5px;
+                                            Text {
+                                                text: "127.0.0.1:" + rule.local-port;
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                color: #a5b4fc;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        // Arrow
+                                        Text {
+                                            text: "➔";
+                                            font-size: 11px;
+                                            color: #00d4ff;
+                                            width: 20px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+
+                                        // Remote Target Pill (Green)
+                                        Rectangle {
+                                            horizontal-stretch: 1;
+                                            height: 22px;
+                                            border-radius: 4px;
+                                            background: #0b261c;
+                                            border-width: 1px;
+                                            border-color: #10b98160;
+                                            y: 5px;
+                                            Text {
+                                                text: rule.remote-host + ":" + rule.remote-port;
+                                                font-size: 11px;
+                                                font-weight: 600;
+                                                color: #34d399;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        // Auto-start Text
+                                        Text {
+                                            text: rule.auto-start ? "Yes" : "No";
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            color: rule.auto-start ? #34d399 : #64748b;
+                                            width: 70px;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+
+                                        // Delete Button
+                                        SpurxIconButton {
+                                            icon-text: "✕";
+                                            size: 20px;
+                                            tooltip: "Remove Rule";
+                                            clicked => { root.remove-tunnel-rule(idx); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Add Port Forwarding Rule Card
+                Rectangle {
+                    height: 194px;
+                    border-radius: 8px;
+                    background: #090f1a;
+                    border-width: 1px;
+                    border-color: #1e2a3c;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+
+                        // Title
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Text { text: "+"; font-size: 14px; font-weight: 700; color: #00d4ff; vertical-alignment: center; }
+                            Text { text: "Add Port Forwarding Rule"; font-size: 12px; font-weight: 700; color: #f1f5f9; vertical-alignment: center; }
+                        }
+
+                        // Rule Name / Description
+                        VerticalLayout {
+                            spacing: 3px;
+                            Text { text: "Rule Name / Description:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                            SpurxTextInput { text <=> root.new-rule-name; placeholder: "e.g. Algo HS, Web UI, Camera Admin, Internal DB"; }
+                        }
+
+                        // 3 Columns: Local Port | Remote IP | Remote Port
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            // Col 1: Local Port
+                            VerticalLayout {
+                                width: 110px;
+                                spacing: 3px;
+                                Text { text: "Local Port (Your PC):"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                                SpurxTextInput { text <=> root.new-rule-local-port; placeholder: "8080"; }
+                                Text { text: "http://localhost:" + root.new-rule-local-port; font-size: 9px; color: #64748b; }
+                            }
+
+                            // Col 2: Remote LAN / Device IP
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 3px;
+                                Text { text: "Remote LAN / Device IP:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                                SpurxTextInput { text <=> root.new-rule-remote-host; placeholder: "127.0.0.1"; }
+                                Text { text: "Device IP on remote LAN"; font-size: 9px; color: #64748b; }
+                            }
+
+                            // Col 3: Remote Port
+                            VerticalLayout {
+                                width: 100px;
+                                spacing: 3px;
+                                Text { text: "Remote Port:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                                SpurxTextInput { text <=> root.new-rule-remote-port; placeholder: "80"; }
+                                Text { text: "e.g. 80 (HTTP), 443"; font-size: 9px; color: #64748b; }
+                            }
+                        }
+
+                        // Divider line
+                        Rectangle { height: 1px; background: #1c2636; }
+
+                        // Bottom Row: Auto-start Checkbox + Add Tunnel Rule Button
+                        HorizontalLayout {
+                            alignment: space-between;
+
+                            SpurxCheckBox {
+                                checked <=> root.new-rule-autostart;
+                                text: "Auto-start this tunnel rule";
+                            }
+
+                            SpurxButton {
+                                text: "+ Add Tunnel Rule";
+                                variant: "primary";
+                                custom-height: 28px;
+                                custom-padding: 16px;
+                                clicked => {
+                                    root.add-tunnel-rule(
+                                        root.new-rule-name,
+                                        root.new-rule-local-port,
+                                        root.new-rule-remote-host,
+                                        root.new-rule-remote-port,
+                                        root.new-rule-autostart
+                                    );
+                                    root.new-rule-name = "";
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+            }
+
+            // Footer
+            Rectangle {
+                height: 56px;
+                background: #070b12;
+                border-width: 1px;
+                border-color: #1c2636;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    alignment: end;
+                    spacing: 10px;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        custom-height: 34px;
+                        custom-padding: 20px;
+                        clicked => { root.close(); }
+                    }
+
+                    SpurxButton {
+                        text: "Save Session";
+                        variant: "primary";
+                        custom-height: 34px;
+                        custom-padding: 24px;
+                        clicked => {
+                            root.save-session(
+                                root.session-id,
+                                root.session-name,
+                                root.host,
+                                root.port,
+                                root.folder,
+                                root.use-global-credentials,
+                                root.username,
+                                root.password,
+                                root.auth-method,
+                                root.log-directory,
+                                root.auto-start-tunnels
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

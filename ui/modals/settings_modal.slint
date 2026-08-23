@@ -1,0 +1,1320 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxCheckBox, ModalCard } from "../theme.slint";
+
+export struct KnownHostItemModel {
+    name: string,
+    key-type: string,
+    fingerprint: string,
+}
+
+export component SettingsModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <int> active-tab: 0; // 0: Terminal, 1: Appearance, 2: Connection, 3: Security, 4: Logging, 5: Behavior
+
+    // Terminal Settings
+    in-out property <string> font-family: "Cascadia Code, Consolas, monospace";
+    in-out property <string> font-size: "14";
+    in-out property <string> scrollback-lines: "10000";
+    in-out property <bool> cursor-blink: true;
+
+    // Appearance Settings
+    in-out property <string> theme-mode: "dark";
+    in-out property <string> color-scheme: "GitHub Dark";
+    in-out property <string> accent-color: "cyan";
+
+    // Connection
+    in-out property <string> default-port: "22";
+    in-out property <string> timeout-secs: "30";
+    in-out property <string> keepalive-secs: "60";
+    in-out property <string> global-username: "";
+    in-out property <string> global-password: "";
+    in-out property <string> config-dir: "";
+
+    // Logging
+    in-out property <bool> logging-enabled: false;
+    in-out property <string> log-dir: "";
+    in-out property <string> log-format: "{session}_{date}_{time}.log";
+    in-out property <bool> log-timestamps: true;
+
+    // Security
+    in property <bool> master-password-set: false;
+    in property <[KnownHostItemModel]> known-hosts: [];
+    in-out property <string> known-hosts-filter: "";
+
+    // Behavior
+    in-out property <bool> confirm-close: true;
+    in-out property <bool> restore-sessions: false;
+    in-out property <bool> remember-expanded-folders: false;
+    in-out property <bool> single-click-launch: false;
+
+    callback close();
+    callback theme-mode-changed(string);
+    callback color-scheme-changed(string);
+    callback accent-color-changed(string);
+    callback save-settings(string, string, string, string, string, bool, string, string, bool, string, string, string, bool, bool, bool, bool, bool, string, string, string);
+    callback open-key-manager();
+    callback change-master-password();
+    callback delete-known-host(string);
+    callback clear-known-hosts();
+    callback refresh-known-hosts();
+    callback browse-storage-dir();
+    callback open-storage-dir();
+    callback browse-log-dir();
+    callback open-log-dir();
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "Settings";
+        card-width: 630px;
+        card-height: 570px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
+
+            // Settings Tab Navigation Row
+            Rectangle {
+                height: 42px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 5px;
+                    padding-bottom: 5px;
+                    spacing: 4px;
+
+                    for name[idx] in ["Terminal", "Appearance", "Connection", "Security", "Logging", "Behavior"] : tab-btn := Rectangle {
+                        height: 32px;
+                        border-radius: 6px;
+                        background: root.active-tab == idx ? Theme.bg-active :
+                                    tab-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                        border-width: root.active-tab == idx ? 1px : 0px;
+                        border-color: root.active-tab == idx ? Theme.accent-primary : Colors.transparent;
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            alignment: center;
+                            Text {
+                                text: name;
+                                font-size: 11px;
+                                font-weight: root.active-tab == idx ? 700 : 500;
+                                color: root.active-tab == idx ? Theme.accent-primary :
+                                       tab-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        tab-touch := TouchArea {
+                            clicked => { root.active-tab = idx; }
+                        }
+                    }
+                }
+            }
+
+            // Tab Content Container
+            Rectangle {
+                vertical-stretch: 1;
+                background: Theme.bg-primary;
+
+                // Tab 0: Terminal
+                if root.active-tab == 0 : VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+
+                            Text {
+                                text: "🖥  Terminal Font & Rendering";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                            }
+
+                            VerticalLayout {
+                                spacing: 3px;
+                                Text { text: "Font Family:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                SpurxTextInput { text <=> root.font-family; placeholder: "Cascadia Code, Consolas, monospace"; }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 12px;
+
+                                VerticalLayout {
+                                    width: 130px;
+                                    spacing: 3px;
+                                    Text { text: "Font Size (pt):"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.font-size; placeholder: "14"; }
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    Text { text: "Scrollback Buffer Lines:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.scrollback-lines; placeholder: "10000"; }
+                                }
+                            }
+
+                            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+                            SpurxCheckBox {
+                                checked <=> root.cursor-blink;
+                                text: "Enable blinking terminal cursor";
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // Tab 1: Appearance
+                if root.active-tab == 1 : Flickable {
+                    viewport-height: 440px;
+
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 12px;
+                        alignment: start;
+
+                        // 1. Theme Mode Card (Dark / Light / System)
+                        Rectangle {
+                            border-radius: 8px;
+                            background: Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: Theme.border-primary;
+
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 10px;
+
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    Text {
+                                        text: "🌗  Theme Mode";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: root.theme-mode == "system" ? "Auto-detecting OS theme" :
+                                              root.theme-mode == "light" ? "Light appearance" : "Dark appearance";
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    // Dark Mode Tile
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 38px;
+                                        border-radius: 6px;
+                                        background: root.theme-mode == "dark" ? Theme.bg-active : (t-dark-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                        border-width: root.theme-mode == "dark" ? 1.5px : 1px;
+                                        border-color: root.theme-mode == "dark" ? Theme.accent-primary : Theme.border-secondary;
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            spacing: 6px;
+                                            Text { text: "🌙"; font-size: 13px; vertical-alignment: center; }
+                                            Text {
+                                                text: "Dark";
+                                                font-size: 11px;
+                                                font-weight: root.theme-mode == "dark" ? 700 : 500;
+                                                color: root.theme-mode == "dark" ? Theme.accent-primary : Theme.text-primary;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        t-dark-touch := TouchArea {
+                                            clicked => {
+                                                root.theme-mode = "dark";
+                                                root.theme-mode-changed("dark");
+                                            }
+                                        }
+                                    }
+
+                                    // Light Mode Tile
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 38px;
+                                        border-radius: 6px;
+                                        background: root.theme-mode == "light" ? Theme.bg-active : (t-light-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                        border-width: root.theme-mode == "light" ? 1.5px : 1px;
+                                        border-color: root.theme-mode == "light" ? Theme.accent-primary : Theme.border-secondary;
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            spacing: 6px;
+                                            Text { text: "☀️"; font-size: 13px; vertical-alignment: center; }
+                                            Text {
+                                                text: "Light";
+                                                font-size: 11px;
+                                                font-weight: root.theme-mode == "light" ? 700 : 500;
+                                                color: root.theme-mode == "light" ? Theme.accent-primary : Theme.text-primary;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        t-light-touch := TouchArea {
+                                            clicked => {
+                                                root.theme-mode = "light";
+                                                root.theme-mode-changed("light");
+                                            }
+                                        }
+                                    }
+
+                                    // System Mode Tile
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 38px;
+                                        border-radius: 6px;
+                                        background: root.theme-mode == "system" ? Theme.bg-active : (t-sys-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                        border-width: root.theme-mode == "system" ? 1.5px : 1px;
+                                        border-color: root.theme-mode == "system" ? Theme.accent-primary : Theme.border-secondary;
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            spacing: 6px;
+                                            Text { text: "💻"; font-size: 13px; vertical-alignment: center; }
+                                            Text {
+                                                text: "System";
+                                                font-size: 11px;
+                                                font-weight: root.theme-mode == "system" ? 700 : 500;
+                                                color: root.theme-mode == "system" ? Theme.accent-primary : Theme.text-primary;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        t-sys-touch := TouchArea {
+                                            clicked => {
+                                                root.theme-mode = "system";
+                                                root.theme-mode-changed("system");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Color Palette / Theme Presets Card (9 Dark vs 9 Light based on Mode)
+                        Rectangle {
+                            border-radius: 8px;
+                            background: Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: Theme.border-primary;
+
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 8px;
+
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    Text {
+                                        text: (root.theme-mode == "dark" || (root.theme-mode == "system" && Theme.is-dark)) ? "🎨  Dark Theme Palettes (9 Curated Presets)" : "🎨  Light Theme Palettes (9 Curated Presets)";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: "Instant live preview on click";
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                // 9 DARK THEMES GRID
+                                if (root.theme-mode == "dark" || (root.theme-mode == "system" && Theme.is-dark)) : VerticalLayout {
+                                    spacing: 6px;
+
+                                    // Dark Row 1: GitHub Dark, Midnight Navy, Cyberpunk
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // GitHub Dark
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "GitHub Dark" ? Theme.bg-active : (d1-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "GitHub Dark" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "GitHub Dark" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #0a0e14; border-width: 1.5px; border-color: #00d4ff; y: 11px; }
+                                                Text { text: "GitHub Dark"; font-size: 11px; font-weight: root.color-scheme == "GitHub Dark" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d1-touch := TouchArea { clicked => { root.color-scheme = "GitHub Dark"; root.color-scheme-changed("GitHub Dark"); } }
+                                        }
+
+                                        // Midnight Navy
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Midnight Navy" ? Theme.bg-active : (d2-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Midnight Navy" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Midnight Navy" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #080c16; border-width: 1.5px; border-color: #38bdf8; y: 11px; }
+                                                Text { text: "Midnight Navy"; font-size: 11px; font-weight: root.color-scheme == "Midnight Navy" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d2-touch := TouchArea { clicked => { root.color-scheme = "Midnight Navy"; root.color-scheme-changed("Midnight Navy"); } }
+                                        }
+
+                                        // Cyberpunk
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Cyberpunk" ? Theme.bg-active : (d3-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Cyberpunk" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Cyberpunk" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #08070e; border-width: 1.5px; border-color: #c084fc; y: 11px; }
+                                                Text { text: "Cyberpunk"; font-size: 11px; font-weight: root.color-scheme == "Cyberpunk" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d3-touch := TouchArea { clicked => { root.color-scheme = "Cyberpunk"; root.color-scheme-changed("Cyberpunk"); } }
+                                        }
+                                    }
+
+                                    // Dark Row 2: Emerald Matrix, Tokyo Night, Nord Slate
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // Emerald Matrix
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Emerald Matrix" ? Theme.bg-active : (d4-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Emerald Matrix" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Emerald Matrix" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #060d09; border-width: 1.5px; border-color: #10b981; y: 11px; }
+                                                Text { text: "Emerald Matrix"; font-size: 11px; font-weight: root.color-scheme == "Emerald Matrix" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d4-touch := TouchArea { clicked => { root.color-scheme = "Emerald Matrix"; root.color-scheme-changed("Emerald Matrix"); } }
+                                        }
+
+                                        // Tokyo Night
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Tokyo Night" ? Theme.bg-active : (d5-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Tokyo Night" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Tokyo Night" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #1a1b26; border-width: 1.5px; border-color: #7aa2f7; y: 11px; }
+                                                Text { text: "Tokyo Night"; font-size: 11px; font-weight: root.color-scheme == "Tokyo Night" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d5-touch := TouchArea { clicked => { root.color-scheme = "Tokyo Night"; root.color-scheme-changed("Tokyo Night"); } }
+                                        }
+
+                                        // Nord Slate
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Nord Slate" ? Theme.bg-active : (d6-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Nord Slate" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Nord Slate" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #242933; border-width: 1.5px; border-color: #88c0d0; y: 11px; }
+                                                Text { text: "Nord Slate"; font-size: 11px; font-weight: root.color-scheme == "Nord Slate" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d6-touch := TouchArea { clicked => { root.color-scheme = "Nord Slate"; root.color-scheme-changed("Nord Slate"); } }
+                                        }
+                                    }
+
+                                    // Dark Row 3: Dracula, Monokai Pro, Solarized Dark
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // Dracula
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Dracula" ? Theme.bg-active : (d7-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Dracula" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Dracula" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #282a36; border-width: 1.5px; border-color: #ff79c6; y: 11px; }
+                                                Text { text: "Dracula"; font-size: 11px; font-weight: root.color-scheme == "Dracula" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d7-touch := TouchArea { clicked => { root.color-scheme = "Dracula"; root.color-scheme-changed("Dracula"); } }
+                                        }
+
+                                        // Monokai Pro
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Monokai Pro" ? Theme.bg-active : (d8-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Monokai Pro" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Monokai Pro" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #221f22; border-width: 1.5px; border-color: #ffd866; y: 11px; }
+                                                Text { text: "Monokai Pro"; font-size: 11px; font-weight: root.color-scheme == "Monokai Pro" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d8-touch := TouchArea { clicked => { root.color-scheme = "Monokai Pro"; root.color-scheme-changed("Monokai Pro"); } }
+                                        }
+
+                                        // Solarized Dark
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Solarized Dark" ? Theme.bg-active : (d9-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Solarized Dark" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Solarized Dark" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #002b36; border-width: 1.5px; border-color: #2aa198; y: 11px; }
+                                                Text { text: "Solarized Dark"; font-size: 11px; font-weight: root.color-scheme == "Solarized Dark" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            d9-touch := TouchArea { clicked => { root.color-scheme = "Solarized Dark"; root.color-scheme-changed("Solarized Dark"); } }
+                                        }
+                                    }
+                                }
+
+                                // 9 LIGHT THEMES GRID
+                                if !(root.theme-mode == "dark" || (root.theme-mode == "system" && Theme.is-dark)) : VerticalLayout {
+                                    spacing: 6px;
+
+                                    // Light Row 1: Clean Light, Paper White, Solarized Light
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // Clean Light
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Clean Light" ? Theme.bg-active : (l1-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Clean Light" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Clean Light" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 1.5px; border-color: #0284c7; y: 11px; }
+                                                Text { text: "Clean Light"; font-size: 11px; font-weight: root.color-scheme == "Clean Light" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l1-touch := TouchArea { clicked => { root.color-scheme = "Clean Light"; root.color-scheme-changed("Clean Light"); } }
+                                        }
+
+                                        // Paper White
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Paper White" ? Theme.bg-active : (l2-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Paper White" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Paper White" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #f4f4f5; border-width: 1.5px; border-color: #2563eb; y: 11px; }
+                                                Text { text: "Paper White"; font-size: 11px; font-weight: root.color-scheme == "Paper White" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l2-touch := TouchArea { clicked => { root.color-scheme = "Paper White"; root.color-scheme-changed("Paper White"); } }
+                                        }
+
+                                        // Solarized Light
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Solarized Light" ? Theme.bg-active : (l3-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Solarized Light" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Solarized Light" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #fdf6e3; border-width: 1.5px; border-color: #2aa198; y: 11px; }
+                                                Text { text: "Solarized Light"; font-size: 11px; font-weight: root.color-scheme == "Solarized Light" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l3-touch := TouchArea { clicked => { root.color-scheme = "Solarized Light"; root.color-scheme-changed("Solarized Light"); } }
+                                        }
+                                    }
+
+                                    // Light Row 2: Nord Light, GitHub Light, Catppuccin Latte
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // Nord Light
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Nord Light" ? Theme.bg-active : (l4-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Nord Light" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Nord Light" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #eceff4; border-width: 1.5px; border-color: #5e81ac; y: 11px; }
+                                                Text { text: "Nord Light"; font-size: 11px; font-weight: root.color-scheme == "Nord Light" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l4-touch := TouchArea { clicked => { root.color-scheme = "Nord Light"; root.color-scheme-changed("Nord Light"); } }
+                                        }
+
+                                        // GitHub Light
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "GitHub Light" ? Theme.bg-active : (l5-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "GitHub Light" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "GitHub Light" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 1.5px; border-color: #0969da; y: 11px; }
+                                                Text { text: "GitHub Light"; font-size: 11px; font-weight: root.color-scheme == "GitHub Light" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l5-touch := TouchArea { clicked => { root.color-scheme = "GitHub Light"; root.color-scheme-changed("GitHub Light"); } }
+                                        }
+
+                                        // Catppuccin Latte
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Catppuccin Latte" ? Theme.bg-active : (l6-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Catppuccin Latte" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Catppuccin Latte" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #eff1f5; border-width: 1.5px; border-color: #7287fd; y: 11px; }
+                                                Text { text: "Catppuccin"; font-size: 11px; font-weight: root.color-scheme == "Catppuccin Latte" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l6-touch := TouchArea { clicked => { root.color-scheme = "Catppuccin Latte"; root.color-scheme-changed("Catppuccin Latte"); } }
+                                        }
+                                    }
+
+                                    // Light Row 3: Sepia Warm, Rose Pine Dawn, High Contrast Light
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        // Sepia Warm
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Sepia Warm" ? Theme.bg-active : (l7-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Sepia Warm" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Sepia Warm" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #fbf0d9; border-width: 1.5px; border-color: #b45309; y: 11px; }
+                                                Text { text: "Sepia Warm"; font-size: 11px; font-weight: root.color-scheme == "Sepia Warm" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l7-touch := TouchArea { clicked => { root.color-scheme = "Sepia Warm"; root.color-scheme-changed("Sepia Warm"); } }
+                                        }
+
+                                        // Rose Pine Dawn
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "Rose Pine Dawn" ? Theme.bg-active : (l8-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "Rose Pine Dawn" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "Rose Pine Dawn" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #faf4ed; border-width: 1.5px; border-color: #286983; y: 11px; }
+                                                Text { text: "Rose Pine"; font-size: 11px; font-weight: root.color-scheme == "Rose Pine Dawn" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l8-touch := TouchArea { clicked => { root.color-scheme = "Rose Pine Dawn"; root.color-scheme-changed("Rose Pine Dawn"); } }
+                                        }
+
+                                        // High Contrast Light
+                                        Rectangle {
+                                            horizontal-stretch: 1; height: 36px; border-radius: 6px;
+                                            background: root.color-scheme == "High Contrast Light" ? Theme.bg-active : (l9-touch.has-hover ? Theme.bg-hover : Theme.bg-secondary);
+                                            border-width: root.color-scheme == "High Contrast Light" ? 1.5px : 1px;
+                                            border-color: root.color-scheme == "High Contrast Light" ? Theme.accent-primary : Theme.border-secondary;
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px; spacing: 8px; alignment: start;
+                                                Rectangle { width: 14px; height: 14px; border-radius: 3px; background: #ffffff; border-width: 1.5px; border-color: #0055ff; y: 11px; }
+                                                Text { text: "High Contrast"; font-size: 11px; font-weight: root.color-scheme == "High Contrast Light" ? 700 : 500; color: Theme.text-primary; vertical-alignment: center; }
+                                            }
+                                            l9-touch := TouchArea { clicked => { root.color-scheme = "High Contrast Light"; root.color-scheme-changed("High Contrast Light"); } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Accent Highlight Color Swatches (12 Curated Colors)
+                        Rectangle {
+                            border-radius: 8px;
+                            background: Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: Theme.border-primary;
+
+                            VerticalLayout {
+                                padding: 12px;
+                                spacing: 10px;
+
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    Text {
+                                        text: "✨  Accent Highlight Color (12 Options)";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                    }
+                                    Text {
+                                        text: "Applies to buttons, highlights & focus";
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                    }
+                                }
+
+                                // Row 1 of 6 Accents (Cyan, Sky, Violet, Indigo, Emerald, Lime)
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    alignment: start;
+
+                                    // Cyan
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #00d4ff;
+                                        border-width: root.accent-color == "cyan" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "cyan" ? #ffffff : #00000040;
+                                        if root.accent-color == "cyan" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #000000; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "cyan"; root.accent-color-changed("cyan"); } }
+                                    }
+
+                                    // Sky Blue
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #38bdf8;
+                                        border-width: root.accent-color == "sky" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "sky" ? #ffffff : #00000040;
+                                        if root.accent-color == "sky" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #000000; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "sky"; root.accent-color-changed("sky"); } }
+                                    }
+
+                                    // Violet / Purple
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #a855f7;
+                                        border-width: root.accent-color == "purple" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "purple" ? #ffffff : #00000040;
+                                        if root.accent-color == "purple" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "purple"; root.accent-color-changed("purple"); } }
+                                    }
+
+                                    // Electric Indigo
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #6366f1;
+                                        border-width: root.accent-color == "indigo" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "indigo" ? #ffffff : #00000040;
+                                        if root.accent-color == "indigo" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "indigo"; root.accent-color-changed("indigo"); } }
+                                    }
+
+                                    // Emerald Green
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #10b981;
+                                        border-width: root.accent-color == "emerald" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "emerald" ? #ffffff : #00000040;
+                                        if root.accent-color == "emerald" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "emerald"; root.accent-color-changed("emerald"); } }
+                                    }
+
+                                    // Lime Mint
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #84cc16;
+                                        border-width: root.accent-color == "lime" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "lime" ? #ffffff : #00000040;
+                                        if root.accent-color == "lime" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #000000; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "lime"; root.accent-color-changed("lime"); } }
+                                    }
+                                }
+
+                                // Row 2 of 6 Accents (Orange, Rose, Pink, Amber, Teal, Slate)
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    alignment: start;
+
+                                    // Sunset Orange
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #f97316;
+                                        border-width: root.accent-color == "orange" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "orange" ? #ffffff : #00000040;
+                                        if root.accent-color == "orange" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "orange"; root.accent-color-changed("orange"); } }
+                                    }
+
+                                    // Crimson Rose
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #f43f5e;
+                                        border-width: root.accent-color == "rose" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "rose" ? #ffffff : #00000040;
+                                        if root.accent-color == "rose" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "rose"; root.accent-color-changed("rose"); } }
+                                    }
+
+                                    // Hot Pink / Magenta
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #ec4899;
+                                        border-width: root.accent-color == "pink" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "pink" ? #ffffff : #00000040;
+                                        if root.accent-color == "pink" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "pink"; root.accent-color-changed("pink"); } }
+                                    }
+
+                                    // Golden Amber
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #f59e0b;
+                                        border-width: root.accent-color == "amber" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "amber" ? #ffffff : #00000040;
+                                        if root.accent-color == "amber" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #000000; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "amber"; root.accent-color-changed("amber"); } }
+                                    }
+
+                                    // Teal Aqua
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #14b8a6;
+                                        border-width: root.accent-color == "teal" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "teal" ? #ffffff : #00000040;
+                                        if root.accent-color == "teal" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "teal"; root.accent-color-changed("teal"); } }
+                                    }
+
+                                    // Slate
+                                    Rectangle {
+                                        width: 28px; height: 28px; border-radius: 14px; background: #94a3b8;
+                                        border-width: root.accent-color == "slate" ? 2.5px : 1px;
+                                        border-color: root.accent-color == "slate" ? #ffffff : #00000040;
+                                        if root.accent-color == "slate" : Text { text: "✓"; font-size: 12px; font-weight: 800; color: #000000; horizontal-alignment: center; vertical-alignment: center; }
+                                        TouchArea { clicked => { root.accent-color = "slate"; root.accent-color-changed("slate"); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Tab 2: Connection
+                if root.active-tab == 2 : VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    alignment: start;
+
+                    // Section 1: Connection Defaults
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            Text {
+                                text: "⚡  SSH Protocol Defaults";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 10px;
+
+                                VerticalLayout {
+                                    width: 120px;
+                                    spacing: 3px;
+                                    Text { text: "Default Port:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.default-port; placeholder: "22"; }
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    Text { text: "Timeout (seconds):"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.timeout-secs; placeholder: "30"; }
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    Text { text: "Keepalive (seconds):"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.keepalive-secs; placeholder: "60"; }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 2: Global Credentials
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            VerticalLayout {
+                                spacing: 2px;
+                                Text {
+                                    text: "👤  Global SSH Credentials";
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: Theme.text-primary;
+                                }
+                                Text {
+                                    text: "Default credentials applied when 'Use Global Credentials' is enabled on sessions or quick connect.";
+                                    font-size: 10px;
+                                    color: Theme.text-muted;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 10px;
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    Text { text: "Global Username:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.global-username; placeholder: "e.g. root, admin, ubuntu"; }
+                                }
+
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 3px;
+                                    Text { text: "Global Password:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                    SpurxTextInput { text <=> root.global-password; placeholder: "Default password"; is-password: true; }
+                                }
+                            }
+                        }
+                    }
+
+                    // Section 3: App Configuration & Storage
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 6px;
+
+                            Text {
+                                text: "📁  Application Storage Directory";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                SpurxTextInput {
+                                    text <=> root.config-dir;
+                                    read-only: true;
+                                    horizontal-stretch: 1;
+                                }
+                                SpurxButton {
+                                    text: "Browse...";
+                                    variant: "secondary";
+                                    custom-height: 28px;
+                                    clicked => { root.browse-storage-dir(); }
+                                }
+                                SpurxButton {
+                                    text: "Open Folder";
+                                    variant: "secondary";
+                                    custom-height: 28px;
+                                    clicked => { root.open-storage-dir(); }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // Tab 3: Security
+                if root.active-tab == 3 : VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    // SSH Key Manager Card
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            Text { text: "🔑  SSH Key Manager"; font-size: 12px; font-weight: 700; color: Theme.text-primary; }
+                            Text { text: "Generate, import, and manage ED25519 and RSA private/public key pairs."; font-size: 11px; color: Theme.text-secondary; }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                SpurxButton {
+                                    text: "Open SSH Key Manager...";
+                                    variant: "primary";
+                                    custom-height: 28px;
+                                    clicked => { root.open-key-manager(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // Master Password Card
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            Text { text: "🔒  Master Password Vault Encryption"; font-size: 12px; font-weight: 700; color: Theme.text-primary; }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: "Vault Status:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; vertical-alignment: center; }
+                                Rectangle {
+                                    height: 22px;
+                                    border-radius: 4px;
+                                    background: root.master-password-set ? Theme.accent-success.darker(0.6) : Theme.accent-secondary.darker(0.6);
+                                    border-width: 1px;
+                                    border-color: root.master-password-set ? Theme.accent-success : Theme.accent-secondary;
+                                    HorizontalLayout {
+                                        padding-left: 8px; padding-right: 8px; alignment: center;
+                                        Text {
+                                            text: root.master-password-set ? "Enabled (AES-256-GCM Encrypted)" : "Disabled (Plaintext Storage)";
+                                            font-size: 10px;
+                                            font-weight: 600;
+                                            color: root.master-password-set ? Theme.accent-success : Theme.accent-secondary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: start;
+                                SpurxButton {
+                                    text: root.master-password-set ? "Change Master Password..." : "Set Master Password...";
+                                    variant: "secondary";
+                                    custom-height: 28px;
+                                    clicked => { root.change-master-password(); }
+                                }
+                            }
+                        }
+                    }
+
+                    // Known Hosts Manager Card
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+                        height: 220px;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                Text { text: "🛡️  Known Hosts Manager (~/.ssh/known_hosts)"; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+                                HorizontalLayout {
+                                    spacing: 6px;
+                                    SpurxButton {
+                                        text: "Refresh";
+                                        variant: "secondary";
+                                        custom-height: 24px;
+                                        clicked => { root.refresh-known-hosts(); }
+                                    }
+                                    SpurxButton {
+                                        text: "Clear All";
+                                        variant: "danger";
+                                        custom-height: 24px;
+                                        clicked => { root.clear-known-hosts(); }
+                                    }
+                                }
+                            }
+
+                            // Filter input
+                            SpurxTextInput {
+                                text <=> root.known-hosts-filter;
+                                placeholder: "🔍 Filter host by name or IP...";
+                            }
+
+                            // Known hosts list
+                            Rectangle {
+                                background: Theme.bg-secondary;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: Theme.border-secondary;
+                                vertical-stretch: 1;
+                                clip: true;
+
+                                Flickable {
+                                    viewport-y: 0px;
+                                    VerticalLayout {
+                                        padding: 4px;
+                                        spacing: 3px;
+
+                                        for kh in root.known-hosts : Rectangle {
+                                            height: 32px;
+                                            border-radius: 4px;
+                                            background: kh-touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary;
+                                            border-width: 1px;
+                                            border-color: Theme.border-secondary;
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    horizontal-stretch: 1;
+                                                    Text {
+                                                        text: kh.name;
+                                                        font-size: 11px;
+                                                        font-weight: 600;
+                                                        color: Theme.text-primary;
+                                                        overflow: elide;
+                                                    }
+                                                    Text {
+                                                        text: kh.key-type + " • " + kh.fingerprint;
+                                                        font-size: 9px;
+                                                        color: Theme.text-muted;
+                                                        overflow: elide;
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    width: 24px;
+                                                    height: 24px;
+                                                    border-radius: 4px;
+                                                    background: del-kh-touch.has-hover ? #f8514930 : Colors.transparent;
+                                                    y: 4px;
+
+                                                    Text {
+                                                        text: "🗑";
+                                                        font-size: 11px;
+                                                        color: #f85149;
+                                                        horizontal-alignment: center;
+                                                        vertical-alignment: center;
+                                                    }
+
+                                                    del-kh-touch := TouchArea {
+                                                        clicked => { root.delete-known-host(kh.name); }
+                                                    }
+                                                }
+                                            }
+
+                                            kh-touch := TouchArea {}
+                                        }
+
+                                        if root.known-hosts.length == 0 : Rectangle {
+                                            height: 50px;
+                                            Text {
+                                                text: "No known hosts cached or matching filter";
+                                                font-size: 11px;
+                                                color: Theme.text-muted;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // Tab 4: Logging
+                if root.active-tab == 4 : VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+
+                            Text {
+                                text: "📝  Session Logging Configuration";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                            }
+
+                            SpurxCheckBox {
+                                checked <=> root.logging-enabled;
+                                text: "Enable session output logging by default";
+                            }
+
+                            VerticalLayout {
+                                spacing: 3px;
+                                Text { text: "Log Directory:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    SpurxTextInput {
+                                        text <=> root.log-dir;
+                                        placeholder: "(Documents/SpurXSecureSSH/logs)";
+                                        horizontal-stretch: 1;
+                                    }
+                                    SpurxButton {
+                                        text: "Browse...";
+                                        variant: "secondary";
+                                        custom-height: 28px;
+                                        clicked => { root.browse-log-dir(); }
+                                    }
+                                    SpurxButton {
+                                        text: "Open Folder";
+                                        variant: "secondary";
+                                        custom-height: 28px;
+                                        clicked => { root.open-log-dir(); }
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 3px;
+                                Text { text: "Log Filename Format:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                                SpurxTextInput { text <=> root.log-format; placeholder: "{session}_{date}_{time}.log"; }
+                            }
+
+                            SpurxCheckBox {
+                                checked <=> root.log-timestamps;
+                                text: "Include timestamps in session log lines";
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // Tab 5: Behavior
+                if root.active-tab == 5 : VerticalLayout {
+                    padding: 14px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-primary;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 10px;
+
+                            Text {
+                                text: "⚙  Application Behavior & Session Restore";
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.text-primary;
+                            }
+
+                            SpurxCheckBox {
+                                checked <=> root.confirm-close;
+                                text: "Confirm before closing active connected tabs";
+                            }
+
+                            SpurxCheckBox {
+                                checked <=> root.restore-sessions;
+                                text: "Restore previous tabs and sessions on startup";
+                            }
+
+                            SpurxCheckBox {
+                                checked <=> root.remember-expanded-folders;
+                                text: "Remember opened folders on startup";
+                            }
+
+                            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+                            VerticalLayout {
+                                spacing: 6px;
+                                Text {
+                                    text: "🖱  Sidebar Launch Behavior";
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    color: Theme.text-primary;
+                                }
+                                SpurxCheckBox {
+                                    checked <=> root.single-click-launch;
+                                    text: "Single click to launch sessions and commands (Default is double click)";
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+
+            // Footer
+            Rectangle {
+                height: 52px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    alignment: end;
+                    spacing: 10px;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        custom-height: 32px;
+                        custom-padding: 18px;
+                        clicked => { root.close(); }
+                    }
+
+                    SpurxButton {
+                        text: "Save Settings";
+                        variant: "primary";
+                        custom-height: 32px;
+                        custom-padding: 20px;
+                        clicked => {
+                            root.save-settings(
+                                root.global-username,
+                                root.global-password,
+                                root.default-port,
+                                root.timeout-secs,
+                                root.keepalive-secs,
+                                root.logging-enabled,
+                                root.log-dir,
+                                root.log-format,
+                                root.log-timestamps,
+                                root.font-family,
+                                root.font-size,
+                                root.scrollback-lines,
+                                root.cursor-blink,
+                                root.confirm-close,
+                                root.restore-sessions,
+                                root.remember-expanded-folders,
+                                root.single-click-launch,
+                                root.theme-mode,
+                                root.color-scheme,
+                                root.accent-color
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

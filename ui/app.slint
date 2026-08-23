@@ -1,0 +1,920 @@
+import { Theme, ModalBackdrop, SpurxButton } from "theme.slint";
+export { Theme } from "theme.slint";
+import { MenuBar, MenuDropdownOverlay } from "menubar.slint";
+import { ToolBar } from "toolbar.slint";
+import { SideBar, SessionItemModel, CommandItemModel } from "sidebar.slint";
+import { TerminalView, TabModel, TabGroupModel, YModemInfo, AiAutocompleteItemModel } from "terminal_view.slint";
+import { AiPanel, AiChatMessageModel } from "ai_panel.slint";
+import { StatusBar } from "statusbar.slint";
+
+import { QuickConnectModal } from "modals/quick_connect_modal.slint";
+import { SessionEditModal, SessionTunnelRuleModel } from "modals/session_edit_modal.slint";
+import { CommandEditModal } from "modals/command_edit_modal.slint";
+import { FolderEditModal } from "modals/folder_edit_modal.slint";
+import { MoveModal } from "modals/move_modal.slint";
+import { SettingsModal, KnownHostItemModel } from "modals/settings_modal.slint";
+import { SftpModal, SftpFileItemModel } from "modals/sftp_modal.slint";
+import { TunnelsModal, TunnelItemModel } from "modals/tunnels_modal.slint";
+import { KeyManagerModal, SshKeyModel } from "modals/key_manager_modal.slint";
+import { MasterPasswordModal } from "modals/master_password_modal.slint";
+import { BroadcastModal } from "modals/broadcast_modal.slint";
+import { ImportExportModal } from "modals/import_export_modal.slint";
+import { AboutModal } from "modals/about_modal.slint";
+import { AiSettingsModal } from "modals/ai_settings_modal.slint";
+
+export struct AppUiState {
+    sidebar-visible: bool,
+    ai-panel-visible: bool,
+    active-modal: string, // "none", "quick_connect", "session_edit", "command_edit", "folder_edit", "move", "settings", "sftp", "tunnels", "key_manager", "master_pwd", "broadcast", "import_export", "about", "ai_settings"
+}
+
+export component AppWindow inherits Window {
+    title: "SpurX Secure SSH";
+    icon: @image-url("assets/app_icon.png");
+    min-width: 900px;
+    min-height: 600px;
+    preferred-width: 1200px;
+    preferred-height: 800px;
+    background: Theme.bg-primary;
+
+    // Global UI Layout State
+    in-out property <AppUiState> ui-state: {
+        sidebar-visible: true,
+        ai-panel-visible: false,
+        active-modal: "none"
+    };
+    in-out property <int> top-menu-index: -1;
+
+    // Sidebar Data
+    in property <[SessionItemModel]> sessions: [];
+    in property <[CommandItemModel]> commands: [];
+
+    // Terminal Data
+    in property <[TabModel]> tabs: [];
+    in property <[TabGroupModel]> tab-groups: [];
+    in-out property <int> active-tab-index: 0;
+    in property <[string]> terminal-lines: [];
+    in property <string> terminal-full-text: "";
+    in-out property <string> broadcast-selected-scope: "all";
+    in property <int> broadcast-target-count: 0;
+    in property <string> broadcast-selected-group-name: "";
+    in property <YModemInfo> ymodem: {
+        active: false,
+        filename: "",
+        state: "Idle",
+        bytes-sent: 0,
+        total-bytes: 0,
+        percentage: 0,
+        speed: "0 KB/s",
+        elapsed: "0s"
+    };
+
+    // AI Inline Autocomplete Data
+    in-out property <bool> ai-autocomplete-visible: false;
+    in-out property <bool> ai-autocomplete-loading: false;
+    in-out property <string> ai-autocomplete-context: "Auto-Detected Context";
+    in property <[AiAutocompleteItemModel]> ai-autocomplete-suggestions: [];
+
+    // AI Assistant Data
+    in property <[AiChatMessageModel]> ai-messages: [];
+    in property <bool> ai-is-loading: false;
+    in-out property <string> ai-selected-provider: "ollama";
+    in-out property <string> ai-settings-ollama-host: "http://localhost:11434";
+    in-out property <string> ai-settings-ollama-model: "llama3.2";
+    in-out property <string> ai-settings-lmstudio-host: "http://localhost:1234/v1";
+    in-out property <string> ai-settings-lmstudio-model: "local-model";
+    in-out property <string> ai-settings-lmstudio-key: "";
+    in-out property <string> ai-settings-gemini-key: "";
+    in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
+    in-out property <string> ai-settings-grok-key: "";
+    in-out property <string> ai-settings-grok-model: "grok-4.5";
+    in-out property <string> about-update-status: "";
+    in-out property <bool> about-is-checking-update: false;
+    in-out property <bool> about-update-available: false;
+    in-out property <string> about-release-url: "https://github.com/jspurrier/SpurXSecureSSH_rust_slint";
+
+    // Auto-Update Toast Data
+    in-out property <bool> update-toast-visible: false;
+    in-out property <string> update-toast-version: "";
+    in-out property <string> update-toast-url: "https://github.com/jspurrier/SpurXSecureSSH_rust_slint";
+
+    // Status Bar Data
+    in property <string> status-text: "Ready";
+    in property <string> status-cipher: "-";
+    in property <string> status-cursor: "Ln 1, Col 1";
+    in property <string> status-dimensions: "80x24";
+    in property <string> status-terminal-type: "VT100";
+
+    // SFTP Data
+    in-out property <string> sftp-local-path: "/home";
+    in-out property <string> sftp-remote-path: "/";
+    in property <[SftpFileItemModel]> sftp-local-files: [];
+    in property <[SftpFileItemModel]> sftp-remote-files: [];
+    in-out property <int> sftp-selected-local: -1;
+    in-out property <int> sftp-selected-remote: -1;
+    in property <string> sftp-status: "Idle";
+
+    // Tunnels Data
+    in property <[TunnelItemModel]> tunnels-list: [];
+
+    // Keys Data
+    in property <[SshKeyModel]> ssh-keys: [];
+    in property <string> default-ssh-dir: "";
+
+    // Known Hosts Data
+    in property <[KnownHostItemModel]> known-hosts-list: [];
+
+    in property <bool> master-password-is-set: false;
+    in property <string> master-password-error: "";
+    in-out property <string> settings-global-username: "";
+    in-out property <string> settings-global-password: "";
+    in-out property <string> settings-default-port: "22";
+    in-out property <string> settings-timeout: "30";
+    in-out property <string> settings-keepalive: "60";
+    in-out property <string> settings-config-dir: "";
+    in-out property <bool> settings-logging-enabled: false;
+    in-out property <string> settings-log-dir: "";
+    in-out property <string> settings-log-format: "{session}_{date}_{time}.log";
+    in-out property <bool> settings-log-timestamps: true;
+    in-out property <string> settings-font-family: "Cascadia Code, Consolas, monospace";
+    in-out property <string> settings-font-size: "14";
+    in-out property <string> settings-scrollback: "10000";
+    in-out property <bool> settings-cursor-blink: true;
+    in-out property <string> settings-color-scheme: "GitHub Dark";
+    in-out property <string> settings-theme-mode: "dark";
+    in-out property <string> settings-accent-color: "cyan";
+    in-out property <bool> settings-confirm-close: true;
+    in-out property <bool> settings-restore-sessions: false;
+    in-out property <bool> settings-remember-expanded-folders: false;
+    in-out property <bool> settings-single-click-launch: false;
+
+    // Edit Session State
+    in-out property <bool> edit-session-is-new: true;
+    in-out property <string> edit-session-id: "";
+    in-out property <string> edit-session-name: "";
+    in-out property <string> edit-session-host: "";
+    in-out property <string> edit-session-port: "22";
+    in-out property <string> edit-session-folder: "";
+    in-out property <bool> edit-session-use-global: false;
+    in-out property <string> edit-session-username: "";
+    in-out property <string> edit-session-password: "";
+    in-out property <string> edit-session-auth-method: "password";
+    in-out property <string> edit-session-log-dir: "";
+    in-out property <bool> edit-session-auto-start-tunnels: false;
+    in-out property <[SessionTunnelRuleModel]> edit-session-tunnel-rules: [];
+    in property <[string]> available-session-folders: [];
+
+    // Edit Command State
+    in-out property <bool> edit-command-is-new: true;
+    in-out property <string> edit-command-id: "";
+    in-out property <string> edit-command-name: "";
+    in-out property <string> edit-command-text: "";
+    in-out property <string> edit-command-folder: "";
+    in-out property <string> edit-command-description: "";
+    in property <[string]> available-command-folders: [];
+
+    // Move Modal State
+    in-out property <string> move-modal-item-type: "session";
+    in-out property <string> move-modal-item-id: "";
+    in-out property <string> move-modal-item-name: "";
+    in-out property <string> move-modal-current-folder: "";
+    in-out property <[string]> move-modal-existing-folders: [];
+
+    // Folder Modal State
+    in-out property <string> folder-modal-title: "New Folder";
+    in-out property <string> folder-modal-mode: "new";
+    in-out property <string> folder-modal-parent-path: "";
+    in-out property <string> folder-modal-old-path: "";
+    in-out property <string> folder-modal-name: "";
+
+    // AI Model state
+    in-out property <string> ai-selected-model: "llama3.2";
+
+    // Global Callbacks for Rust Backend
+    callback request-quick-connect(string, string, string, string, string, bool);
+    callback request-connect-session(SessionItemModel);
+    callback request-connect-address(string);
+    callback request-save-session(SessionItemModel, [SessionTunnelRuleModel], bool);
+    callback request-load-session-for-edit(string);
+    callback request-new-session();
+    callback request-save-session-data(string, string, string, string, string, bool, string, string, string, string, bool);
+    callback request-load-command-for-edit(string);
+    callback request-new-command();
+    callback request-save-command-data(string, string, string, string, string);
+    callback request-open-move-modal(string, string, string, string);
+    callback request-move-item(string, string, string);
+    callback request-toggle-session-folder(string);
+    callback request-toggle-command-folder(string);
+    callback request-delete-session(string);
+    callback request-save-command(CommandItemModel);
+    callback request-delete-command(string);
+    callback request-save-folder(string, string, string);
+    callback request-delete-folder(string);
+    callback request-import-data(string, string, string);
+    callback request-export-data(string, string);
+    callback request-tab-selected(int);
+    callback request-tab-closed(int);
+    callback request-tab-added();
+    callback request-tab-rename(int, string);
+    callback request-tab-reset-name(int);
+    callback request-tab-reconnect(int);
+    callback request-tab-disconnect(int);
+    callback request-tab-close-disconnected();
+    callback request-tab-close-others(int);
+    callback request-tab-close-to-right(int);
+    callback request-tab-close-all();
+    callback request-tab-clone(int);
+    callback request-tab-save-session(int);
+    callback request-create-tab-group(int, string);
+    callback request-add-tab-to-group(int, string);
+    callback request-remove-tab-from-group(int);
+    callback request-rename-tab-group(string, string);
+    callback request-close-tab-group(string);
+    callback request-broadcast-to-group(string);
+    callback request-broadcast-scope-changed(string);
+    callback request-terminal-key(KeyEvent);
+    callback request-ymodem-send();
+    callback request-ymodem-abort();
+    callback request-ai-autocomplete(int);
+    callback request-accept-ai-suggestion(string);
+    callback request-dismiss-ai-autocomplete();
+    callback request-ai-message(string);
+    callback request-ai-analyze();
+    callback request-ai-help();
+    callback request-ai-provider-selected(string);
+    callback request-open-ai-settings();
+    callback request-save-ai-settings(string, string, string, string, string, string, string, string, string, string);
+    callback request-start-tunnel(string);
+    callback request-stop-tunnel(string);
+    callback request-start-all-tunnels();
+    callback request-stop-all-tunnels();
+    callback request-save-tunnel(string, string, string, string, string, bool);
+    callback request-delete-tunnel(string);
+    callback request-session-add-tunnel(string, string, string, string, bool);
+    callback request-session-remove-tunnel(int);
+    callback request-generate-key(string, string, string, string);
+    callback request-delete-key(string);
+    callback request-browse-key-storage();
+    callback request-open-keys-dir();
+    callback request-delete-known-host(string);
+    callback request-clear-known-hosts();
+    callback request-refresh-known-hosts();
+    callback request-master-password-submit(string, string);
+    callback request-broadcast(string, string);
+    callback request-sftp-local-navigate(string);
+    callback request-sftp-remote-navigate(string);
+    callback request-sftp-upload(string, string);
+    callback request-sftp-download(string, string);
+    callback request-sftp-new-folder(string);
+    callback request-sftp-delete(string, bool);
+    callback request-save-settings(string, string, string, string, string, bool, string, string, bool, string, string, string, bool, bool, bool, bool, bool, string, string, string);
+    callback request-theme-mode-changed(string);
+    callback request-color-scheme-changed(string);
+    callback request-accent-color-changed(string);
+    callback request-toggle-theme();
+    callback request-browse-storage-dir();
+    callback request-open-storage-dir();
+    callback request-browse-log-dir();
+    callback request-open-log-dir();
+    callback request-exit();
+    callback request-copy-selection(string);
+    in property <int> terminal-scroll-total: 1;
+    in property <int> terminal-scroll-offset: 0;
+    in property <int> terminal-scroll-visible: 24;
+
+    callback request-clipboard-copy();
+    callback request-clipboard-paste();
+    callback request-clear-terminal();
+    callback request-cursor-clicked(int);
+    callback request-terminal-scrolled(length);
+    callback request-scrollbar-dragged(float);
+    callback request-sidebar-filter(string);
+    callback request-check-for-updates();
+    callback request-open-url(string);
+    callback request-terminal-resized(float);
+
+    public function set-terminal-cursor-pos(pos: int) {
+        term-view.set-cursor-pos(pos);
+    }
+
+    public function focus-terminal() {
+        term-view.focus-input();
+    }
+
+    public function get-terminal-viewport-height() -> length {
+        return term-view.get-term-height();
+    }
+
+    public function get-terminal-viewport-width() -> length {
+        return term-view.get-term-width();
+    }
+
+    init => {
+        root.set-terminal-cursor-pos(0);
+    }
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 0px;
+        padding: 0px;
+
+        // Top Menu Bar
+        MenuBar {
+            open-menu-index <=> root.top-menu-index;
+        }
+
+        // Action ToolBar
+        ToolBar {
+            z: 100;
+            height: Theme.toolbar-height;
+            sidebar-visible: root.ui-state.sidebar-visible;
+            ai-panel-visible: root.ui-state.ai-panel-visible;
+            toggle-sidebar => { root.ui-state.sidebar-visible = !root.ui-state.sidebar-visible; }
+            quick-connect => { root.ui-state.active-modal = "quick_connect"; }
+            open-sessions => { root.ui-state.sidebar-visible = true; }
+            connect-address(addr) => {
+                root.request-connect-address(addr);
+                root.focus-terminal();
+            }
+            new-tab => {
+                root.request-tab-added();
+                root.focus-terminal();
+            }
+            open-broadcast => { root.ui-state.active-modal = "broadcast"; }
+            open-ymodem => { root.request-ymodem-send(); }
+            open-tunnels => { root.ui-state.active-modal = "tunnels"; }
+            open-settings => { root.ui-state.active-modal = "settings"; }
+            toggle-ai => { root.ui-state.ai-panel-visible = !root.ui-state.ai-panel-visible; }
+        }
+
+        // Main Center Area (Sidebar + Terminal Tabs/View + AI Panel)
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 0px;
+            padding: 0px;
+
+            // Left Sidebar
+            if root.ui-state.sidebar-visible : SideBar {
+                width: Theme.sidebar-width;
+                sessions: root.sessions;
+                commands: root.commands;
+                single-click-launch: root.settings-single-click-launch;
+                close-sidebar => { root.ui-state.sidebar-visible = false; }
+                add-session => { root.request-new-session(); }
+                add-command => { root.request-new-command(); }
+                add-folder => {
+                    root.folder-modal-title = "New Folder";
+                    root.folder-modal-mode = "new";
+                    root.folder-modal-parent-path = "";
+                    root.folder-modal-old-path = "";
+                    root.folder-modal-name = "";
+                    root.ui-state.active-modal = "folder_edit";
+                }
+                add-subfolder(parent_path) => {
+                    root.folder-modal-title = "New Subfolder";
+                    root.folder-modal-mode = "subfolder";
+                    root.folder-modal-parent-path = parent_path;
+                    root.folder-modal-old-path = "";
+                    root.folder-modal-name = "";
+                    root.ui-state.active-modal = "folder_edit";
+                }
+                rename-folder(path, name) => {
+                    root.folder-modal-title = "Rename Folder";
+                    root.folder-modal-mode = "rename";
+                    root.folder-modal-parent-path = "";
+                    root.folder-modal-old-path = path;
+                    root.folder-modal-name = name;
+                    root.ui-state.active-modal = "folder_edit";
+                }
+                delete-folder(path) => { root.request-delete-folder(path); }
+                toggle-session-folder(f) => { root.request-toggle-session-folder(f); }
+                toggle-command-folder(f) => { root.request-toggle-command-folder(f); }
+                connect-session(sess) => {
+                    root.request-connect-session(sess);
+                    root.focus-terminal();
+                }
+                edit-session(sess) => { root.request-load-session-for-edit(sess.id); }
+                move-session(sess) => { root.request-open-move-modal("session", sess.id, sess.name, sess.folder); }
+                delete-session(id) => { root.request-delete-session(id); }
+                run-command(cmd) => { root.request-broadcast(cmd.command, "all"); }
+                edit-command(cmd) => { root.request-load-command-for-edit(cmd.id); }
+                move-command(cmd) => { root.request-open-move-modal("command", cmd.id, cmd.name, cmd.folder); }
+                delete-command(id) => { root.request-delete-command(id); }
+                filter-changed(query) => { root.request-sidebar-filter(query); }
+            }
+
+            // Center Terminal Viewport
+            term-view := TerminalView {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                tabs: root.tabs;
+                tab-groups: root.tab-groups;
+                active-tab-index: root.active-tab-index;
+                terminal-lines: root.terminal-lines;
+                terminal-full-text: root.terminal-full-text;
+                ai-autocomplete-visible: root.ai-autocomplete-visible;
+                ai-autocomplete-loading: root.ai-autocomplete-loading;
+                ai-autocomplete-context: root.ai-autocomplete-context;
+                ai-autocomplete-suggestions: root.ai-autocomplete-suggestions;
+                ymodem: root.ymodem;
+                scrollback-total: root.terminal-scroll-total;
+                scrollback-offset: root.terminal-scroll-offset;
+                scrollback-visible: root.terminal-scroll-visible;
+                tab-selected(idx) => { root.request-tab-selected(idx); }
+                tab-closed(idx) => { root.request-tab-closed(idx); }
+                tab-added => { root.request-tab-added(); }
+                request-tab-rename(idx, title) => { root.request-tab-rename(idx, title); }
+                request-tab-reset-name(idx) => { root.request-tab-reset-name(idx); }
+                request-tab-reconnect(idx) => { root.request-tab-reconnect(idx); }
+                request-tab-disconnect(idx) => { root.request-tab-disconnect(idx); }
+                request-tab-close-disconnected => { root.request-tab-close-disconnected(); }
+                request-tab-close-others(idx) => { root.request-tab-close-others(idx); }
+                request-tab-close-to-right(idx) => { root.request-tab-close-to-right(idx); }
+                request-tab-close-all => { root.request-tab-close-all(); }
+                request-tab-clone(idx) => { root.request-tab-clone(idx); }
+                request-tab-save-session(idx) => { root.request-tab-save-session(idx); }
+                request-create-tab-group(idx, name) => { root.request-create-tab-group(idx, name); }
+                request-add-tab-to-group(idx, g_id) => { root.request-add-tab-to-group(idx, g_id); }
+                request-remove-tab-from-group(idx) => { root.request-remove-tab-from-group(idx); }
+                request-rename-tab-group(g_id, name) => { root.request-rename-tab-group(g_id, name); }
+                request-close-tab-group(g_id) => { root.request-close-tab-group(g_id); }
+                request-broadcast-to-group(g_id) => {
+                    root.broadcast-selected-scope = g_id;
+                    root.request-broadcast-to-group(g_id);
+                    root.ui-state.active-modal = "broadcast";
+                }
+                trigger-ai-autocomplete => { root.request-ai-autocomplete(root.active-tab-index); }
+                accept-ai-suggestion(cmd) => { root.request-accept-ai-suggestion(cmd); }
+                dismiss-ai-autocomplete => { root.request-dismiss-ai-autocomplete(); }
+                request-ymodem-send => { root.request-ymodem-send(); }
+                request-ai-analyze => { root.request-ai-analyze(); }
+                terminal-key-pressed(evt) => { root.request-terminal-key(evt); }
+                cursor-clicked(offset) => { root.request-cursor-clicked(offset); }
+                terminal-scrolled(delta) => { root.request-terminal-scrolled(delta); }
+                scrollbar-dragged(ratio) => { root.request-scrollbar-dragged(ratio); }
+                copy-selection(sel) => { root.request-copy-selection(sel); }
+                request-clipboard-copy => { root.request-clipboard-copy(); }
+                request-clipboard-paste => { root.request-clipboard-paste(); }
+                request-clear-terminal => { root.request-clear-terminal(); }
+                ymodem-abort => { root.request-ymodem-abort(); }
+                terminal-viewport-resized(h) => { root.request-terminal-resized(h); }
+            }
+
+            // Right AI Assistant Panel
+            if root.ui-state.ai-panel-visible : AiPanel {
+                width: Theme.ai-panel-width;
+                messages: root.ai-messages;
+                is-loading: root.ai-is-loading;
+                selected-provider <=> root.ai-selected-provider;
+                close-panel => { root.ui-state.ai-panel-visible = false; }
+                open-ai-settings => { root.request-open-ai-settings(); }
+                select-provider(prov) => { root.request-ai-provider-selected(prov); }
+                copy-message(msg) => { root.request-copy-selection(msg); }
+                send-message(msg) => { root.request-ai-message(msg); }
+                analyze-terminal => { root.request-ai-analyze(); }
+                command-help => { root.request-ai-help(); }
+            }
+        }
+
+        // Bottom Status Bar
+        StatusBar {
+            height: Theme.status-height;
+            connection-status: root.status-text;
+            cipher-info: root.status-cipher;
+            cursor-position: root.status-cursor;
+            terminal-size: root.status-dimensions;
+            terminal-type: root.status-terminal-type;
+        }
+    }
+
+    // Top Menu Bar Dropdown Overlay (Always renders on top of toolbar, sidebar, and terminal)
+    MenuDropdownOverlay {
+        open-menu-index <=> root.top-menu-index;
+        action-open-connection => { root.ui-state.active-modal = "quick_connect"; }
+        action-import => { root.ui-state.active-modal = "import_export"; }
+        action-export => { root.ui-state.active-modal = "import_export"; }
+        action-exit => { root.request-exit(); }
+        action-copy => { root.request-clipboard-copy(); }
+        action-paste => { root.request-clipboard-paste(); }
+        action-clear-terminal => { root.request-clear-terminal(); }
+        action-tunnels => { root.ui-state.active-modal = "tunnels"; }
+        action-settings => { root.ui-state.active-modal = "settings"; }
+        action-keys => { root.ui-state.active-modal = "key_manager"; }
+        action-master-pwd => { root.ui-state.active-modal = "master_pwd"; }
+        action-toggle-theme => { root.request-toggle-theme(); }
+        action-sftp => { root.ui-state.active-modal = "sftp"; }
+        action-ymodem => { root.request-ymodem-send(); }
+        action-broadcast => { root.ui-state.active-modal = "broadcast"; }
+        action-about => { root.ui-state.active-modal = "about"; }
+    }
+
+    // Modal Overlays Layer
+    if root.ui-state.active-modal != "none" : ModalBackdrop {
+        z: 1000;
+        is-open: true;
+        close-requested => { root.ui-state.active-modal = "none"; }
+    }
+
+    // Quick Connect Modal
+    if root.ui-state.active-modal == "quick_connect" : QuickConnectModal {
+        z: 1001;
+        is-open: true;
+        close => { root.ui-state.active-modal = "none"; }
+        connect(h, p, u, pwd, auth, save) => {
+            root.ui-state.active-modal = "none";
+            root.request-quick-connect(h, p, u, pwd, auth, save);
+            root.focus-terminal();
+        }
+    }
+
+    // Session Edit Modal
+    if root.ui-state.active-modal == "session_edit" : SessionEditModal {
+        z: 1001;
+        is-open: true;
+        is-new: root.edit-session-is-new;
+        session-id <=> root.edit-session-id;
+        session-name <=> root.edit-session-name;
+        host <=> root.edit-session-host;
+        port <=> root.edit-session-port;
+        folder <=> root.edit-session-folder;
+        available-folders: root.available-session-folders;
+        use-global-credentials <=> root.edit-session-use-global;
+        username <=> root.edit-session-username;
+        password <=> root.edit-session-password;
+        auth-method <=> root.edit-session-auth-method;
+        log-directory <=> root.edit-session-log-dir;
+        auto-start-tunnels <=> root.edit-session-auto-start-tunnels;
+        tunnel-rules <=> root.edit-session-tunnel-rules;
+        add-tunnel-rule(name, lp, rh, rp, auto_start) => {
+            root.request-session-add-tunnel(name, lp, rh, rp, auto_start);
+        }
+        remove-tunnel-rule(idx) => {
+            root.request-session-remove-tunnel(idx);
+        }
+        close => { root.ui-state.active-modal = "none"; }
+        save-session(id, name, host, port, folder, use_global, user, pwd, auth, log_dir, auto_tunnels) => {
+            root.ui-state.active-modal = "none";
+            root.request-save-session-data(id, name, host, port, folder, use_global, user, pwd, auth, log_dir, auto_tunnels);
+        }
+    }
+
+    // Command Edit Modal
+    if root.ui-state.active-modal == "command_edit" : CommandEditModal {
+        z: 1001;
+        is-open: true;
+        is-new: root.edit-command-is-new;
+        command-id <=> root.edit-command-id;
+        command-name <=> root.edit-command-name;
+        command-text <=> root.edit-command-text;
+        folder <=> root.edit-command-folder;
+        available-folders: root.available-command-folders;
+        description <=> root.edit-command-description;
+        close => { root.ui-state.active-modal = "none"; }
+        save-command(id, name, cmd, folder, desc) => {
+            root.ui-state.active-modal = "none";
+            root.request-save-command-data(id, name, cmd, folder, desc);
+        }
+    }
+
+    // Folder Edit Modal
+    if root.ui-state.active-modal == "folder_edit" : FolderEditModal {
+        z: 1001;
+        is-open: true;
+        modal-title <=> root.folder-modal-title;
+        mode <=> root.folder-modal-mode;
+        parent-path <=> root.folder-modal-parent-path;
+        old-path <=> root.folder-modal-old-path;
+        folder-name <=> root.folder-modal-name;
+        close => { root.ui-state.active-modal = "none"; }
+        save-folder(mode, target_path, name) => {
+            root.ui-state.active-modal = "none";
+            root.request-save-folder(mode, target_path, name);
+        }
+    }
+
+    // Move to Folder Modal
+    if root.ui-state.active-modal == "move" : MoveModal {
+        z: 1001;
+        is-open: true;
+        item-type: root.move-modal-item-type;
+        item-id: root.move-modal-item-id;
+        item-name: root.move-modal-item-name;
+        current-folder: root.move-modal-current-folder;
+        existing-folders: root.move-modal-existing-folders;
+        target-folder: root.move-modal-current-folder;
+        close => { root.ui-state.active-modal = "none"; }
+        move-item(typ, id, f) => {
+            root.ui-state.active-modal = "none";
+            root.request-move-item(typ, id, f);
+        }
+    }
+
+    // Settings Modal
+    if root.ui-state.active-modal == "settings" : SettingsModal {
+        z: 1001;
+        is-open: true;
+        font-family <=> root.settings-font-family;
+        font-size <=> root.settings-font-size;
+        scrollback-lines <=> root.settings-scrollback;
+        cursor-blink <=> root.settings-cursor-blink;
+        theme-mode <=> root.settings-theme-mode;
+        color-scheme <=> root.settings-color-scheme;
+        accent-color <=> root.settings-accent-color;
+        default-port <=> root.settings-default-port;
+        timeout-secs <=> root.settings-timeout;
+        keepalive-secs <=> root.settings-keepalive;
+        global-username <=> root.settings-global-username;
+        global-password <=> root.settings-global-password;
+        config-dir <=> root.settings-config-dir;
+        logging-enabled <=> root.settings-logging-enabled;
+        log-dir <=> root.settings-log-dir;
+        log-format <=> root.settings-log-format;
+        log-timestamps <=> root.settings-log-timestamps;
+        master-password-set: root.master-password-is-set;
+        known-hosts: root.known-hosts-list;
+        confirm-close <=> root.settings-confirm-close;
+        restore-sessions <=> root.settings-restore-sessions;
+        remember-expanded-folders <=> root.settings-remember-expanded-folders;
+        single-click-launch <=> root.settings-single-click-launch;
+        theme-mode-changed(m) => { root.request-theme-mode-changed(m); }
+        color-scheme-changed(c) => { root.request-color-scheme-changed(c); }
+        accent-color-changed(a) => { root.request-accent-color-changed(a); }
+        close => { root.ui-state.active-modal = "none"; }
+        save-settings(u, p, port, timeout, keepalive, log_en, log_d, log_fmt, log_ts, font_fam, font_sz, scroll_l, cur_bl, conf_cl, rest_sess, rem_f, single_cl, th_m, col_sch, acc_col) => {
+            root.ui-state.active-modal = "none";
+            root.request-save-settings(u, p, port, timeout, keepalive, log_en, log_d, log_fmt, log_ts, font_fam, font_sz, scroll_l, cur_bl, conf_cl, rest_sess, rem_f, single_cl, th_m, col_sch, acc_col);
+        }
+        open-key-manager => { root.ui-state.active-modal = "key_manager"; }
+        change-master-password => { root.ui-state.active-modal = "master_pwd"; }
+        delete-known-host(name) => { root.request-delete-known-host(name); }
+        clear-known-hosts => { root.request-clear-known-hosts(); }
+        refresh-known-hosts => { root.request-refresh-known-hosts(); }
+        browse-storage-dir => { root.request-browse-storage-dir(); }
+        open-storage-dir => { root.request-open-storage-dir(); }
+        browse-log-dir => { root.request-browse-log-dir(); }
+        open-log-dir => { root.request-open-log-dir(); }
+    }
+
+    // SFTP Browser Modal
+    if root.ui-state.active-modal == "sftp" : SftpModal {
+        z: 1001;
+        is-open: true;
+        local-path <=> root.sftp-local-path;
+        remote-path <=> root.sftp-remote-path;
+        local-files: root.sftp-local-files;
+        remote-files: root.sftp-remote-files;
+        selected-local-index <=> root.sftp-selected-local;
+        selected-remote-index <=> root.sftp-selected-remote;
+        transfer-status: root.sftp-status;
+        close => { root.ui-state.active-modal = "none"; }
+        local-navigate-up => {
+            root.request-sftp-local-navigate("..");
+        }
+        local-refresh => {
+            root.request-sftp-local-navigate(root.sftp-local-path);
+        }
+        local-select(idx) => {
+            root.sftp-selected-local = idx;
+        }
+        local-double-click(idx) => {
+            if idx >= 0 && idx < root.sftp-local-files.length {
+                if root.sftp-local-files[idx].is-dir {
+                    root.request-sftp-local-navigate(root.sftp-local-files[idx].name);
+                }
+            }
+        }
+        remote-navigate-up => {
+            root.request-sftp-remote-navigate("..");
+        }
+        remote-refresh => {
+            root.request-sftp-remote-navigate(root.sftp-remote-path);
+        }
+        remote-select(idx) => {
+            root.sftp-selected-remote = idx;
+        }
+        remote-double-click(idx) => {
+            if idx >= 0 && idx < root.sftp-remote-files.length {
+                if root.sftp-remote-files[idx].is-dir {
+                    root.request-sftp-remote-navigate(root.sftp-remote-files[idx].name);
+                }
+            }
+        }
+        upload-selected => {
+            if root.sftp-selected-local >= 0 && root.sftp-selected-local < root.sftp-local-files.length {
+                root.request-sftp-upload(root.sftp-local-files[root.sftp-selected-local].name, root.sftp-remote-path);
+            }
+        }
+        download-selected => {
+            if root.sftp-selected-remote >= 0 && root.sftp-selected-remote < root.sftp-remote-files.length {
+                root.request-sftp-download(root.sftp-remote-files[root.sftp-selected-remote].name, root.sftp-local-path);
+            }
+        }
+        new-folder => {
+            root.request-sftp-new-folder("new_folder");
+        }
+        delete-selected => {
+            if root.sftp-selected-remote >= 0 && root.sftp-selected-remote < root.sftp-remote-files.length {
+                root.request-sftp-delete(root.sftp-remote-files[root.sftp-selected-remote].name, root.sftp-remote-files[root.sftp-selected-remote].is-dir);
+            }
+        }
+    }
+
+    // Tunnels Manager Modal
+    if root.ui-state.active-modal == "tunnels" : TunnelsModal {
+        z: 1001;
+        is-open: true;
+        tunnels: root.tunnels-list;
+        close => { root.ui-state.active-modal = "none"; }
+        start-all => { root.request-start-all-tunnels(); }
+        stop-all => { root.request-stop-all-tunnels(); }
+        save-tunnel-rule(name, local_p, remote_h, remote_p, ssh_h, auto_start) => {
+            root.request-save-tunnel(name, local_p, remote_h, remote_p, ssh_h, auto_start);
+        }
+        delete-tunnel(id) => {
+            root.request-delete-tunnel(id);
+        }
+        toggle-tunnel(id, running) => {
+            if running {
+                root.request-stop-tunnel(id);
+            } else {
+                root.request-start-tunnel(id);
+            }
+        }
+    }
+
+    // Key Manager Modal
+    if root.ui-state.active-modal == "key_manager" : KeyManagerModal {
+        z: 1001;
+        is-open: true;
+        keys: root.ssh-keys;
+        default-storage-path: root.default-ssh-dir;
+        close => { root.ui-state.active-modal = "none"; }
+        generate-key(name, algo, pass, s_dir) => { root.request-generate-key(name, algo, pass, s_dir); }
+        delete-key(path_or_name) => { root.request-delete-key(path_or_name); }
+        copy-public-key(pubkey) => { root.request-copy-selection(pubkey); }
+        browse-storage-dir => { root.request-browse-key-storage(); }
+        open-keys-folder => { root.request-open-keys-dir(); }
+    }
+
+    // Master Password Modal
+    if root.ui-state.active-modal == "master_pwd" : MasterPasswordModal {
+        z: 1001;
+        is-open: true;
+        has-existing-password: root.master-password-is-set;
+        error-message: root.master-password-error;
+        close => { root.ui-state.active-modal = "none"; }
+        submit-password(old_p, new_p) => {
+            root.request-master-password-submit(old_p, new_p);
+        }
+    }
+
+    // Broadcast Modal
+    if root.ui-state.active-modal == "broadcast" : BroadcastModal {
+        z: 1001;
+        is-open: true;
+        groups: root.tab-groups;
+        selected-scope <=> root.broadcast-selected-scope;
+        active-sessions-count: root.tabs.length;
+        target-sessions-count: root.broadcast-target-count;
+        selected-group-name: root.broadcast-selected-group-name;
+        close => { root.ui-state.active-modal = "none"; }
+        scope-selected(sc) => { root.request-broadcast-scope-changed(sc); }
+        send-broadcast(cmd, sc) => {
+            root.ui-state.active-modal = "none";
+            root.request-broadcast(cmd, sc);
+        }
+    }
+
+    // Import / Export Modal
+    if root.ui-state.active-modal == "import_export" : ImportExportModal {
+        z: 1001;
+        is-open: true;
+        close => { root.ui-state.active-modal = "none"; }
+        execute-import(f, fmt, p) => {
+            root.ui-state.active-modal = "none";
+            root.request-import-data(f, fmt, p);
+        }
+        execute-export(fmt, p) => {
+            root.ui-state.active-modal = "none";
+            root.request-export-data(fmt, p);
+        }
+    }
+
+    // About Modal
+    if root.ui-state.active-modal == "about" : AboutModal {
+        z: 1001;
+        is-open: true;
+        update-status <=> root.about-update-status;
+        is-checking-update <=> root.about-is-checking-update;
+        update-available <=> root.about-update-available;
+        release-url <=> root.about-release-url;
+        close => { root.ui-state.active-modal = "none"; }
+        check-for-updates => { root.request-check-for-updates(); }
+        open-release-url(url) => { root.request-open-url(url); }
+    }
+
+    // AI Assistant Settings Modal
+    if root.ui-state.active-modal == "ai_settings" : AiSettingsModal {
+        z: 1001;
+        is-open: true;
+        selected-provider <=> root.ai-selected-provider;
+        ollama-host <=> root.ai-settings-ollama-host;
+        ollama-model <=> root.ai-settings-ollama-model;
+        lmstudio-host <=> root.ai-settings-lmstudio-host;
+        lmstudio-model <=> root.ai-settings-lmstudio-model;
+        lmstudio-api-key <=> root.ai-settings-lmstudio-key;
+        gemini-api-key <=> root.ai-settings-gemini-key;
+        gemini-model <=> root.ai-settings-gemini-model;
+        grok-api-key <=> root.ai-settings-grok-key;
+        grok-model <=> root.ai-settings-grok-model;
+        close => { root.ui-state.active-modal = "none"; }
+        save-ai-settings(prov, host, o_mod, lm_host, lm_mod, lm_key, gemini_k, gemini_m, grok_k, grok_m) => {
+            root.ui-state.active-modal = "none";
+            root.request-save-ai-settings(prov, host, o_mod, lm_host, lm_mod, lm_key, gemini_k, gemini_m, grok_k, grok_m);
+        }
+    }
+
+    // Floating Auto-Update Toast Banner
+    if root.update-toast-visible : Rectangle {
+        x: parent.width - 340px;
+        y: 46px;
+        width: 320px;
+        height: 64px;
+        border-radius: 8px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.accent-primary;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000bb;
+        z: 3000;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 10px;
+            padding-top: 8px;
+            padding-bottom: 8px;
+            spacing: 10px;
+            alignment: space-between;
+
+            VerticalLayout {
+                spacing: 2px;
+                alignment: center;
+                horizontal-stretch: 1;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Text { text: "🚀"; font-size: 12px; vertical-alignment: center; }
+                    Text {
+                        text: "Update Available!";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: Theme.accent-primary;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: "Version " + root.update-toast-version + " is now ready.";
+                    font-size: 10px;
+                    color: Theme.text-secondary;
+                    overflow: elide;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: center;
+
+                SpurxButton {
+                    text: "Download";
+                    variant: "primary";
+                    custom-height: 26px;
+                    clicked => {
+                        root.request-open-url(root.update-toast-url);
+                    }
+                }
+
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 3px;
+                    background: close-toast-touch.has-hover ? #f8514930 : Colors.transparent;
+
+                    Text {
+                        text: "×";
+                        font-size: 14px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    close-toast-touch := TouchArea {
+                        clicked => { root.update-toast-visible = false; }
+                    }
+                }
+            }
+        }
+    }
+}
+

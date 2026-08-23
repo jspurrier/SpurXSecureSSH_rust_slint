@@ -1,0 +1,547 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxCheckBox, ModalCard } from "../theme.slint";
+
+export component AiSettingsModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <string> selected-provider: "ollama"; // "ollama", "lmstudio", "gemini", "grok"
+    in-out property <string> ollama-host: "http://localhost:11434";
+    in-out property <string> ollama-model: "llama3.2";
+    in-out property <string> lmstudio-host: "http://localhost:1234/v1";
+    in-out property <string> lmstudio-model: "local-model";
+    in-out property <string> lmstudio-api-key: "";
+    in-out property <string> gemini-api-key: "";
+    in-out property <string> gemini-model: "gemini-3.6-flash";
+    in-out property <string> grok-api-key: "";
+    in-out property <string> grok-model: "grok-4.5";
+
+    callback close();
+    callback save-ai-settings(string, string, string, string, string, string, string, string, string, string);
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "AI Assistant Settings";
+        card-width: 620px;
+        card-height: 570px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
+
+            // Provider Tab Selectors
+            Rectangle {
+                height: 46px;
+                background: #0d121a;
+                border-width: 1px;
+                border-color: #1c2636;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    spacing: 6px;
+
+                    // 1. Ollama Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.selected-provider == "ollama" ? #162030 : Colors.transparent;
+                        border-width: root.selected-provider == "ollama" ? 1.5px : 1px;
+                        border-color: root.selected-provider == "ollama" ? #00d4ff : #1e293b;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 5px;
+                            alignment: center;
+
+                            Text {
+                                text: "🦙";
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "Ollama";
+                                font-size: 11px;
+                                font-weight: root.selected-provider == "ollama" ? 700 : 500;
+                                color: root.selected-provider == "ollama" ? #ffffff : #94a3b8;
+                                vertical-alignment: center;
+                            }
+                        }
+                        TouchArea { clicked => { root.selected-provider = "ollama"; } }
+                    }
+
+                    // 2. LM Studio Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.selected-provider == "lmstudio" ? #162030 : Colors.transparent;
+                        border-width: root.selected-provider == "lmstudio" ? 1.5px : 1px;
+                        border-color: root.selected-provider == "lmstudio" ? #00d4ff : #1e293b;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 5px;
+                            alignment: center;
+
+                            Text {
+                                text: "🤖";
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "LM Studio";
+                                font-size: 11px;
+                                font-weight: root.selected-provider == "lmstudio" ? 700 : 500;
+                                color: root.selected-provider == "lmstudio" ? #ffffff : #94a3b8;
+                                vertical-alignment: center;
+                            }
+                        }
+                        TouchArea { clicked => { root.selected-provider = "lmstudio"; } }
+                    }
+
+                    // 3. Gemini Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.selected-provider == "gemini" ? #162030 : Colors.transparent;
+                        border-width: root.selected-provider == "gemini" ? 1.5px : 1px;
+                        border-color: root.selected-provider == "gemini" ? #00d4ff : #1e293b;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 5px;
+                            alignment: center;
+
+                            Text {
+                                text: "✨";
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "Gemini";
+                                font-size: 11px;
+                                font-weight: root.selected-provider == "gemini" ? 700 : 500;
+                                color: root.selected-provider == "gemini" ? #ffffff : #94a3b8;
+                                vertical-alignment: center;
+                            }
+                        }
+                        TouchArea { clicked => { root.selected-provider = "gemini"; } }
+                    }
+
+                    // 4. Grok Tab
+                    Rectangle {
+                        border-radius: 6px;
+                        background: root.selected-provider == "grok" ? #162030 : Colors.transparent;
+                        border-width: root.selected-provider == "grok" ? 1.5px : 1px;
+                        border-color: root.selected-provider == "grok" ? #00d4ff : #1e293b;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 5px;
+                            alignment: center;
+
+                            Text {
+                                text: "⚡";
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "xAI Grok";
+                                font-size: 11px;
+                                font-weight: root.selected-provider == "grok" ? 700 : 500;
+                                color: root.selected-provider == "grok" ? #ffffff : #94a3b8;
+                                vertical-alignment: center;
+                            }
+                        }
+                        TouchArea { clicked => { root.selected-provider = "grok"; } }
+                    }
+                }
+            }
+
+            // Tab Content
+            VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+                vertical-stretch: 1;
+
+                // 1. Ollama Content
+                if root.selected-provider == "ollama" : VerticalLayout {
+                    spacing: 12px;
+
+                    // Privacy Pill
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 6px;
+                        background: #0f2e24;
+                        border-width: 1px;
+                        border-color: #10b98160;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text { text: "🔒"; font-size: 13px; vertical-alignment: center; }
+                            Text {
+                                text: "100% Local & Private: Terminal context is processed entirely on your machine via Ollama.";
+                                font-size: 11px;
+                                color: #34d399;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Ollama Server URL:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.ollama-host; placeholder: "http://localhost:11434"; }
+                        Text { text: "Default is http://localhost:11434 (or remote Ollama IP)"; font-size: 10px; color: #64748b; }
+                    }
+
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Model Name / Tag:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.ollama-model; placeholder: "llama3.2"; }
+                        Text { text: "Type any downloaded model tag, or click a popular preset:"; font-size: 10px; color: #64748b; }
+
+                        // Quick Select Chips
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.ollama-model == "llama3.2" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.ollama-model == "llama3.2" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "llama3.2"; font-size: 10px; color: root.ollama-model == "llama3.2" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.ollama-model = "llama3.2"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.ollama-model == "qwen2.5-coder" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.ollama-model == "qwen2.5-coder" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "qwen2.5-coder"; font-size: 10px; color: root.ollama-model == "qwen2.5-coder" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.ollama-model = "qwen2.5-coder"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.ollama-model == "deepseek-r1" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.ollama-model == "deepseek-r1" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "deepseek-r1"; font-size: 10px; color: root.ollama-model == "deepseek-r1" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.ollama-model = "deepseek-r1"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.ollama-model == "mistral" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.ollama-model == "mistral" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "mistral"; font-size: 10px; color: root.ollama-model == "mistral" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.ollama-model = "mistral"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.ollama-model == "codellama" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.ollama-model == "codellama" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "codellama"; font-size: 10px; color: root.ollama-model == "codellama" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.ollama-model = "codellama"; } }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // 2. LM Studio Content
+                if root.selected-provider == "lmstudio" : VerticalLayout {
+                    spacing: 12px;
+
+                    // Privacy Pill
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 6px;
+                        background: #0f2e24;
+                        border-width: 1px;
+                        border-color: #10b98160;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text { text: "🔒"; font-size: 13px; vertical-alignment: center; }
+                            Text {
+                                text: "100% Local & Private: Served offline from your local LM Studio local inference server.";
+                                font-size: 11px;
+                                color: #34d399;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "LM Studio API URL:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.lmstudio-host; placeholder: "http://localhost:1234/v1"; }
+                        Text { text: "Default is http://localhost:1234/v1 (Start Local Server in LM Studio)"; font-size: 10px; color: #64748b; }
+                    }
+
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Loaded Model Identifier:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.lmstudio-model; placeholder: "local-model"; }
+                        Text { text: "Enter model name loaded in LM Studio, or leave as local-model:"; font-size: 10px; color: #64748b; }
+
+                        // Quick Select Chips
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.lmstudio-model == "local-model" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.lmstudio-model == "local-model" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "local-model (Default)"; font-size: 10px; color: root.lmstudio-model == "local-model" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.lmstudio-model = "local-model"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.lmstudio-model == "qwen2.5-coder-7b" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.lmstudio-model == "qwen2.5-coder-7b" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "qwen2.5-coder-7b"; font-size: 10px; color: root.lmstudio-model == "qwen2.5-coder-7b" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.lmstudio-model = "qwen2.5-coder-7b"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.lmstudio-model == "deepseek-r1-distill-qwen-7b" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.lmstudio-model == "deepseek-r1-distill-qwen-7b" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "deepseek-r1-distill-7b"; font-size: 10px; color: root.lmstudio-model == "deepseek-r1-distill-qwen-7b" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.lmstudio-model = "deepseek-r1-distill-qwen-7b"; } }
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "API Key (Optional):"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.lmstudio-api-key; placeholder: "lm-studio (optional)"; is-password: true; }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // 3. Google Gemini Content
+                if root.selected-provider == "gemini" : VerticalLayout {
+                    spacing: 12px;
+
+                    // Warning Pill
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 6px;
+                        background: #2a2012;
+                        border-width: 1px;
+                        border-color: #f59e0b60;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text { text: "⚠"; font-size: 13px; color: #f59e0b; vertical-alignment: center; }
+                            Text {
+                                text: "Cloud API: Queries and terminal snippets are sent to Google Gemini APIs.";
+                                font-size: 11px;
+                                color: #fbbf24;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Gemini API Key:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.gemini-api-key; placeholder: "AIzaSy..."; is-password: true; }
+                        Text { text: "Get a free API key from https://aistudio.google.com"; font-size: 10px; color: #64748b; }
+                    }
+
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Model Name / Version:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.gemini-model; placeholder: "gemini-3.6-flash"; }
+
+                        // Quick Select Chips for Gemini
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.gemini-model == "gemini-3.6-flash" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.gemini-model == "gemini-3.6-flash" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "gemini-3.6-flash (Recommended)"; font-size: 10px; color: root.gemini-model == "gemini-3.6-flash" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.gemini-model = "gemini-3.6-flash"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.gemini-model == "gemini-3.7-flash" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.gemini-model == "gemini-3.7-flash" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "gemini-3.7-flash"; font-size: 10px; color: root.gemini-model == "gemini-3.7-flash" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.gemini-model = "gemini-3.7-flash"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.gemini-model == "gemini-3.6-pro" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.gemini-model == "gemini-3.6-pro" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "gemini-3.6-pro"; font-size: 10px; color: root.gemini-model == "gemini-3.6-pro" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.gemini-model = "gemini-3.6-pro"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.gemini-model == "gemini-3.7-pro" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.gemini-model == "gemini-3.7-pro" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "gemini-3.7-pro"; font-size: 10px; color: root.gemini-model == "gemini-3.7-pro" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.gemini-model = "gemini-3.7-pro"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.gemini-model == "gemini-3.1-pro" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.gemini-model == "gemini-3.1-pro" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "gemini-3.1-pro"; font-size: 10px; color: root.gemini-model == "gemini-3.1-pro" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.gemini-model = "gemini-3.1-pro"; } }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+
+                // 4. xAI Grok Content
+                if root.selected-provider == "grok" : VerticalLayout {
+                    spacing: 12px;
+
+                    // Warning Pill
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 6px;
+                        background: #2a2012;
+                        border-width: 1px;
+                        border-color: #f59e0b60;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text { text: "⚠"; font-size: 13px; color: #f59e0b; vertical-alignment: center; }
+                            Text {
+                                text: "Cloud API: Queries and terminal snippets are sent to xAI Grok APIs.";
+                                font-size: 11px;
+                                color: #fbbf24;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "xAI Grok API Key:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.grok-api-key; placeholder: "xai-..."; is-password: true; }
+                        Text { text: "Get an API key from https://console.x.ai"; font-size: 10px; color: #64748b; }
+                    }
+
+                    VerticalLayout {
+                        spacing: 6px;
+                        Text { text: "Model Name / Version:"; font-size: 11px; font-weight: 600; color: #94a3b8; }
+                        SpurxTextInput { text <=> root.grok-model; placeholder: "grok-4.5"; }
+
+                        // Quick Select Chips for Grok
+                        HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.grok-model == "grok-4.5" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.grok-model == "grok-4.5" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "grok-4.5 (Recommended)"; font-size: 10px; color: root.grok-model == "grok-4.5" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.grok-model = "grok-4.5"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.grok-model == "grok-4" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.grok-model == "grok-4" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "grok-4"; font-size: 10px; color: root.grok-model == "grok-4" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.grok-model = "grok-4"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.grok-model == "grok-3" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.grok-model == "grok-3" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "grok-3"; font-size: 10px; color: root.grok-model == "grok-3" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.grok-model = "grok-3"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.grok-model == "grok-2-latest" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.grok-model == "grok-2-latest" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "grok-2-latest"; font-size: 10px; color: root.grok-model == "grok-2-latest" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.grok-model = "grok-2-latest"; } }
+                            }
+                            Rectangle {
+                                height: 22px; border-radius: 4px;
+                                background: root.grok-model == "grok-beta" ? #00d4ff33 : #1e293b;
+                                border-width: 1px; border-color: root.grok-model == "grok-beta" ? #00d4ff : #334155;
+                                HorizontalLayout { padding-left: 8px; padding-right: 8px; alignment: center; Text { text: "grok-beta"; font-size: 10px; color: root.grok-model == "grok-beta" ? #00d4ff : #94a3b8; vertical-alignment: center; } }
+                                TouchArea { clicked => { root.grok-model = "grok-beta"; } }
+                            }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                }
+            }
+
+            // Footer
+            Rectangle {
+                height: 52px;
+                background: #090e15;
+                border-width: 1px;
+                border-color: #1c2636;
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    alignment: end;
+                    spacing: 10px;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        custom-height: 32px;
+                        custom-padding: 16px;
+                        clicked => { root.close(); }
+                    }
+
+                    SpurxButton {
+                        text: "Save Settings";
+                        variant: "primary";
+                        custom-height: 32px;
+                        custom-padding: 20px;
+                        clicked => {
+                            root.save-ai-settings(
+                                root.selected-provider,
+                                root.ollama-host,
+                                root.ollama-model,
+                                root.lmstudio-host,
+                                root.lmstudio-model,
+                                root.lmstudio-api-key,
+                                root.gemini-api-key,
+                                root.gemini-model,
+                                root.grok-api-key,
+                                root.grok-model
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+

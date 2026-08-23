@@ -1,0 +1,104 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxCheckBox, ModalCard } from "../theme.slint";
+
+export component QuickConnectModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <string> host: "";
+    in-out property <string> port: "22";
+    in-out property <string> username: "";
+    in-out property <string> password: "";
+    in-out property <string> auth-method: "password"; // "password" or "publickey"
+    in-out property <bool> save-session: false;
+
+    callback close();
+    callback connect(string, string, string, string, string, bool); // host, port, username, password, auth_method, save_session
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "Quick Connect";
+        card-width: 440px;
+        card-height: 380px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Host
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Host / IP Address:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.host; placeholder: "hostname or IP address"; }
+            }
+
+            // Port & Protocol
+            HorizontalLayout {
+                spacing: 12px;
+                VerticalLayout {
+                    spacing: 4px;
+                    width: 100px;
+                    Text { text: "Port:"; font-size: 12px; color: Theme.text-secondary; }
+                    SpurxTextInput { text <=> root.port; }
+                }
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Protocol:"; font-size: 12px; color: Theme.text-secondary; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-secondary;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text { text: "SSH2"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+
+            // Username
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Username:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.username; placeholder: "username"; }
+            }
+
+            // Password
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Password:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.password; placeholder: "password"; is-password: true; }
+            }
+
+            // Save session checkbox
+            SpurxCheckBox {
+                checked <=> root.save-session;
+                text: "Save session for later";
+            }
+
+            // Spacer
+            Rectangle { }
+
+            // Footer buttons
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "secondary";
+                    clicked => { root.close(); }
+                }
+
+                SpurxButton {
+                    text: "Connect";
+                    variant: "primary";
+                    clicked => {
+                        root.connect(root.host, root.port, root.username, root.password, root.auth-method, root.save-session);
+                    }
+                }
+            }
+        }
+    }
+}

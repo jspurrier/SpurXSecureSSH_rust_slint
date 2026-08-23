@@ -1,0 +1,588 @@
+import { Theme } from "theme.slint";
+
+export component MenuBar inherits Rectangle {
+    height: Theme.menu-height;
+    background: Theme.bg-secondary;
+    border-width: 1px;
+    border-color: Theme.border-secondary;
+
+    in-out property <int> open-menu-index: -1; // -1: none, 0: File, 1: Edit, 2: Options, 3: Transfer, 4: Script, 5: Help
+
+    HorizontalLayout {
+        alignment: start;
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 2px;
+
+        // File
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 0 ? Theme.bg-active : (file-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "File";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 0 ? 600 : 400;
+                    color: root.open-menu-index == 0 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            file-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 0) ? -1 : 0;
+                }
+            }
+        }
+
+        // Edit
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 1 ? Theme.bg-active : (edit-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "Edit";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 1 ? 600 : 400;
+                    color: root.open-menu-index == 1 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            edit-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 1) ? -1 : 1;
+                }
+            }
+        }
+
+        // Options
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 2 ? Theme.bg-active : (opt-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "Options";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 2 ? 600 : 400;
+                    color: root.open-menu-index == 2 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            opt-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 2) ? -1 : 2;
+                }
+            }
+        }
+
+        // Transfer
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 3 ? Theme.bg-active : (trans-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "Transfer";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 3 ? 600 : 400;
+                    color: root.open-menu-index == 3 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            trans-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 3) ? -1 : 3;
+                }
+            }
+        }
+
+        // Script
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 4 ? Theme.bg-active : (script-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "Script";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 4 ? 600 : 400;
+                    color: root.open-menu-index == 4 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            script-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 4) ? -1 : 4;
+                }
+            }
+        }
+
+        // Help
+        Rectangle {
+            border-radius: 4px;
+            background: root.open-menu-index == 5 ? Theme.bg-active : (help-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+            HorizontalLayout {
+                padding-left: 8px; padding-right: 8px;
+                Text {
+                    text: "Help";
+                    font-size: 12px;
+                    font-weight: root.open-menu-index == 5 ? 600 : 400;
+                    color: root.open-menu-index == 5 ? Theme.accent-primary : Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+            help-touch := TouchArea {
+                clicked => {
+                    root.open-menu-index = (root.open-menu-index == 5) ? -1 : 5;
+                }
+            }
+        }
+
+        // Filler
+        Rectangle { }
+    }
+}
+
+export component MenuDropdownOverlay inherits Rectangle {
+    in-out property <int> open-menu-index: -1;
+
+    callback action-open-connection();
+    callback action-import();
+    callback action-export();
+    callback action-exit();
+    callback action-copy();
+    callback action-paste();
+    callback action-clear-terminal();
+    callback action-tunnels();
+    callback action-settings();
+    callback action-keys();
+    callback action-master-pwd();
+    callback action-toggle-theme();
+    callback action-sftp();
+    callback action-ymodem();
+    callback action-broadcast();
+    callback action-about();
+
+    visible: root.open-menu-index != -1;
+    z: 200;
+
+    // Full screen transparent click-away backdrop
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.open-menu-index = -1; }
+    }
+
+    // 0: File Menu Dropdown
+    if root.open-menu-index == 0 : Rectangle {
+        x: 6px;
+        y: 28px;
+        width: 220px;
+        height: 140px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: f1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    alignment: space-between;
+                    Text { text: "⚡ Open Connection..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Alt+Q"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                f1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-open-connection();
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: f2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "📥 Import Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                f2-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-import();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: f3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "📤 Export Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                f3-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-export();
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: f4-touch.has-hover ? Theme.accent-danger.darker(0.5) : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    alignment: space-between;
+                    Text { text: "✕ Exit"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Alt+F4"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                f4-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-exit();
+                    }
+                }
+            }
+        }
+    }
+
+    // 1: Edit Menu Dropdown
+    if root.open-menu-index == 1 : Rectangle {
+        x: 46px;
+        y: 28px;
+        width: 210px;
+        height: 105px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: e1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    alignment: space-between;
+                    Text { text: "📋 Copy"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Ctrl+C"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                e1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-copy();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: e2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    alignment: space-between;
+                    Text { text: "📋 Paste"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Ctrl+V"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                e2-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-paste();
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: e3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "🧹 Clear Terminal"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                e3-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-clear-terminal();
+                    }
+                }
+            }
+        }
+    }
+
+    // 2: Options Menu Dropdown
+    if root.open-menu-index == 2 : Rectangle {
+        x: 88px;
+        y: 28px;
+        width: 240px;
+        height: 168px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: o0-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text {
+                        text: Theme.is-dark ? "☀️ Switch to Light Theme" : "🌙 Switch to Dark Theme";
+                        font-size: 12px;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                }
+                o0-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-toggle-theme();
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: o1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "🔀 SSH Tunnels & Forwarding..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                o1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-tunnels();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: o2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "⚙️ Global Settings..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                o2-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-settings();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: o3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "🔑 SSH Key Manager..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                o3-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-keys();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: o4-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "🔒 Master Password Lock..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                o4-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-master-pwd();
+                    }
+                }
+            }
+        }
+    }
+
+    // 3: Transfer Menu Dropdown
+    if root.open-menu-index == 3 : Rectangle {
+        x: 148px;
+        y: 28px;
+        width: 220px;
+        height: 70px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: t1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "📁 SFTP Browser..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                t1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-sftp();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: t2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "📦 Send via YModem..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                t2-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-ymodem();
+                    }
+                }
+            }
+        }
+    }
+
+    // 4: Script Menu Dropdown
+    if root.open-menu-index == 4 : Rectangle {
+        x: 210px;
+        y: 28px;
+        width: 240px;
+        height: 38px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: sc1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "📢 Broadcast Command..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                sc1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-broadcast();
+                    }
+                }
+            }
+        }
+    }
+
+    // 5: Help Menu Dropdown
+    if root.open-menu-index == 5 : Rectangle {
+        x: 260px;
+        y: 28px;
+        width: 230px;
+        height: 73px;
+        border-radius: 6px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.border-primary;
+        drop-shadow-blur: 14px;
+        drop-shadow-color: #00000088;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: h1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    alignment: space-between;
+                    Text { text: "📖 User Guide & Shortcuts"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "F1"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+                }
+                h1-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-about();
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: h2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+                HorizontalLayout {
+                    padding-left: 10px; padding-right: 10px;
+                    Text { text: "ℹ️ About SpurX Secure SSH..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                }
+                h2-touch := TouchArea {
+                    clicked => {
+                        root.open-menu-index = -1;
+                        root.action-about();
+                    }
+                }
+            }
+        }
+    }
+}

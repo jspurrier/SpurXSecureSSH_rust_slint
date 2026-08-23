@@ -1,0 +1,1285 @@
+import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "theme.slint";
+
+export struct TabModel {
+    id: string,
+    title: string,
+    connected: bool,
+    active: bool,
+    host: string,
+    group-id: string,
+    group-name: string,
+    group-color: color,
+    is-grouped: bool,
+}
+
+export struct TabGroupModel {
+    id: string,
+    name: string,
+    color: color,
+    color-index: int,
+    collapsed: bool,
+    tab-count: int,
+}
+
+export struct YModemInfo {
+    active: bool,
+    filename: string,
+    state: string,
+    bytes-sent: float,
+    total-bytes: float,
+    percentage: float,
+    speed: string,
+    elapsed: string,
+}
+
+export struct AiAutocompleteItemModel {
+    cmd: string,
+    desc: string,
+}
+
+export component TerminalView inherits Rectangle {
+    in property <[TabModel]> tabs: [];
+    in property <[TabGroupModel]> tab-groups: [];
+    in-out property <int> active-tab-index: 0;
+    in property <[string]> terminal-lines: [];
+    in property <string> terminal-full-text: "";
+    in-out property <int> terminal-cursor-pos: 0;
+    in property <YModemInfo> ymodem;
+    in property <int> scrollback-total: 1;
+    in property <int> scrollback-offset: 0;
+    in property <int> scrollback-visible: 24;
+
+    // AI Inline Autocomplete Properties
+    in property <bool> ai-autocomplete-visible: false;
+    in property <bool> ai-autocomplete-loading: false;
+    in property <string> ai-autocomplete-context: "Auto-Detected Context";
+    in property <[AiAutocompleteItemModel]> ai-autocomplete-suggestions: [];
+
+    callback tab-selected(int);
+    callback tab-closed(int);
+    callback tab-added();
+    callback terminal-key-pressed(KeyEvent);
+    callback cursor-clicked(int);
+    callback terminal-scrolled(length);
+    callback scrollbar-dragged(float);
+    callback copy-selection(string);
+    callback request-clipboard-copy();
+    callback request-clipboard-paste();
+    callback request-clear-terminal();
+    callback ymodem-abort();
+    callback terminal-viewport-resized(float);
+    callback trigger-ai-autocomplete();
+    callback accept-ai-suggestion(string);
+    callback dismiss-ai-autocomplete();
+
+    // Tab Context Actions
+    callback request-tab-rename(int, string);
+    callback request-tab-reset-name(int);
+    callback request-tab-reconnect(int);
+    callback request-tab-disconnect(int);
+    callback request-tab-close-disconnected();
+    callback request-tab-close-others(int);
+    callback request-tab-close-to-right(int);
+    callback request-tab-close-all();
+    callback request-tab-clone(int);
+    callback request-tab-save-session(int);
+    callback request-ymodem-send();
+    callback request-ai-analyze();
+
+    // Tab Group Actions
+    callback request-create-tab-group(int, string);
+    callback request-add-tab-to-group(int, string);
+    callback request-remove-tab-from-group(int);
+    callback request-rename-tab-group(string, string);
+    callback request-close-tab-group(string);
+    callback request-broadcast-to-group(string);
+
+    in-out property <bool> tab-context-menu-open: false;
+    in-out property <length> tab-context-menu-x: 0px;
+    in-out property <length> tab-context-menu-y: 0px;
+    in-out property <int> active-tab-context-idx: 0;
+
+    in-out property <bool> term-context-menu-open: false;
+    in-out property <length> term-context-menu-x: 0px;
+    in-out property <length> term-context-menu-y: 0px;
+
+    in-out property <bool> rename-modal-open: false;
+    in-out property <string> rename-modal-text: "";
+    in-out property <int> rename-modal-idx: 0;
+
+    in-out property <bool> create-group-modal-open: false;
+    in-out property <string> create-group-name: "";
+    in-out property <int> create-group-tab-idx: -1;
+
+    public function set-cursor-pos(pos: int) {
+        term-input.set-selection-offsets(pos, pos);
+    }
+
+    public function focus-input() {
+        term-input.focus();
+    }
+
+    public function get-term-height() -> length {
+        return term-viewport-container.height;
+    }
+
+    public function get-term-width() -> length {
+        return term-viewport-container.width;
+    }
+
+    init => {
+        term-input.focus();
+    }
+
+    forward-focus: term-input;
+
+    background: Theme.bg-primary;
+
+    VerticalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 0px;
+        padding: 0px;
+
+        // Tab Groups Bar (shows when active tab groups exist)
+        if root.tab-groups.length > 0 : Rectangle {
+            height: 26px;
+            background: Theme.bg-secondary;
+            border-width: 1px;
+            border-color: Theme.border-secondary;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                padding-top: 3px;
+                padding-bottom: 3px;
+                spacing: 8px;
+
+                Text {
+                    text: "Tab Groups:";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                for group in root.tab-groups : Rectangle {
+                    height: 20px;
+                    border-radius: 10px;
+                    background: group.color.transparentize(85%);
+                    border-width: 1px;
+                    border-color: group.color.transparentize(50%);
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 6px;
+                        spacing: 6px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: group.color;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        Text {
+                            text: group.name;
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 7px;
+                            background: group.color.transparentize(60%);
+
+                            Text {
+                                text: group.tab-count;
+                                font-size: 9px;
+                                font-weight: 600;
+                                color: #ffffff;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Broadcast to group button
+                        Rectangle {
+                            width: 16px;
+                            height: 16px;
+                            border-radius: 8px;
+                            background: bcast-touch.has-hover ? group.color.transparentize(40%) : Colors.transparent;
+
+                            Text {
+                                text: "📡";
+                                font-size: 9px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            bcast-touch := TouchArea {
+                                clicked => { root.request-broadcast-to-group(group.id); }
+                            }
+                        }
+
+                        // Close group button
+                        Rectangle {
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 7px;
+                            background: grp-close-touch.has-hover ? #ffffff30 : Colors.transparent;
+
+                            Text {
+                                text: "×";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            grp-close-touch := TouchArea {
+                                clicked => { root.request-close-tab-group(group.id); }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { }
+            }
+        }
+
+        // Tab Bar Row
+        Rectangle {
+            height: Theme.tab-height;
+            background: Theme.bg-primary;
+            border-color: Theme.border-secondary;
+
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-top: 3px;
+                padding-bottom: 3px;
+                spacing: 4px;
+
+                for tab[idx] in root.tabs : Rectangle {
+                    width: tab.is-grouped ? 170px : 145px;
+                    height: 26px;
+                    background: idx == root.active-tab-index ? Theme.bg-tertiary : Theme.bg-secondary;
+                    border-radius: 4px;
+                    border-color: tab.is-grouped
+                        ? (idx == root.active-tab-index ? tab.group-color : tab.group-color.transparentize(50%))
+                        : (idx == root.active-tab-index ? Theme.border-primary : Theme.border-secondary);
+                    border-width: tab.is-grouped ? 1.5px : 1px;
+
+                    TouchArea {
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.active-tab-context-idx = idx;
+                                root.tab-context-menu-x = min(6px + (idx * 150px) + self.mouse-x, root.width - 240px);
+                                root.tab-context-menu-y = Theme.tab-height;
+                                root.tab-context-menu-open = true;
+                                root.term-context-menu-open = false;
+                            }
+                        }
+                        clicked => {
+                            root.tab-context-menu-open = false;
+                            root.term-context-menu-open = false;
+                            root.tab-selected(idx);
+                        }
+                    }
+
+                    // Left group accent bar if grouped
+                    if tab.is-grouped : Rectangle {
+                        x: 0px;
+                        y: 3px;
+                        width: 3px;
+                        height: parent.height - 6px;
+                        border-radius: 1.5px;
+                        background: tab.group-color;
+                    }
+
+                    // Dot aligned left, vertically centered
+                    Rectangle {
+                        x: 8px;
+                        y: (parent.height - self.height) / 2;
+                        width: 7px;
+                        height: 7px;
+                        border-radius: 3.5px;
+                        background: tab.connected ? Theme.accent-success : Theme.accent-danger;
+                    }
+
+                    // Tab Title with group pill if grouped
+                    HorizontalLayout {
+                        x: 19px;
+                        width: parent.width - 43px;
+                        height: 100%;
+                        spacing: 4px;
+                        alignment: start;
+
+                        if tab.is-grouped : Rectangle {
+                            height: 14px;
+                            border-radius: 3px;
+                            background: tab.group-color.transparentize(80%);
+                            border-width: 1px;
+                            border-color: tab.group-color.transparentize(60%);
+                            y: (parent.height - self.height) / 2;
+
+                            HorizontalLayout {
+                                padding-left: 3px;
+                                padding-right: 3px;
+                                Text {
+                                    text: tab.group-name;
+                                    font-size: 9px;
+                                    font-weight: 600;
+                                    color: tab.group-color;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: tab.title;
+                            color: idx == root.active-tab-index ? Theme.text-primary : Theme.text-secondary;
+                            font-size: 11px;
+                            font-weight: idx == root.active-tab-index ? 600 : 400;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // X close button aligned right, vertically centered
+                    Rectangle {
+                        x: parent.width - 22px;
+                        y: (parent.height - self.height) / 2;
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 8px;
+                        background: close-touch.has-hover ? #ffffff20 : Colors.transparent;
+
+                        Text {
+                            text: "×";
+                            color: close-touch.has-hover ? Theme.text-primary : Theme.text-muted;
+                            font-size: 13px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        close-touch := TouchArea {
+                            clicked => { root.tab-closed(idx); }
+                        }
+                    }
+                }
+
+                // Add Tab Button (+)
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: add-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+
+                        Text {
+                            text: "+";
+                            color: add-touch.has-hover ? Theme.text-primary : Theme.text-muted;
+                            font-size: 15px;
+                            font-weight: 500;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        add-touch := TouchArea {
+                            clicked => { root.tab-added(); }
+                        }
+                    }
+                }
+
+                // Spacer
+                Rectangle { }
+            }
+        }
+
+        // Terminal Content Viewport (Interactive Selectable Terminal)
+        term-viewport-container := Rectangle {
+            vertical-stretch: 1;
+            horizontal-stretch: 1;
+            background: Theme.term-bg;
+            clip: true;
+
+            changed height => {
+                root.terminal-viewport-resized(self.height / 1px);
+            }
+
+            HorizontalLayout {
+                width: 100%;
+                height: 100%;
+                spacing: 0px;
+                padding: 0px;
+
+                TouchArea {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    pointer-event(event) => {
+                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                            root.active-tab-context-idx = root.active-tab-index;
+                            root.term-context-menu-x = min(self.mouse-x, root.width - 200px);
+                            root.term-context-menu-y = min(self.mouse-y + Theme.tab-height, root.height - 280px);
+                            root.term-context-menu-open = true;
+                            root.tab-context-menu-open = false;
+                        }
+                    }
+                    scroll-event(event) => {
+                        root.terminal-scrolled(event.delta-y);
+                        accept
+                    }
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.term-context-menu-open = false;
+                        root.cursor-clicked(term-input.cursor-position-byte-offset);
+                    }
+
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-right: 4px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        alignment: start;
+
+                        term-input := TextInput {
+                            text: root.terminal-full-text;
+                            read-only: true;
+                            single-line: false;
+                            wrap: no-wrap;
+                            font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
+                            font-size: 13px;
+                            color: Theme.term-fg;
+                            selection-background-color: #264f78;
+                            selection-foreground-color: #ffffff;
+
+                            key-pressed(event) => {
+                                if root.ai-autocomplete-visible && event.text == Key.Escape {
+                                    root.dismiss-ai-autocomplete();
+                                    accept
+                                } else if event.modifiers.control && (event.text == " " || event.text == "\u{0000}" || event.text == "@") {
+                                    root.trigger-ai-autocomplete();
+                                    accept
+                                } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
+                                    root.request-clipboard-paste();
+                                    accept
+                                } else if event.modifiers.control && (event.text == "c" || event.text == "C") {
+                                    self.copy();
+                                    root.terminal-key-pressed(event);
+                                    accept
+                                } else {
+                                    root.terminal-key-pressed(event);
+                                    accept
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Native Right-Edge Scrollbar
+                Rectangle {
+                    width: 12px;
+                    background: #14161b;
+
+                    scrollbar-thumb := Rectangle {
+                        width: 8px;
+                        x: 2px;
+                        property <float> progress: root.scrollback-total > root.scrollback-visible 
+                            ? (root.scrollback-offset * 1.0) / ((root.scrollback-total - root.scrollback-visible) * 1.0) 
+                            : 1.0;
+                        property <float> thumb-h: root.scrollback-total > root.scrollback-visible
+                            ? max(24.0, (root.scrollback-visible * 1.0 / root.scrollback-total * 1.0) * (parent.height / 1px))
+                            : (parent.height / 1px);
+                        
+                        y: (1.0 - progress) * ((parent.height / 1px) - thumb-h) * 1px;
+                        height: thumb-h * 1px;
+                        border-radius: 4px;
+                        background: scroll-touch.has-hover ? #586074 : #323846;
+
+                        scroll-touch := TouchArea {
+                            moved => {
+                                if self.pressed {
+                                    let track-avail = (parent.height / 1px) - parent.thumb-h;
+                                    if track-avail > 0.0 {
+                                        let curr-y = (self.mouse-y + parent.y) / 1px;
+                                        let ratio = 1.0 - (curr-y / track-avail);
+                                        root.scrollbar-dragged(max(0.0, min(1.0, ratio)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // YModem Progress Bar
+        if root.ymodem.active : Rectangle {
+            height: 48px;
+            background: #181b24;
+            border-width: 1px;
+            border-color: Theme.border-secondary;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 16px;
+                alignment: center;
+
+                Text {
+                    text: "YModem: " + root.ymodem.filename;
+                    font-size: 12px;
+                    color: Theme.text-primary;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.ymodem.state;
+                    font-size: 11px;
+                    color: Theme.accent-primary;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: 180px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: #252b3b;
+                    y: (parent.height - self.height) / 2;
+
+                    Rectangle {
+                        x: 0px;
+                        width: parent.width * (root.ymodem.percentage / 100.0);
+                        height: 100%;
+                        border-radius: 4px;
+                        background: Theme.accent-primary;
+                    }
+                }
+
+                Text {
+                    text: root.ymodem.percentage + "% (" + root.ymodem.speed + ")";
+                    font-size: 11px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { }
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "danger";
+                    clicked => { root.ymodem-abort(); }
+                }
+            }
+        }
+    }
+
+    // Floating Tab Context Menu
+    if root.tab-context-menu-open : Rectangle {
+        x: min(root.tab-context-menu-x, root.width - 230px);
+        y: min(root.tab-context-menu-y, root.height - ((root.active-tab-context-idx < root.tabs.length && root.tabs[root.active-tab-context-idx].is-grouped) ? 342px : 294px) - 10px);
+        width: 220px;
+        height: (root.active-tab-context-idx < root.tabs.length && root.tabs[root.active-tab-context-idx].is-grouped) ? 342px : 294px;
+        border-radius: 6px;
+        background: #141720;
+        border-width: 1px;
+        border-color: #2e3444;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000dd;
+        z: 200;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 1px;
+
+            // 1. Rename
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm1.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Rename"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm1 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.rename-modal-idx = root.active-tab-context-idx;
+                        if root.rename-modal-idx < root.tabs.length {
+                            root.rename-modal-text = root.tabs[root.rename-modal-idx].title;
+                        }
+                        root.rename-modal-open = true;
+                    }
+                }
+            }
+
+            // 2. Reset Name
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm2.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Reset Name"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm2 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-reset-name(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 3. Reconnect
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm3.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Reconnect"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm3 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-reconnect(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 4. Disconnect
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm-disc.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Disconnect"; font-size: 12px; color: #f43f5e; vertical-alignment: center; }
+                }
+                itm-disc := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-disconnect(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // 5. Close (Ctrl+F4)
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm4.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
+                    Text { text: "Close"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                    Text { text: "Ctrl+F4"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                }
+                itm4 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.tab-closed(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 5. Close Disconnected Tabs
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm5.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Close Disconnected Tabs"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm5 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-close-disconnected();
+                    }
+                }
+            }
+
+            // 6. Close Other Tabs
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm6.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Close Other Tabs"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm6 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-close-others(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 7. Close Tabs to the Right
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm7.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Close Tabs to the Right"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm7 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-close-to-right(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 8. Close All Tabs
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm8.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Close All Tabs"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm8 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-close-all();
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // 9. Clone Session
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm9.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Clone Session"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm9 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-tab-clone(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 10. YModem Send...
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm10.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "YModem Send..."; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                itm10 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-ymodem-send();
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // 11. New Tab Group...
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm11.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "➕  New Tab Group..."; font-size: 12px; color: #38bdf8; font-weight: 500; vertical-alignment: center; }
+                }
+                itm11 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.create-group-tab-idx = root.active-tab-context-idx;
+                        root.create-group-name = "";
+                        root.create-group-modal-open = true;
+                    }
+                }
+            }
+
+            // 12. Remove from Group (if in group)
+            if root.active-tab-context-idx < root.tabs.length && root.tabs[root.active-tab-context-idx].is-grouped : Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm12.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "❌  Remove from Group"; font-size: 12px; color: #f43f5e; vertical-alignment: center; }
+                }
+                itm12 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-remove-tab-from-group(root.active-tab-context-idx);
+                    }
+                }
+            }
+
+            // 13. Broadcast to Group (if in group)
+            if root.active-tab-context-idx < root.tabs.length && root.tabs[root.active-tab-context-idx].is-grouped : Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm13.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "📡  Broadcast to Group..."; font-size: 12px; color: #34d399; vertical-alignment: center; }
+                }
+                itm13 := TouchArea {
+                    clicked => {
+                        root.tab-context-menu-open = false;
+                        root.request-broadcast-to-group(root.tabs[root.active-tab-context-idx].group-id);
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // 14. Save Session...
+            Rectangle {
+                height: 22px; border-radius: 4px;
+                background: itm14.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Save Session..."; font-size: 12px; color: #60a5fa; font-weight: 500; vertical-alignment: center; }
+                }
+                itm14 := TouchArea {
+                    clicked => {
+                        root.request-tab-save-session(root.active-tab-context-idx);
+                    }
+                }
+            }
+        }
+    }
+
+    // Floating Terminal Canvas Context Menu
+    if root.term-context-menu-open : Rectangle {
+        x: min(root.term-context-menu-x, root.width - 190px);
+        y: min(root.term-context-menu-y, root.height - 275px);
+        width: 180px;
+        height: 262px;
+        border-radius: 6px;
+        background: #141720;
+        border-width: 1px;
+        border-color: #2e3444;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000dd;
+        z: 200;
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 1px;
+
+            // Copy
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm1.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
+                    Text { text: "Copy"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                    Text { text: "Ctrl+C"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                }
+                tm1 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-clipboard-copy();
+                    }
+                }
+            }
+
+            // Paste
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm2.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
+                    Text { text: "Paste"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                    Text { text: "Ctrl+V"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                }
+                tm2 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-clipboard-paste();
+                    }
+                }
+            }
+
+            // Clear Screen
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm3.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
+                    Text { text: "Clear Screen"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                    Text { text: "Ctrl+L"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                }
+                tm3 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-clear-terminal();
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // AI Analyze
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm4.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "🤖  Analyze Terminal..."; font-size: 12px; color: #a78bfa; vertical-alignment: center; }
+                }
+                tm4 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-ai-analyze();
+                    }
+                }
+            }
+
+            // YModem Send
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm5.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "📦  YModem Send File..."; font-size: 12px; color: #38bdf8; vertical-alignment: center; }
+                }
+                tm5 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-ymodem-send();
+                    }
+                }
+            }
+
+            // Divider
+            Rectangle { height: 1px; background: #2e3444; }
+
+            // Reconnect
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm6.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Reconnect"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                tm6 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-tab-reconnect(root.active-tab-index);
+                    }
+                }
+            }
+
+            // Disconnect
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm-disc.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Disconnect"; font-size: 12px; color: #f43f5e; vertical-alignment: center; }
+                }
+                tm-disc := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-tab-disconnect(root.active-tab-index);
+                    }
+                }
+            }
+
+            // Clone Session
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm7.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Clone Session"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
+                }
+                tm7 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.request-tab-clone(root.active-tab-index);
+                    }
+                }
+            }
+
+            // Close Tab
+            Rectangle {
+                height: 24px; border-radius: 4px;
+                background: tm8.has-hover ? #252b3b : Colors.transparent;
+                HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: start;
+                    Text { text: "Close Tab"; font-size: 12px; color: #ef4444; vertical-alignment: center; }
+                }
+                tm8 := TouchArea {
+                    clicked => {
+                        root.term-context-menu-open = false;
+                        root.tab-closed(root.active-tab-index);
+                    }
+                }
+            }
+        }
+    }
+
+    // Tab Rename Modal
+    if root.rename-modal-open : Rectangle {
+        x: 0; y: 0; width: 100%; height: 100%; z: 300;
+        background: #00000088;
+
+        ModalCard {
+            title: "Rename Tab";
+            card-width: 340px;
+            card-height: 160px;
+            close-requested => { root.rename-modal-open = false; }
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+
+                SpurxTextInput {
+                    text <=> root.rename-modal-text;
+                    placeholder: "Enter new tab title...";
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        clicked => { root.rename-modal-open = false; }
+                    }
+
+                    SpurxButton {
+                        text: "Save";
+                        variant: "primary";
+                        clicked => {
+                            root.rename-modal-open = false;
+                            root.request-tab-rename(root.rename-modal-idx, root.rename-modal-text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Create New Tab Group Modal
+    if root.create-group-modal-open : Rectangle {
+        x: 0; y: 0; width: 100%; height: 100%; z: 300;
+        background: #00000088;
+
+        ModalCard {
+            title: "➕  New Tab Group";
+            card-width: 380px;
+            card-height: 220px;
+            close-requested => { root.create-group-modal-open = false; }
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: "Enter a name for the new tab group:";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+
+                SpurxTextInput {
+                    text <=> root.create-group-name;
+                    placeholder: "e.g. Production, Web Servers, Edge Routers";
+                    accepted => {
+                        if root.create-group-name != "" {
+                            root.create-group-modal-open = false;
+                            root.request-create-tab-group(root.create-group-tab-idx, root.create-group-name);
+                        }
+                    }
+                }
+
+                Rectangle { }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        clicked => { root.create-group-modal-open = false; }
+                    }
+
+                    SpurxButton {
+                        text: "Create Group";
+                        variant: "primary";
+                        clicked => {
+                            if root.create-group-name != "" {
+                                root.create-group-modal-open = false;
+                                root.request-create-tab-group(root.create-group-tab-idx, root.create-group-name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Floating AI Autocomplete Popup
+    if root.ai-autocomplete-visible : Rectangle {
+        x: max(20px, parent.width - 480px);
+        y: max(40px, parent.height - 365px);
+        width: 460px;
+        height: 345px;
+        border-radius: 8px;
+        background: Theme.bg-elevated;
+        border-width: 1px;
+        border-color: Theme.accent-primary;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #000000cc;
+        z: 250;
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 6px;
+
+            // Header with AI Icon, detected platform, and background refinement badge
+            HorizontalLayout {
+                alignment: space-between;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Text { text: "🤖"; font-size: 14px; vertical-alignment: center; }
+                    Text {
+                        text: root.ai-autocomplete-context;
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.accent-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    if root.ai-autocomplete-loading : Text {
+                        text: "✨ Refining...";
+                        font-size: 10px;
+                        color: #38bdf8;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 4px;
+                    background: close-ac-touch.has-hover ? #f8514930 : Colors.transparent;
+
+                    Text {
+                        text: "×";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    close-ac-touch := TouchArea {
+                        clicked => { root.dismiss-ai-autocomplete(); }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            // Instant Suggestions Scroll List
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+
+                Flickable {
+                    viewport-y: 0px;
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        for item in root.ai-autocomplete-suggestions : Rectangle {
+                            height: 36px;
+                            border-radius: 5px;
+                            background: item-touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: item-touch.has-hover ? Theme.border-accent : Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 8px;
+                                alignment: space-between;
+
+                                VerticalLayout {
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+                                    Text {
+                                        text: item.cmd;
+                                        font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        color: item-touch.has-hover ? Theme.accent-primary : Theme.text-primary;
+                                        overflow: elide;
+                                    }
+                                    Text {
+                                        text: item.desc;
+                                        font-size: 10px;
+                                        color: Theme.text-muted;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                Text {
+                                    text: "↵";
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    color: item-touch.has-hover ? Theme.accent-primary : Theme.text-muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            item-touch := TouchArea {
+                                clicked => {
+                                    root.accept-ai-suggestion(item.cmd);
+                                }
+                            }
+                        }
+
+                        if root.ai-autocomplete-suggestions.length == 0 : Rectangle {
+                            height: 80px;
+                            Text {
+                                text: "No suggestions found for current command";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.border-secondary; }
+
+            // Footer
+            VerticalLayout {
+                spacing: 3px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: root.ai-autocomplete-suggestions.length + " commands available";
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "Click command to execute (Esc to close)";
+                        font-size: 10px;
+                        color: #64748b;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: "⚠ Syntax may vary by OS/firmware version. Verify parameters before running.";
+                    font-size: 9px;
+                    color: Theme.accent-warning;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}
+

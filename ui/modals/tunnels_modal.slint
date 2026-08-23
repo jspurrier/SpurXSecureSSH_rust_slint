@@ -1,0 +1,328 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxIconButton, ModalCard } from "../theme.slint";
+
+export struct TunnelItemModel {
+    id: string,
+    name: string,
+    tunnel-type: string,
+    local-addr: string,
+    remote-target: string,
+    running: bool,
+    active-conns: int,
+    bytes-rx: string,
+    bytes-tx: string,
+}
+
+export component TunnelsModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <[TunnelItemModel]> tunnels: [];
+
+    in-out property <string> new-name: "";
+    in-out property <string> new-local-port: "8080";
+    in-out property <string> new-remote-host: "127.0.0.1";
+    in-out property <string> new-remote-port: "80";
+    in-out property <string> new-ssh-host: "";
+    in-out property <bool> new-auto-start: false;
+
+    callback close();
+    callback start-all();
+    callback stop-all();
+    callback save-tunnel-rule(string, string, string, string, string, bool);
+    callback toggle-tunnel(string, bool); // id, current_running
+    callback delete-tunnel(string);
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "SSH Tunnels & Port Forwarding";
+        card-width: 780px;
+        card-height: 600px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
+
+            // Add Rule Form Card (Always visible at top)
+            Rectangle {
+                height: 145px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "Add Port Forwarding Rule";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "Local Port ➔ Remote Host:Port via SSH";
+                            font-size: 11px;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+                            Text { text: "Rule Name:"; font-size: 11px; color: Theme.text-secondary; }
+                            SpurxTextInput { text <=> root.new-name; placeholder: "e.g. Web GUI, MySQL"; }
+                        }
+                        VerticalLayout {
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+                            Text { text: "SSH Target Host (Optional):"; font-size: 11px; color: Theme.text-secondary; }
+                            SpurxTextInput { text <=> root.new-ssh-host; placeholder: "Leave blank for active session"; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: center;
+
+                        VerticalLayout {
+                            spacing: 2px;
+                            width: 100px;
+                            Text { text: "Local Port:"; font-size: 11px; color: Theme.text-secondary; }
+                            SpurxTextInput { text <=> root.new-local-port; placeholder: "8080"; }
+                        }
+                        VerticalLayout {
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+                            Text { text: "Remote Host:"; font-size: 11px; color: Theme.text-secondary; }
+                            SpurxTextInput { text <=> root.new-remote-host; placeholder: "127.0.0.1"; }
+                        }
+                        VerticalLayout {
+                            spacing: 2px;
+                            width: 100px;
+                            Text { text: "Remote Port:"; font-size: 11px; color: Theme.text-secondary; }
+                            SpurxTextInput { text <=> root.new-remote-port; placeholder: "80"; }
+                        }
+
+                        // Auto-start checkbox
+                        VerticalLayout {
+                            spacing: 2px;
+                            alignment: end;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                Rectangle {
+                                    width: 16px; height: 16px;
+                                    border-radius: 3px;
+                                    border-width: 1px;
+                                    border-color: Theme.border-primary;
+                                    background: root.new-auto-start ? Theme.accent-primary : Theme.bg-secondary;
+                                    y: 2px;
+                                    Text {
+                                        text: root.new-auto-start ? "✓" : "";
+                                        font-size: 11px;
+                                        color: Colors.white;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    TouchArea {
+                                        clicked => { root.new-auto-start = !root.new-auto-start; }
+                                    }
+                                }
+                                Text {
+                                    text: "Auto-start";
+                                    font-size: 11px;
+                                    color: Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Add Button
+                        VerticalLayout {
+                            alignment: end;
+                            SpurxButton {
+                                text: "+ Add Tunnel";
+                                variant: "primary";
+                                custom-height: 28px;
+                                custom-padding: 14px;
+                                clicked => {
+                                    root.save-tunnel-rule(
+                                        root.new-name,
+                                        root.new-local-port,
+                                        root.new-remote-host,
+                                        root.new-remote-port,
+                                        root.new-ssh-host,
+                                        root.new-auto-start
+                                    );
+                                    root.new-name = "";
+                                    root.new-ssh-host = "";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Table Header Bar
+            Rectangle {
+                height: 38px;
+                background: Theme.bg-secondary;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    alignment: space-between;
+
+                    Text {
+                        text: "Configured Tunnels (" + root.tunnels.length + ")";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+
+                        SpurxButton {
+                            text: "▶ Start All";
+                            variant: "secondary";
+                            custom-height: 24px;
+                            clicked => { root.start-all(); }
+                        }
+
+                        SpurxButton {
+                            text: "⏹ Stop All";
+                            variant: "secondary";
+                            custom-height: 24px;
+                            clicked => { root.stop-all(); }
+                        }
+                    }
+                }
+            }
+
+            // Tunnels Table Area (Stretches to fill available modal space)
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+
+                Flickable {
+                    width: 100%;
+                    height: 100%;
+                    viewport-y: 0px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        for tun in root.tunnels : Rectangle {
+                            height: 48px;
+                            border-radius: 6px;
+                            background: Theme.bg-tertiary;
+                            border-width: 1px;
+                            border-color: Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                alignment: space-between;
+
+                                HorizontalLayout {
+                                    spacing: 12px;
+                                    alignment: start;
+
+                                    // Status Dot
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: tun.running ? #3fb950 : #8b949e;
+                                        y: 20px;
+                                    }
+
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Text {
+                                            text: tun.name;
+                                            font-size: 12px;
+                                            font-weight: 700;
+                                            color: Theme.text-primary;
+                                        }
+                                        Text {
+                                            text: tun.local-addr + " ➔ " + tun.remote-target;
+                                            font-size: 11px;
+                                            color: Theme.text-secondary;
+                                        }
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: end;
+
+                                    Text {
+                                        text: tun.running ? ("Active (" + tun.active-conns + " conn)") : "Stopped";
+                                        font-size: 11px;
+                                        color: tun.running ? #3fb950 : Theme.text-muted;
+                                        vertical-alignment: center;
+                                    }
+
+                                    SpurxButton {
+                                        text: tun.running ? "Stop" : "Start";
+                                        variant: tun.running ? "danger" : "primary";
+                                        custom-height: 24px;
+                                        custom-padding: 10px;
+                                        font-size: 11px;
+                                        clicked => { root.toggle-tunnel(tun.id, tun.running); }
+                                    }
+
+                                    SpurxIconButton {
+                                        icon-text: "✕";
+                                        size: 24px;
+                                        tooltip: "Delete Tunnel";
+                                        clicked => { root.delete-tunnel(tun.id); }
+                                    }
+                                }
+                            }
+                        }
+
+                        if root.tunnels.length == 0 : Rectangle {
+                            height: 120px;
+                            Text {
+                                text: "No SSH tunnels configured yet. Fill in the form above and click '+ Add Tunnel'.";
+                                font-size: 12px;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Footer
+            Rectangle {
+                height: 42px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-right: 12px;
+                    alignment: end;
+                    SpurxButton {
+                        text: "Close";
+                        variant: "secondary";
+                        clicked => { root.close(); }
+                    }
+                }
+            }
+        }
+    }
+}

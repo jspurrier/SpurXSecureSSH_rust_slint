@@ -1,0 +1,52 @@
+[package]
+name = "spurx-secure-ssh"
+version = "2.0.16"
+description = "SpurX Secure SSH - A Modern Slint-based SSH Client"
+authors = ["John Spurrier"]
+edition = "2021"
+
+[build-dependencies]
+slint-build = "1.9"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[dependencies]
+slint = { version = "1.9", features = ["compat-1-2", "backend-winit", "renderer-femtovg"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "5"
+chrono = "0.4.43"
+lazy_static = "1.5.0"
+thiserror = "2"
+parking_lot = "0.12"
+async-trait = "0.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+quick-xml = { version = "0.39.0", features = ["serialize"] }
+ssh-key = { version = "0.6", features = ["ed25519", "rsa", "ecdsa", "p256", "p384", "p521", "crypto", "encryption"] }
+russh = "0.44"
+russh-keys = "0.44"
+russh-sftp = "2.0"
+aes-gcm = "0.10.3"
+pbkdf2 = "0.12"
+sha2 = "0.10"
+rand = "0.8.5"
+strip-ansi-escapes = "0.2.1"
+vte = "0.14"
+open = "5.3"
+rfd = "0.15"
+copypasta = "0.10.2"
+
+[patch.crates-io]
+russh = { path = "russh-patched" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

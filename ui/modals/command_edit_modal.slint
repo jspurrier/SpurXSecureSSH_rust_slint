@@ -1,0 +1,170 @@
+import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "../theme.slint";
+
+export component CommandEditModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <bool> is-new: true;
+    in-out property <string> command-id: "";
+    in-out property <string> command-name: "";
+    in-out property <string> command-text: "";
+    in-out property <string> folder: "";
+    in property <[string]> available-folders: [];
+    in-out property <bool> folder-dropdown-open: false;
+    in-out property <string> description: "";
+
+    callback close();
+    callback save-command(string, string, string, string, string);
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: root.is-new ? "Add Quick Command" : "Edit Quick Command";
+        card-width: 440px;
+        card-height: 420px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+            alignment: start;
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                Text { text: "Command Name:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.command-name; placeholder: "Show interfaces status"; }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                Text { text: "Command Text:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.command-text; placeholder: "show ip interface brief"; }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                z: 50;
+                Text { text: "Folder (Optional):"; font-size: 12px; color: Theme.text-secondary; }
+
+                HorizontalLayout {
+                    spacing: 4px;
+
+                    SpurxTextInput {
+                        text <=> root.folder;
+                        placeholder: "None (Root) or pick from dropdown...";
+                        horizontal-stretch: 1;
+                    }
+
+                    // Dropdown trigger button
+                    Rectangle {
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 4px;
+                        background: fld-dd-touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: root.folder-dropdown-open ? Theme.accent-primary : Theme.border-secondary;
+
+                        Text {
+                            text: root.folder-dropdown-open ? "▴" : "▾";
+                            font-size: 12px;
+                            color: fld-dd-touch.has-hover ? Theme.text-primary : Theme.text-muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        fld-dd-touch := TouchArea {
+                            clicked => { root.folder-dropdown-open = !root.folder-dropdown-open; }
+                        }
+                    }
+                }
+
+                // Folder Dropdown List
+                if root.folder-dropdown-open : Rectangle {
+                    height: min(160px, max(60px, (root.available-folders.length + 1) * 28px + 10px));
+                    border-radius: 6px;
+                    background: Theme.bg-elevated;
+                    border-width: 1px;
+                    border-color: Theme.border-primary;
+                    drop-shadow-blur: 14px;
+                    drop-shadow-color: #000000aa;
+                    z: 100;
+
+                    Flickable {
+                        viewport-height: (root.available-folders.length + 1) * 28px + 8px;
+
+                        VerticalLayout {
+                            padding: 4px;
+                            spacing: 2px;
+
+                            // Option 1: Root / No Folder
+                            Rectangle {
+                                height: 26px;
+                                border-radius: 4px;
+                                background: root.folder == "" ? Theme.bg-active : (r-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+                                HorizontalLayout {
+                                    padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: space-between;
+                                    Text { text: "📁 / (Root Level / No Folder)"; font-size: 11px; color: root.folder == "" ? Theme.accent-primary : Theme.text-muted; vertical-alignment: center; }
+                                    if root.folder == "" : Text { text: "✓"; font-size: 11px; color: Theme.accent-primary; vertical-alignment: center; }
+                                }
+                                r-touch := TouchArea {
+                                    clicked => {
+                                        root.folder = "";
+                                        root.folder-dropdown-open = false;
+                                    }
+                                }
+                            }
+
+                            // Existing Folders & Subfolders
+                            for fld[idx] in root.available-folders : Rectangle {
+                                height: 26px;
+                                border-radius: 4px;
+                                background: root.folder == fld ? Theme.bg-active : (f-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+                                HorizontalLayout {
+                                    padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: space-between;
+                                    HorizontalLayout {
+                                        spacing: 6px; alignment: start;
+                                        Text { text: "📁"; font-size: 10px; vertical-alignment: center; }
+                                        Text { text: fld; font-size: 11px; color: root.folder == fld ? Theme.accent-primary : Theme.text-primary; vertical-alignment: center; }
+                                    }
+                                    if root.folder == fld : Text { text: "✓"; font-size: 11px; color: Theme.accent-primary; vertical-alignment: center; }
+                                }
+                                f-touch := TouchArea {
+                                    clicked => {
+                                        root.folder = fld;
+                                        root.folder-dropdown-open = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+                Text { text: "Description (Optional):"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.description; placeholder: "Display IP addresses and status"; }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "secondary";
+                    clicked => { root.close(); }
+                }
+
+                SpurxButton {
+                    text: "Save Command";
+                    variant: "primary";
+                    clicked => { root.save-command(root.command-id, root.command-name, root.command-text, root.folder, root.description); }
+                }
+            }
+        }
+    }
+}

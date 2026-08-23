@@ -1,0 +1,94 @@
+import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "../theme.slint";
+
+export component ImportExportModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <bool> is-import-mode: true; // true: Import, false: Export
+    in-out property <string> format-name: "SpurX Encrypted (.spurx)"; // "SpurX Encrypted (.spurx)", "SpurX Plaintext (.json)", "SecureCRT (.xml)", "PuTTY (.reg)"
+    in-out property <string> selected-file-path: "";
+    in-out property <string> master-password: "";
+    in property <string> preview-text: "";
+
+    callback close();
+    callback browse-file();
+    callback execute-import(string, string, string); // file_path, format, password
+    callback execute-export(string, string); // format, password
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: root.is-import-mode ? "Import Data" : "Export Data";
+        card-width: 520px;
+        card-height: 420px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Format:"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.format-name; }
+            }
+
+            if root.is-import-mode : VerticalLayout {
+                spacing: 4px;
+                Text { text: "Select File:"; font-size: 12px; color: Theme.text-secondary; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    SpurxTextInput { text <=> root.selected-file-path; placeholder: "Select .spurx, .json, .xml, or .reg file"; }
+                    SpurxButton {
+                        text: "Browse...";
+                        variant: "secondary";
+                        clicked => { root.browse-file(); }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Encryption Password (if encrypted):"; font-size: 12px; color: Theme.text-secondary; }
+                SpurxTextInput { text <=> root.master-password; placeholder: "Password (optional)..."; is-password: true; }
+            }
+
+            if root.preview-text != "" : VerticalLayout {
+                spacing: 4px;
+                Text { text: "Preview:"; font-size: 12px; color: Theme.text-secondary; }
+                Rectangle {
+                    height: 80px;
+                    border-radius: 4px;
+                    background: Theme.bg-tertiary;
+                    HorizontalLayout {
+                        padding: 6px;
+                        Text { text: root.preview-text; font-size: 10px; color: Theme.text-primary; wrap: word-wrap; }
+                    }
+                }
+            }
+
+            Rectangle { }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "secondary";
+                    clicked => { root.close(); }
+                }
+
+                SpurxButton {
+                    text: root.is-import-mode ? "Import" : "Export";
+                    variant: "primary";
+                    clicked => {
+                        if root.is-import-mode {
+                            root.execute-import(root.selected-file-path, root.format-name, root.master-password);
+                        } else {
+                            root.execute-export(root.format-name, root.master-password);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,743 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxIconButton, ModalCard } from "../theme.slint";
+
+export struct SshKeyModel {
+    name: string,
+    key-type: string,
+    fingerprint: string,
+    public-key: string,
+    path: string,
+}
+
+export component KeyManagerModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <[SshKeyModel]> keys: [];
+    in property <string> default-storage-path: "";
+    in-out property <string> new-key-name: "";
+    in-out property <string> new-key-algo: "ed25519";
+    in-out property <string> selected-algo-label: "ED25519 (Recommended - Fast & Secure)";
+    in-out property <string> new-key-passphrase: "";
+    in-out property <string> new-key-storage-path: "";
+    in-out property <int> active-tab: 0; // 0: Stored Keys, 1: Generate Keypair
+    in-out property <bool> show-algo-dropdown: false;
+    in-out property <string> status-msg: "";
+    in-out property <bool> status-is-error: false;
+
+    callback close();
+    callback generate-key(string, string, string, string); // name, algo, passphrase, storage_dir
+    callback delete-key(string); // path or name
+    callback copy-public-key(string);
+    callback browse-storage-dir();
+    callback open-keys-folder();
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "🔑  SSH Key Manager";
+        card-width: 680px;
+        card-height: 560px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
+
+            // Navigation Tab Switcher Bar
+            Rectangle {
+                height: 44px;
+                background: Theme.bg-tertiary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    padding-top: 6px;
+                    padding-bottom: 6px;
+                    spacing: 8px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // Tab 0: Stored Keys
+                        tab0 := Rectangle {
+                            border-radius: 6px;
+                            background: root.active-tab == 0 ? Theme.bg-active : (t0-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+                            border-width: root.active-tab == 0 ? 1.5px : 1px;
+                            border-color: root.active-tab == 0 ? Theme.accent-primary : Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Text {
+                                    text: "🔑";
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "Stored Keys (" + root.keys.length + ")";
+                                    font-size: 12px;
+                                    font-weight: root.active-tab == 0 ? 700 : 500;
+                                    color: root.active-tab == 0 ? Theme.accent-primary : Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            t0-touch := TouchArea {
+                                clicked => {
+                                    root.active-tab = 0;
+                                    root.show-algo-dropdown = false;
+                                }
+                            }
+                        }
+
+                        // Tab 1: Generate Keypair
+                        tab1 := Rectangle {
+                            border-radius: 6px;
+                            background: root.active-tab == 1 ? Theme.bg-active : (t1-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+                            border-width: root.active-tab == 1 ? 1.5px : 1px;
+                            border-color: root.active-tab == 1 ? Theme.accent-primary : Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                Text {
+                                    text: "⚡";
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: "+ Generate Keypair";
+                                    font-size: 12px;
+                                    font-weight: root.active-tab == 1 ? 700 : 500;
+                                    color: root.active-tab == 1 ? Theme.accent-primary : Theme.text-secondary;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            t1-touch := TouchArea {
+                                clicked => {
+                                    root.active-tab = 1;
+                                    root.show-algo-dropdown = false;
+                                }
+                            }
+                        }
+                    }
+
+                    // Open Folder Button
+                    SpurxButton {
+                        text: "📂 Open Keys Directory";
+                        variant: "secondary";
+                        custom-height: 28px;
+                        custom-padding: 10px;
+                        font-size: 11px;
+                        clicked => { root.open-keys-folder(); }
+                    }
+                }
+            }
+
+            // Tab 0: Stored Keys List
+            if root.active-tab == 0 : VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+
+                // Directory Info Banner
+                Rectangle {
+                    height: 28px;
+                    border-radius: 6px;
+                    background: #080d16;
+                    border-width: 1px;
+                    border-color: #1e293b;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 6px;
+                        alignment: space-between;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Text {
+                                text: "📁 Standard Location:";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #64748b;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.default-storage-path;
+                                font-size: 11px;
+                                color: #94a3b8;
+                                font-family: "Cascadia Code, monospace";
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        Text {
+                            text: root.keys.length + " keypair(s) available";
+                            font-size: 11px;
+                            color: #38bdf8;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Keys Flickable List
+                Flickable {
+                    viewport-y: 0px;
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        for k in root.keys : Rectangle {
+                            height: 68px;
+                            border-radius: 8px;
+                            background: #090f1a;
+                            border-width: 1px;
+                            border-color: #1e2a3c;
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                alignment: space-between;
+
+                                // Key Details
+                                VerticalLayout {
+                                    spacing: 3px;
+                                    alignment: center;
+                                    horizontal-stretch: 1;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+
+                                        Text {
+                                            text: "🔑";
+                                            font-size: 13px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: k.name;
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            color: #f1f5f9;
+                                            vertical-alignment: center;
+                                        }
+
+                                        // Algorithm badge
+                                        Rectangle {
+                                            height: 18px;
+                                            border-radius: 4px;
+                                            background: #00d4ff18;
+                                            border-width: 1px;
+                                            border-color: #00d4ff40;
+
+                                            HorizontalLayout {
+                                                padding-left: 6px;
+                                                padding-right: 6px;
+                                                Text {
+                                                    text: k.key-type;
+                                                    font-size: 9px;
+                                                    font-weight: 700;
+                                                    color: #00d4ff;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Path
+                                    Text {
+                                        text: k.path != "" ? k.path : (root.default-storage-path + "/" + k.name);
+                                        font-size: 10px;
+                                        color: #64748b;
+                                        font-family: "Cascadia Code, monospace";
+                                        overflow: elide;
+                                    }
+
+                                    // Fingerprint
+                                    Text {
+                                        text: k.fingerprint;
+                                        font-size: 10px;
+                                        color: #94a3b8;
+                                        font-family: "Cascadia Code, monospace";
+                                        overflow: elide;
+                                    }
+                                }
+
+                                // Actions
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: end;
+
+                                    SpurxButton {
+                                        text: "📋 Copy PubKey";
+                                        variant: "secondary";
+                                        custom-height: 28px;
+                                        custom-padding: 10px;
+                                        font-size: 11px;
+                                        clicked => {
+                                            root.copy-public-key(k.public-key);
+                                            root.status-msg = "Public key for " + k.name + " copied to clipboard!";
+                                            root.status-is-error = false;
+                                        }
+                                    }
+
+                                    SpurxIconButton {
+                                        icon-text: "🗑";
+                                        size: 28px;
+                                        tooltip: "Delete SSH Keypair";
+                                        clicked => {
+                                            root.delete-key(k.path != "" ? k.path : k.name);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Empty State
+                        if root.keys.length == 0 : Rectangle {
+                            height: 220px;
+                            border-radius: 8px;
+                            background: #090f1a;
+                            border-width: 1px;
+                            border-color: #1e2a3c;
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 10px;
+
+                                Text {
+                                    text: "🔑";
+                                    font-size: 32px;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "No SSH Keys Found";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #f1f5f9;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "No keypairs were detected in " + root.default-storage-path + "\nGenerate a modern ED25519 or RSA keypair below.";
+                                    font-size: 12px;
+                                    color: #64748b;
+                                    horizontal-alignment: center;
+                                }
+
+                                HorizontalLayout {
+                                    alignment: center;
+                                    SpurxButton {
+                                        text: "⚡ Generate New Keypair Now";
+                                        variant: "primary";
+                                        custom-height: 32px;
+                                        clicked => { root.active-tab = 1; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Tab 1: Generate Key Form
+            if root.active-tab == 1 : VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                vertical-stretch: 1;
+
+                Rectangle {
+                    border-radius: 8px;
+                    background: #090f1a;
+                    border-width: 1px;
+                    border-color: #1e2a3c;
+
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 12px;
+
+                        // Field 1: Key Name
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Key Name (Filename):";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #f1f5f9;
+                            }
+                            SpurxTextInput {
+                                text <=> root.new-key-name;
+                                placeholder: "e.g. id_ed25519_prod, work_server, dev_key";
+                            }
+                            Text {
+                                text: "Filename for private key and .pub public key file (e.g. id_ed25519).";
+                                font-size: 10px;
+                                color: #64748b;
+                            }
+                        }
+
+                        // Field 2: Algorithm Selection (Dropdown)
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Key Algorithm & Encryption:";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #f1f5f9;
+                            }
+
+                            // Dropdown Trigger Button
+                            algo-box := Rectangle {
+                                height: 32px;
+                                border-radius: 6px;
+                                background: #0e1726;
+                                border-width: 1px;
+                                border-color: root.show-algo-dropdown ? #00d4ff : #1e293b;
+
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    alignment: space-between;
+
+                                    Text {
+                                        text: root.selected-algo-label;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: #38bdf8;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Text {
+                                        text: root.show-algo-dropdown ? "▲" : "▼";
+                                        font-size: 10px;
+                                        color: #94a3b8;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        root.show-algo-dropdown = !root.show-algo-dropdown;
+                                    }
+                                }
+                            }
+
+                            // Algorithm Option Buttons when Dropdown is open
+                            if root.show-algo-dropdown : Rectangle {
+                                border-radius: 6px;
+                                background: #080d16;
+                                border-width: 1px;
+                                border-color: #00d4ff60;
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 4px;
+
+                                    // ED25519
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: root.new-key-algo == "ed25519" ? #0d1e34 : (ed-touch.has-hover ? #111d2e : Colors.transparent);
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: space-between;
+                                            Text {
+                                                text: "● ED25519 (Recommended - Fast, Secure, 256-bit)";
+                                                font-size: 11px;
+                                                font-weight: root.new-key-algo == "ed25519" ? 700 : 500;
+                                                color: root.new-key-algo == "ed25519" ? #00d4ff : #f1f5f9;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.new-key-algo == "ed25519" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                        }
+                                        ed-touch := TouchArea {
+                                            clicked => {
+                                                root.new-key-algo = "ed25519";
+                                                root.selected-algo-label = "ED25519 (Recommended - Fast & Secure)";
+                                                root.show-algo-dropdown = false;
+                                            }
+                                        }
+                                    }
+
+                                    // RSA 4096
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: root.new-key-algo == "rsa-4096" ? #0d1e34 : (rsa4-touch.has-hover ? #111d2e : Colors.transparent);
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: space-between;
+                                            Text {
+                                                text: "● RSA 4096-bit (Maximum Legacy Compatibility)";
+                                                font-size: 11px;
+                                                font-weight: root.new-key-algo == "rsa-4096" ? 700 : 500;
+                                                color: root.new-key-algo == "rsa-4096" ? #00d4ff : #f1f5f9;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.new-key-algo == "rsa-4096" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                        }
+                                        rsa4-touch := TouchArea {
+                                            clicked => {
+                                                root.new-key-algo = "rsa-4096";
+                                                root.selected-algo-label = "RSA 4096-bit (High Compatibility)";
+                                                root.show-algo-dropdown = false;
+                                            }
+                                        }
+                                    }
+
+                                    // RSA 2048
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: root.new-key-algo == "rsa-2048" ? #0d1e34 : (rsa2-touch.has-hover ? #111d2e : Colors.transparent);
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: space-between;
+                                            Text {
+                                                text: "● RSA 2048-bit (Standard)";
+                                                font-size: 11px;
+                                                font-weight: root.new-key-algo == "rsa-2048" ? 700 : 500;
+                                                color: root.new-key-algo == "rsa-2048" ? #00d4ff : #f1f5f9;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.new-key-algo == "rsa-2048" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                        }
+                                        rsa2-touch := TouchArea {
+                                            clicked => {
+                                                root.new-key-algo = "rsa-2048";
+                                                root.selected-algo-label = "RSA 2048-bit (Standard)";
+                                                root.show-algo-dropdown = false;
+                                            }
+                                        }
+                                    }
+
+                                    // ECDSA P-256
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: root.new-key-algo == "ecdsa-p256" ? #0d1e34 : (ec2-touch.has-hover ? #111d2e : Colors.transparent);
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: space-between;
+                                            Text {
+                                                text: "● ECDSA NIST P-256 (Fast Elliptic Curve)";
+                                                font-size: 11px;
+                                                font-weight: root.new-key-algo == "ecdsa-p256" ? 700 : 500;
+                                                color: root.new-key-algo == "ecdsa-p256" ? #00d4ff : #f1f5f9;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.new-key-algo == "ecdsa-p256" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                        }
+                                        ec2-touch := TouchArea {
+                                            clicked => {
+                                                root.new-key-algo = "ecdsa-p256";
+                                                root.selected-algo-label = "ECDSA NIST P-256";
+                                                root.show-algo-dropdown = false;
+                                            }
+                                        }
+                                    }
+
+                                    // ECDSA P-384
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: root.new-key-algo == "ecdsa-p384" ? #0d1e34 : (ec3-touch.has-hover ? #111d2e : Colors.transparent);
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            alignment: space-between;
+                                            Text {
+                                                text: "● ECDSA NIST P-384 (Strong Elliptic Curve)";
+                                                font-size: 11px;
+                                                font-weight: root.new-key-algo == "ecdsa-p384" ? 700 : 500;
+                                                color: root.new-key-algo == "ecdsa-p384" ? #00d4ff : #f1f5f9;
+                                                vertical-alignment: center;
+                                            }
+                                            if root.new-key-algo == "ecdsa-p384" : Text { text: "✓"; font-size: 11px; color: #00d4ff; vertical-alignment: center; }
+                                        }
+                                        ec3-touch := TouchArea {
+                                            clicked => {
+                                                root.new-key-algo = "ecdsa-p384";
+                                                root.selected-algo-label = "ECDSA NIST P-384";
+                                                root.show-algo-dropdown = false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Field 3: Passphrase (Optional)
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Passphrase (Optional):";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #f1f5f9;
+                            }
+                            SpurxTextInput {
+                                text <=> root.new-key-passphrase;
+                                placeholder: "Optional: Enter passphrase to encrypt private key";
+                                is-password: true;
+                            }
+                            Text {
+                                text: "Leave blank for passwordless key authentication, or enter a passphrase to encrypt with AES-256.";
+                                font-size: 10px;
+                                color: #64748b;
+                            }
+                        }
+
+                        // Field 4: Storage Location
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text {
+                                text: "Storage Location (Folder):";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #f1f5f9;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                SpurxTextInput {
+                                    text <=> root.new-key-storage-path;
+                                    placeholder: root.default-storage-path;
+                                    horizontal-stretch: 1;
+                                }
+                                SpurxButton {
+                                    text: "Browse...";
+                                    variant: "secondary";
+                                    custom-height: 28px;
+                                    clicked => { root.browse-storage-dir(); }
+                                }
+                            }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                Text {
+                                    text: "Default: " + root.default-storage-path + " (Standard OpenSSH directory for this OS)";
+                                    font-size: 10px;
+                                    color: #38bdf8;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Status Banner
+                if root.status-msg != "" : Rectangle {
+                    height: 28px;
+                    border-radius: 6px;
+                    background: root.status-is-error ? #dc262620 : #10b98120;
+                    border-width: 1px;
+                    border-color: root.status-is-error ? #dc2626 : #10b981;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        Text {
+                            text: (root.status-is-error ? "❌ " : "✅ ") + root.status-msg;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: root.status-is-error ? #f87171 : #34d399;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                // Actions Footer
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+
+                    SpurxButton {
+                        text: "Cancel";
+                        variant: "secondary";
+                        custom-height: 32px;
+                        clicked => {
+                            root.active-tab = 0;
+                            root.status-msg = "";
+                        }
+                    }
+
+                    SpurxButton {
+                        text: "⚡ Generate & Save Keypair";
+                        variant: "primary";
+                        custom-height: 32px;
+                        clicked => {
+                            if root.new-key-name == "" {
+                                root.status-msg = "Please enter a key name.";
+                                root.status-is-error = true;
+                            } else {
+                                root.status-msg = "";
+                                root.generate-key(
+                                    root.new-key-name,
+                                    root.new-key-algo,
+                                    root.new-key-passphrase,
+                                    root.new-key-storage-path != "" ? root.new-key-storage-path : root.default-storage-path
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Modal Footer for Tab 0
+            if root.active-tab == 0 : Rectangle {
+                height: 44px;
+                border-color: #1c2636;
+                border-width: 1px;
+                background: #080d16;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    alignment: space-between;
+
+                    // Status notification
+                    HorizontalLayout {
+                        alignment: start;
+                        Text {
+                            text: root.status-msg != "" ? (root.status-is-error ? "❌ " : "✅ ") + root.status-msg : "";
+                            font-size: 11px;
+                            color: root.status-is-error ? #f87171 : #34d399;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    SpurxButton {
+                        text: "Close";
+                        variant: "secondary";
+                        custom-height: 28px;
+                        custom-padding: 16px;
+                        clicked => {
+                            root.status-msg = "";
+                            root.close();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,70 @@
+import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "../theme.slint";
+
+export component FolderEditModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in property <string> modal-title: "New Folder";
+    in property <string> mode: "new"; // "new", "subfolder", "rename"
+    in property <string> parent-path: "";
+    in property <string> old-path: "";
+    in-out property <string> folder-name: "";
+
+    callback close();
+    callback save-folder(string, string, string); // mode, target_path, name
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: root.modal-title;
+        card-width: 380px;
+        card-height: 220px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 14px;
+
+            if root.parent-path != "" && root.mode == "subfolder" : Text {
+                text: "Parent: " + root.parent-path;
+                font-size: 11px;
+                color: Theme.accent-primary;
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.mode == "rename" ? "New Name:" : "Folder Name:";
+                    font-size: 12px;
+                    color: Theme.text-secondary;
+                }
+                SpurxTextInput {
+                    text <=> root.folder-name;
+                    placeholder: root.mode == "rename" ? "Enter new folder name" : "e.g. Web Servers";
+                    accepted => {
+                        root.save-folder(root.mode, root.mode == "rename" ? root.old-path : root.parent-path, root.folder-name);
+                    }
+                }
+            }
+
+            Rectangle { }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "secondary";
+                    clicked => { root.close(); }
+                }
+
+                SpurxButton {
+                    text: root.mode == "rename" ? "Rename" : "Create Folder";
+                    variant: "primary";
+                    clicked => {
+                        root.save-folder(root.mode, root.mode == "rename" ? root.old-path : root.parent-path, root.folder-name);
+                    }
+                }
+            }
+        }
+    }
+}

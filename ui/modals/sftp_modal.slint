@@ -1,0 +1,213 @@
+import { Theme, SpurxButton, SpurxTextInput, SpurxIconButton, ModalCard } from "../theme.slint";
+
+export struct SftpFileItemModel {
+    name: string,
+    is-dir: bool,
+    size: string,
+    modified: string,
+}
+
+export component SftpModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <string> local-path: "/home";
+    in-out property <string> remote-path: "/";
+    in property <[SftpFileItemModel]> local-files: [];
+    in property <[SftpFileItemModel]> remote-files: [];
+    in property <int> selected-local-index: -1;
+    in property <int> selected-remote-index: -1;
+    in property <string> transfer-status: "Idle";
+
+    callback close();
+    callback local-navigate-up();
+    callback local-refresh();
+    callback local-select(int);
+    callback local-double-click(int);
+    callback remote-navigate-up();
+    callback remote-refresh();
+    callback remote-select(int);
+    callback remote-double-click(int);
+    callback upload-selected();
+    callback download-selected();
+    callback new-folder();
+    callback delete-selected();
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "SFTP File Browser";
+        card-width: 800px;
+        card-height: 560px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            // Dual Panes
+            HorizontalLayout {
+                padding: 10px;
+                spacing: 10px;
+
+                // Left Pane: Local Filesystem
+                Rectangle {
+                    border-radius: 6px;
+                    background: Theme.bg-tertiary;
+                    border-width: 1px;
+                    border-color: Theme.border-secondary;
+
+                    VerticalLayout {
+                        // Pane Header
+                        Rectangle {
+                            height: 36px;
+                            background: Theme.bg-secondary;
+                            border-color: Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
+                                Text { text: "Local Files"; font-size: 11px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+                                SpurxIconButton { icon-text: "⬆"; size: 22px; tooltip: "Go Up"; clicked => { root.local-navigate-up(); } }
+                                SpurxIconButton { icon-text: "🔄"; size: 22px; tooltip: "Refresh"; clicked => { root.local-refresh(); } }
+                                SpurxTextInput { text <=> root.local-path; font-size: 11px; }
+                            }
+                        }
+
+                        // Local File List
+                        Flickable {
+                            viewport-y: 0px;
+                            VerticalLayout {
+                                padding: 4px;
+                                spacing: 2px;
+
+                                for file[idx] in root.local-files : Rectangle {
+                                    height: 24px;
+                                    border-radius: 3px;
+                                    background: idx == root.selected-local-index ? Theme.bg-active : (loc-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+
+                                    HorizontalLayout {
+                                        padding-left: 6px; padding-right: 6px; alignment: space-between;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Text { text: file.is-dir ? "📁" : "📄"; font-size: 11px; vertical-alignment: center; }
+                                            Text { text: file.name; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+                                        }
+                                        Text { text: file.size; font-size: 10px; color: Theme.text-secondary; vertical-alignment: center; }
+                                    }
+
+                                    loc-touch := TouchArea {
+                                        clicked => { root.local-select(idx); }
+                                        double-clicked => { root.local-double-click(idx); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Right Pane: Remote Filesystem
+                Rectangle {
+                    border-radius: 6px;
+                    background: Theme.bg-tertiary;
+                    border-width: 1px;
+                    border-color: Theme.border-secondary;
+
+                    VerticalLayout {
+                        // Pane Header
+                        Rectangle {
+                            height: 36px;
+                            background: Theme.bg-secondary;
+                            border-color: Theme.border-secondary;
+
+                            HorizontalLayout {
+                                padding-left: 8px; padding-right: 8px; spacing: 6px; alignment: start;
+                                Text { text: "Remote SFTP"; font-size: 11px; font-weight: 700; color: Theme.accent-primary; vertical-alignment: center; }
+                                SpurxIconButton { icon-text: "⬆"; size: 22px; tooltip: "Go Up"; clicked => { root.remote-navigate-up(); } }
+                                SpurxIconButton { icon-text: "🔄"; size: 22px; tooltip: "Refresh"; clicked => { root.remote-refresh(); } }
+                                SpurxTextInput { text <=> root.remote-path; font-size: 11px; }
+                            }
+                        }
+
+                        // Remote File List
+                        Flickable {
+                            viewport-y: 0px;
+                            VerticalLayout {
+                                padding: 4px;
+                                spacing: 2px;
+
+                                for file[idx] in root.remote-files : Rectangle {
+                                    height: 24px;
+                                    border-radius: 3px;
+                                    background: idx == root.selected-remote-index ? Theme.bg-active : (rem-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+
+                                    HorizontalLayout {
+                                        padding-left: 6px; padding-right: 6px; alignment: space-between;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Text { text: file.is-dir ? "📁" : "📄"; font-size: 11px; vertical-alignment: center; }
+                                            Text { text: file.name; font-size: 11px; color: Theme.text-primary; vertical-alignment: center; overflow: elide; }
+                                        }
+                                        Text { text: file.size; font-size: 10px; color: Theme.text-secondary; vertical-alignment: center; }
+                                    }
+
+                                    rem-touch := TouchArea {
+                                        clicked => { root.remote-select(idx); }
+                                        double-clicked => { root.remote-double-click(idx); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Transfer Queue Bar & Actions
+            Rectangle {
+                height: 48px;
+                background: Theme.bg-secondary;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 12px; padding-right: 12px; alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px; alignment: start;
+                        Text {
+                            text: "Status: " + root.transfer-status;
+                            font-size: 11px;
+                            color: Theme.text-secondary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px; alignment: end;
+
+                        SpurxButton {
+                            text: "⬆ Upload";
+                            variant: "primary";
+                            custom-height: 28px;
+                            clicked => { root.upload-selected(); }
+                        }
+
+                        SpurxButton {
+                            text: "⬇ Download";
+                            variant: "secondary";
+                            custom-height: 28px;
+                            clicked => { root.download-selected(); }
+                        }
+
+                        SpurxButton {
+                            text: "📁 New Folder";
+                            variant: "secondary";
+                            custom-height: 28px;
+                            clicked => { root.new-folder(); }
+                        }
+
+                        SpurxButton {
+                            text: "✕ Close";
+                            variant: "secondary";
+                            custom-height: 28px;
+                            clicked => { root.close(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

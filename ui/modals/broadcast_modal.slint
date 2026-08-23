@@ -1,0 +1,180 @@
+import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "../theme.slint";
+import { TabGroupModel } from "../terminal_view.slint";
+
+export component BroadcastModal inherits Rectangle {
+    in property <bool> is-open: false;
+    in-out property <string> broadcast-command: "";
+    in property <[TabGroupModel]> groups: [];
+    in-out property <string> selected-scope: "all"; // "all" or group-id
+    in property <int> active-sessions-count: 0;
+    in property <int> target-sessions-count: 0;
+    in property <string> selected-group-name: "";
+
+    callback close();
+    callback send-broadcast(string, string); // (command, scope)
+    callback scope-selected(string); // notify backend to recalculate target count
+
+    visible: root.is-open;
+
+    ModalCard {
+        title: "📡  Broadcast Command";
+        card-width: 480px;
+        card-height: 380px;
+        close-requested => { root.close(); }
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Scope Selector
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: "Send Command To:";
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.text-secondary;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+
+                    // All Sessions scope
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: root.selected-scope == "all" ? Theme.accent-primary.transparentize(80%) : Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: root.selected-scope == "all" ? Theme.accent-primary : Theme.border-secondary;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 6px;
+                            alignment: center;
+                            Text {
+                                text: "🌐 All Sessions (" + root.active-sessions-count + ")";
+                                font-size: 11px;
+                                font-weight: root.selected-scope == "all" ? 600 : 400;
+                                color: root.selected-scope == "all" ? Theme.text-primary : Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                root.selected-scope = "all";
+                                root.scope-selected("all");
+                            }
+                        }
+                    }
+
+                    // Groups scope
+                    for group in root.groups : Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: root.selected-scope == group.id ? group.color.transparentize(80%) : Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: root.selected-scope == group.id ? group.color : Theme.border-secondary;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 6px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 7px;
+                                height: 7px;
+                                border-radius: 3.5px;
+                                background: group.color;
+                                y: (parent.height - self.height) / 2;
+                            }
+
+                            Text {
+                                text: group.name + " (" + group.tab-count + ")";
+                                font-size: 11px;
+                                font-weight: root.selected-scope == group.id ? 600 : 400;
+                                color: root.selected-scope == group.id ? Theme.text-primary : Theme.text-secondary;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                root.selected-scope = group.id;
+                                root.scope-selected(group.id);
+                            }
+                        }
+                    }
+
+                    Rectangle { }
+                }
+            }
+
+            // Target Info Summary Box
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: Theme.bg-secondary;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    alignment: start;
+                    Text {
+                        text: root.selected-scope == "all"
+                            ? "Will broadcast simultaneously to all " + root.active-sessions-count + " open SSH session(s)."
+                            : (root.target-sessions-count == 0 
+                                ? "No active sessions found in group \"" + root.selected-group-name + "\"."
+                                : "Will broadcast exclusively to " + root.target-sessions-count + " session(s) in group \"" + root.selected-group-name + "\".");
+                        font-size: 11px;
+                        color: root.target-sessions-count == 0 && root.selected-scope != "all" ? Theme.accent-warning : Theme.accent-primary;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Command Input
+            VerticalLayout {
+                spacing: 4px;
+                Text { text: "Command to Execute:"; font-size: 12px; font-weight: 500; color: Theme.text-secondary; }
+                SpurxTextInput {
+                    text <=> root.broadcast-command;
+                    placeholder: "e.g. show version, uptime, show ip route, reload";
+                    accepted => {
+                        if root.broadcast-command != "" {
+                            root.send-broadcast(root.broadcast-command, root.selected-scope);
+                        }
+                    }
+                }
+            }
+
+            Rectangle { }
+
+            // Action Buttons
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+
+                SpurxButton {
+                    text: "Cancel";
+                    variant: "secondary";
+                    clicked => { root.close(); }
+                }
+
+                SpurxButton {
+                    text: "📡 Send Broadcast";
+                    variant: "primary";
+                    clicked => {
+                        if root.broadcast-command != "" {
+                            root.send-broadcast(root.broadcast-command, root.selected-scope);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
