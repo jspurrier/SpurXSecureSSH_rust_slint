@@ -6128,7 +6128,7 @@ dependencies = [
 
 [[package]]
 name = "spurx-secure-ssh"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "aes-gcm",
  "async-trait",

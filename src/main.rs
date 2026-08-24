@@ -243,6 +243,81 @@ fn sync_tab_groups_ui(app: &AppWindow, state: &Arc<AppState>) {
     app.set_tabs(ModelRc::new(VecModel::from(updated_tabs)));
 }
 
+fn update_terminal_geometry(
+    app: &AppWindow,
+    app_state: &Arc<AppState>,
+    term_h_px: f32,
+    term_w_px: f32,
+) {
+    let font_sz = app_state
+        .current_terminal_font_size
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .max(8) as f32;
+    // Accurate monospace line height in Slint TextInput (typically ~1.20 - 1.25 of font size).
+    // Using 1.22 * font_sz + 0.2 brings terminal prompt lines directly to the bottom of the viewport
+    // while keeping a small safety margin so text never overflows.
+    let row_height_px = (font_sz * 1.22 + 0.2).max(10.0);
+    let char_width_px = (font_sz * 0.60).max(5.0);
+
+    let calculated_cols = if term_w_px > 40.0 {
+        ((term_w_px - 24.0) / char_width_px).floor().max(20.0) as usize
+    } else {
+        80
+    };
+    let calculated_rows = if term_h_px > 24.0 {
+        ((term_h_px - 8.0) / row_height_px).floor().max(4.0) as usize
+    } else {
+        24
+    };
+
+    app_state
+        .current_terminal_cols
+        .store(calculated_cols, std::sync::atomic::Ordering::Relaxed);
+    app_state
+        .current_terminal_rows
+        .store(calculated_rows, std::sync::atomic::Ordering::Relaxed);
+
+    app.set_status_dimensions(format!("{}x{}", calculated_cols, calculated_rows).into());
+
+    // Update ALL buffers so switching tabs post-resize is correct
+    {
+        let buffers = app_state.terminal_buffers.read();
+        for buf in buffers.values() {
+            buf.lock().set_size(calculated_cols, calculated_rows);
+        }
+    }
+
+    // Send dynamic SSH NAWS window resize to all active sessions
+    {
+        let senders = app_state.input_senders.read();
+        for sender in senders.values() {
+            let _ = sender.send(ssh::SshInput::Resize {
+                rows: calculated_rows as u16,
+                cols: calculated_cols as u16,
+            });
+        }
+    }
+
+    // Re-render the active tab immediately
+    let active_idx = app.get_active_tab_index() as usize;
+    let tabs = app.get_tabs();
+    if active_idx < tabs.row_count() {
+        if let Some(tab) = tabs.row_data(active_idx) {
+            let sid = tab.id.to_string();
+            let buffers = app_state.terminal_buffers.read();
+            if let Some(buf) = buffers.get(&sid) {
+                let (text, offset, total, scroll_off, vis_rows) =
+                    buf.lock().get_visible_text();
+                app.set_terminal_scroll_total(total as i32);
+                app.set_terminal_scroll_offset(scroll_off as i32);
+                app.set_terminal_scroll_visible(vis_rows as i32);
+                app.set_terminal_full_text(text.into());
+                app.invoke_set_terminal_cursor_pos(offset as i32);
+            }
+        }
+    }
+}
+
 fn make_tab_model(
     id: &str,
     title: &str,
@@ -876,6 +951,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.set_settings_accent_color(acc_col.clone());
                 app.set_settings_single_click_launch(single_cl);
                 app.set_settings_global_password(pwd_trimmed.into());
+                let h = app.invoke_get_terminal_viewport_height();
+                let w = app.invoke_get_terminal_viewport_width();
+                update_terminal_geometry(&app, &state_save, h, w);
                 app.set_status_text("Settings saved successfully".into());
             }
         },
@@ -1208,70 +1286,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         if let Some(app) = app_weak.upgrade() {
-            let font_sz = state_clone
-                .current_terminal_font_size
-                .load(std::sync::atomic::Ordering::Relaxed)
-                .max(8) as f32;
-            let row_height_px = (font_sz * 1.38 + 0.5).max(12.0);
-            let char_width_px = (font_sz * 0.60).max(5.0);
-
-            let calculated_cols = if term_w_px > 40.0 {
-                ((term_w_px - 24.0) / char_width_px).floor().max(20.0) as usize
-            } else {
-                80
-            };
-            let calculated_rows = if term_h_px > 30.0 {
-                ((term_h_px - 12.0) / row_height_px).floor().max(4.0) as usize
-            } else {
-                24
-            };
-
-            state_clone
-                .current_terminal_cols
-                .store(calculated_cols, std::sync::atomic::Ordering::Relaxed);
-            state_clone
-                .current_terminal_rows
-                .store(calculated_rows, std::sync::atomic::Ordering::Relaxed);
-
-            app.set_status_dimensions(format!("{}x{}", calculated_cols, calculated_rows).into());
-
-            // Update ALL buffers so switching tabs post-resize is correct
-            {
-                let buffers = state_clone.terminal_buffers.read();
-                for buf in buffers.values() {
-                    buf.lock().set_size(calculated_cols, calculated_rows);
-                }
-            }
-
-            // Send dynamic SSH NAWS window resize to all active sessions
-            {
-                let senders = state_clone.input_senders.read();
-                for sender in senders.values() {
-                    let _ = sender.send(ssh::SshInput::Resize {
-                        rows: calculated_rows as u16,
-                        cols: calculated_cols as u16,
-                    });
-                }
-            }
-
-            // Re-render the active tab immediately
-            let active_idx = app.get_active_tab_index() as usize;
-            let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
-                    let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let (text, offset, total, scroll_off, vis_rows) =
-                            buf.lock().get_visible_text();
-                        app.set_terminal_scroll_total(total as i32);
-                        app.set_terminal_scroll_offset(scroll_off as i32);
-                        app.set_terminal_scroll_visible(vis_rows as i32);
-                        app.set_terminal_full_text(text.into());
-                        app.invoke_set_terminal_cursor_pos(offset as i32);
-                    }
-                }
-            }
+            update_terminal_geometry(&app, &state_clone, term_h_px, term_w_px);
         }
     });
 
