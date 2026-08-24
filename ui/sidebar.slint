@@ -294,7 +294,7 @@ export component SideBar inherits Rectangle {
                     if root.active-panel == 0 : VerticalLayout {
                         spacing: 1px;
                         for session[idx] in root.sessions : row := Rectangle {
-                            height: session.is-folder ? 26px : 34px;
+                            height: session.is-folder ? 30px : 40px;
                             border-radius: 4px;
                             background: row-touch.has-hover ? Theme.bg-hover : (!session.is-folder && root.selected-session.id == session.id) ? #264f7833 : Colors.transparent;
                             border-width: (!session.is-folder && root.selected-session.id == session.id) ? 1px : 0px;
@@ -322,7 +322,7 @@ export component SideBar inherits Rectangle {
 
                                     Text {
                                         text: session.name;
-                                        font-size: 11px;
+                                        font-size: 13px;
                                         font-weight: 600;
                                         color: Theme.text-primary;
                                         vertical-alignment: center;
@@ -332,7 +332,7 @@ export component SideBar inherits Rectangle {
 
                                 if session.count > 0 : Text {
                                     text: "(" + session.count + ")";
-                                    font-size: 10px;
+                                    font-size: 11px;
                                     color: Theme.text-muted;
                                     vertical-alignment: center;
                                 }
@@ -359,7 +359,7 @@ export component SideBar inherits Rectangle {
 
                                         Text {
                                             text: session.name;
-                                            font-size: 11px;
+                                            font-size: 13px;
                                             font-weight: 600;
                                             color: Theme.text-primary;
                                             overflow: elide;
@@ -367,7 +367,7 @@ export component SideBar inherits Rectangle {
 
                                         Text {
                                             text: (session.username != "" ? session.username + "@" : "") + session.host + (session.port != 22 ? ":" + session.port : "");
-                                            font-size: 9px;
+                                            font-size: 11px;
                                             color: Theme.text-muted;
                                             overflow: elide;
                                         }
@@ -446,7 +446,7 @@ export component SideBar inherits Rectangle {
                     if root.active-panel == 1 : VerticalLayout {
                         spacing: 1px;
                         for cmd[idx] in root.commands : cmd-row := Rectangle {
-                            height: cmd.is-folder ? 26px : 34px;
+                            height: cmd.is-folder ? 30px : 40px;
                             border-radius: 4px;
                             background: cmd-row-touch.has-hover ? Theme.bg-hover : (!cmd.is-folder && root.selected-command.id == cmd.id) ? #264f7833 : Colors.transparent;
                             border-width: (!cmd.is-folder && root.selected-command.id == cmd.id) ? 1px : 0px;
@@ -469,7 +469,7 @@ export component SideBar inherits Rectangle {
 
                                 Text {
                                     text: cmd.name;
-                                    font-size: 12px;
+                                    font-size: 13px;
                                     font-weight: 600;
                                     color: Theme.text-primary;
                                     vertical-alignment: center;
@@ -479,7 +479,7 @@ export component SideBar inherits Rectangle {
 
                                 if cmd.count > 0 : Text {
                                     text: "" + cmd.count;
-                                    font-size: 10px;
+                                    font-size: 11px;
                                     font-weight: 600;
                                     color: Theme.text-muted;
                                     vertical-alignment: center;
@@ -516,14 +516,14 @@ export component SideBar inherits Rectangle {
                                         spacing: 1px;
                                         Text {
                                             text: cmd.name;
-                                            font-size: 12px;
+                                            font-size: 13px;
                                             font-weight: 500;
                                             color: Theme.text-primary;
                                             overflow: elide;
                                         }
                                         Text {
                                             text: cmd.command;
-                                            font-size: 10px;
+                                            font-size: 11px;
                                             font-family: "Cascadia Code, JetBrains Mono, monospace";
                                             color: Theme.text-secondary;
                                             overflow: elide;

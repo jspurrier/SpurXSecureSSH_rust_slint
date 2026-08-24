@@ -2,11 +2,11 @@ import { Theme, SpurxButton, ModalCard } from "../theme.slint";
 
 export component AboutModal inherits Rectangle {
     in property <bool> is-open: false;
-    in-out property <string> app-version: "Version 2.0.1 (Slint Native Edition)";
+    in-out property <string> app-version: "Version 3.0.0 (Slint Native Edition)";
     in-out property <string> update-status: "";
     in-out property <bool> is-checking-update: false;
     in-out property <bool> update-available: false;
-    in-out property <string> release-url: "https://github.com/jspurrier/SpurXSecureSSH_rust_slint";
+    in-out property <string> release-url: "https://github.com/jspurrier/SpurXSecureSSH_rust_slint/releases/latest";
 
     callback close();
     callback check-for-updates();
@@ -96,7 +96,7 @@ export component AboutModal inherits Rectangle {
                     }
 
                     if root.update-available : SpurxButton {
-                        text: "View Release Notes";
+                        text: "🚀 Download Update (GitHub)";
                         variant: "primary";
                         custom-height: 28px;
                         custom-padding: 14px;

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -48,11 +48,12 @@ impl SessionFolderNode {
     fn flatten_to_models(
         &self,
         expanded_set: &HashSet<String>,
+        auto_expand_all: bool,
         depth: usize,
         out: &mut Vec<SessionItemModel>,
     ) {
         for (name, folder_node) in &self.subfolders {
-            let is_expanded = expanded_set.contains(&folder_node.full_path);
+            let is_expanded = auto_expand_all || expanded_set.contains(&folder_node.full_path);
             let count = folder_node.total_items();
 
             out.push(SessionItemModel {
@@ -69,7 +70,7 @@ impl SessionFolderNode {
             });
 
             if is_expanded {
-                folder_node.flatten_to_models(expanded_set, depth + 1, out);
+                folder_node.flatten_to_models(expanded_set, auto_expand_all, depth + 1, out);
             }
         }
 
@@ -128,11 +129,12 @@ impl CommandFolderNode {
     fn flatten_to_models(
         &self,
         expanded_set: &HashSet<String>,
+        auto_expand_all: bool,
         depth: usize,
         out: &mut Vec<CommandItemModel>,
     ) {
         for (name, folder_node) in &self.subfolders {
-            let is_expanded = expanded_set.contains(&folder_node.full_path);
+            let is_expanded = auto_expand_all || expanded_set.contains(&folder_node.full_path);
             let count = folder_node.total_items();
 
             out.push(CommandItemModel {
@@ -149,7 +151,7 @@ impl CommandFolderNode {
             });
 
             if is_expanded {
-                folder_node.flatten_to_models(expanded_set, depth + 1, out);
+                folder_node.flatten_to_models(expanded_set, auto_expand_all, depth + 1, out);
             }
         }
 
@@ -333,9 +335,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     app.set_settings_log_dir(log_d.into());
     app.set_settings_log_format(app_cfg.log_format.clone().into());
-    app.set_settings_log_timestamps(app_cfg.log_timestamps);
     app.set_settings_font_family(app_cfg.font_family.clone().into());
     app.set_settings_font_size(app_cfg.font_size.to_string().into());
+    app_state
+        .current_terminal_font_size
+        .store(app_cfg.font_size, std::sync::atomic::Ordering::Relaxed);
+    *app_state.current_terminal_font_family.write() = app_cfg.font_family.clone();
+
+    // Populate available system fonts for font picker
+    let system_fonts = settings::get_available_system_fonts();
+    let font_models: Vec<slint::SharedString> =
+        system_fonts.iter().map(|s| s.clone().into()).collect();
+    app.set_available_system_fonts(slint::ModelRc::new(slint::VecModel::from(font_models)));
+
     app.set_settings_scrollback(app_cfg.scrollback_lines.to_string().into());
     app.set_settings_cursor_blink(app_cfg.cursor_blink);
     app.set_settings_theme_mode(app_cfg.theme.clone().into());
@@ -770,6 +782,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Save Settings callback
     let app_weak = app.as_weak();
     let exp_sess_save = expanded_session_folders.clone();
+    let state_save = app_state.clone();
     app.on_request_save_settings(
         move |u,
               pwd,
@@ -815,9 +828,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_cfg.log_format = log_fmt.to_string();
             app_cfg.log_timestamps = log_ts;
             app_cfg.font_family = font_fam.to_string();
-            if let Ok(fs) = font_sz.parse::<u32>() {
-                app_cfg.font_size = fs;
-            }
+            let fs_val = font_sz.parse::<u32>().unwrap_or(14);
+            app_cfg.font_size = fs_val;
+            state_save
+                .current_terminal_font_size
+                .store(fs_val, std::sync::atomic::Ordering::Relaxed);
+            *state_save.current_terminal_font_family.write() = font_fam.to_string();
+
             if let Ok(sl) = scroll_l.parse::<u32>() {
                 app_cfg.scrollback_lines = sl;
             }
@@ -852,6 +869,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(app) = app_weak.upgrade() {
                 let theme_global = app.global::<Theme>();
                 let (eff, _) = theme::apply_theme(&theme_global, &th_m, &col_sch, &acc_col);
+                app.set_settings_font_family(font_fam.clone());
+                app.set_settings_font_size(font_sz.clone());
                 app.set_settings_theme_mode(th_m.clone());
                 app.set_settings_color_scheme(eff.into());
                 app.set_settings_accent_color(acc_col.clone());
@@ -1075,7 +1094,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = tx.send(ssh::SshInput::Data(bytes));
                     }
                     if let Some(buf) = state_clone.terminal_buffers.read().get(&sid) {
-                        buf.lock().scroll_to_bottom();
+                        let mut b = buf.lock();
+                        b.scroll_to_bottom();
+                        let (text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
+                        drop(b);
+                        app.set_terminal_scroll_total(total as i32);
+                        app.set_terminal_scroll_offset(scroll_off as i32);
+                        app.set_terminal_scroll_visible(vis_rows as i32);
+                        app.set_terminal_full_text(text.into());
+                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
                     }
                 }
             }
@@ -1165,39 +1192,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Terminal Viewport Resize Handler (fires from Slint changed-height on viewport container)
-    // Uses a last-height debounce so text-content updates don't cause a re-render feedback loop.
+    // Setup Terminal Viewport Resize Handler (fires from Slint changed-height and changed-width on viewport container)
+    // Uses a last-dimension debounce so text-content updates don't cause a re-render feedback loop.
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    let last_term_h: Arc<Mutex<f32>> = Arc::new(Mutex::new(0.0));
-    app.on_request_terminal_resized(move |term_h_px| {
-        // Only act if the height actually changed by more than 2px (real window resize)
+    let last_dims: Arc<std::sync::Mutex<(f32, f32)>> = Arc::new(std::sync::Mutex::new((0.0, 0.0)));
+    app.on_request_terminal_resized(move |term_h_px, term_w_px| {
+        // Only act if dimensions actually changed by more than 2px (real window resize)
         {
-            let mut last = last_term_h.lock().unwrap();
-            if (term_h_px - *last).abs() < 2.0 {
+            let mut last = last_dims.lock().unwrap();
+            if (term_h_px - last.0).abs() < 2.0 && (term_w_px - last.1).abs() < 2.0 {
                 return;
             }
-            *last = term_h_px;
+            *last = (term_h_px, term_w_px);
         }
 
         if let Some(app) = app_weak.upgrade() {
-            let calculated_rows = if term_h_px > 20.0 {
-                ((term_h_px - 8.0) / 17.6).floor().max(8.0) as usize
+            let font_sz = state_clone
+                .current_terminal_font_size
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .max(8) as f32;
+            let row_height_px = (font_sz * 1.38 + 0.5).max(12.0);
+            let char_width_px = (font_sz * 0.60).max(5.0);
+
+            let calculated_cols = if term_w_px > 40.0 {
+                ((term_w_px - 24.0) / char_width_px).floor().max(20.0) as usize
+            } else {
+                80
+            };
+            let calculated_rows = if term_h_px > 30.0 {
+                ((term_h_px - 12.0) / row_height_px).floor().max(4.0) as usize
             } else {
                 24
             };
-            let active_idx = app.get_active_tab_index() as usize;
-            let tabs = app.get_tabs();
+
+            state_clone
+                .current_terminal_cols
+                .store(calculated_cols, std::sync::atomic::Ordering::Relaxed);
+            state_clone
+                .current_terminal_rows
+                .store(calculated_rows, std::sync::atomic::Ordering::Relaxed);
+
+            app.set_status_dimensions(format!("{}x{}", calculated_cols, calculated_rows).into());
 
             // Update ALL buffers so switching tabs post-resize is correct
             {
                 let buffers = state_clone.terminal_buffers.read();
                 for buf in buffers.values() {
-                    buf.lock().set_visible_rows(calculated_rows);
+                    buf.lock().set_size(calculated_cols, calculated_rows);
+                }
+            }
+
+            // Send dynamic SSH NAWS window resize to all active sessions
+            {
+                let senders = state_clone.input_senders.read();
+                for sender in senders.values() {
+                    let _ = sender.send(ssh::SshInput::Resize {
+                        rows: calculated_rows as u16,
+                        cols: calculated_cols as u16,
+                    });
                 }
             }
 
             // Re-render the active tab immediately
+            let active_idx = app.get_active_tab_index() as usize;
+            let tabs = app.get_tabs();
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
@@ -2242,7 +2301,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .build();
 
                 let mut latest_tag: Option<String> = None;
-                let mut release_url = "https://github.com/jspurrier/SpurXSecureSSH_rust_slint".to_string();
+                let mut release_url = "https://github.com/jspurrier/SpurXSecureSSH_rust_slint/releases/latest".to_string();
 
                 if let Ok(client) = client {
                     let url = "https://api.github.com/repos/jspurrier/SpurXSecureSSH_rust_slint/releases/latest";
@@ -2439,6 +2498,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    async fn ensure_sftp_connected(state: &Arc<AppState>, session_id: &str) -> Result<(), String> {
+        if state.sftp_manager.is_connected(session_id).await {
+            return Ok(());
+        }
+        let req = {
+            let creds = state.session_credentials.read();
+            creds.get(session_id).cloned()
+        };
+        if let Some(r) = req {
+            state
+                .sftp_manager
+                .connect(
+                    session_id,
+                    &r.host,
+                    r.port,
+                    &r.username,
+                    r.password.as_deref(),
+                    &r.auth_method,
+                    r.private_key_name.as_deref(),
+                    r.private_key_passphrase.as_deref(),
+                )
+                .await
+        } else {
+            Err("No stored credentials found for session".to_string())
+        }
+    }
+
     // Setup SFTP Remote Navigate callback
     let app_weak = app.as_weak();
     let state_sftp = app_state.clone();
@@ -2466,9 +2552,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 let path_to_set = new_path.clone();
                 app.set_sftp_remote_path(path_to_set.clone().into());
-                app.set_sftp_status("Loading remote directory...".into());
+                app.set_sftp_status("Connecting SFTP & loading remote directory...".into());
 
                 rt_handle.spawn(async move {
+                    if let Err(e) = ensure_sftp_connected(&state_sftp, &sid).await {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_weak.upgrade() {
+                                app.set_sftp_status(format!("SFTP connect error: {}", e).into());
+                            }
+                        });
+                        return;
+                    }
                     match state_sftp.sftp_manager.list_dir(&sid, &new_path).await {
                         Ok(entries) => {
                             let mut files: Vec<SftpFileItemModel> = Vec::new();
@@ -2531,6 +2625,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.set_sftp_status(format!("Uploading {}...", filename).into());
 
                 rt_handle.spawn(async move {
+                    if let Err(e) = ensure_sftp_connected(&state_sftp, &sid).await {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_weak.upgrade() {
+                                app.set_sftp_status(format!("SFTP connect error: {}", e).into());
+                            }
+                        });
+                        return;
+                    }
                     match state_sftp
                         .sftp_manager
                         .upload(&sid, &local_path, &remote_path)
@@ -2581,6 +2683,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.set_sftp_status(format!("Downloading {}...", filename).into());
 
                 rt_handle.spawn(async move {
+                    if let Err(e) = ensure_sftp_connected(&state_sftp, &sid).await {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_weak.upgrade() {
+                                app.set_sftp_status(format!("SFTP connect error: {}", e).into());
+                            }
+                        });
+                        return;
+                    }
                     match state_sftp
                         .sftp_manager
                         .download(&sid, &remote_path, &local_path)
@@ -2625,12 +2735,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let r_dir = remote_dir.clone();
 
                 rt_handle.spawn(async move {
-                    let _ = state_sftp.sftp_manager.mkdir(&sid, &new_dir_path).await;
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(app) = app_weak.upgrade() {
-                            app.invoke_request_sftp_remote_navigate(r_dir.into());
-                        }
-                    });
+                    if let Ok(_) = ensure_sftp_connected(&state_sftp, &sid).await {
+                        let _ = state_sftp.sftp_manager.mkdir(&sid, &new_dir_path).await;
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_weak.upgrade() {
+                                app.invoke_request_sftp_remote_navigate(r_dir.into());
+                            }
+                        });
+                    }
                 });
             }
         }
@@ -2654,19 +2766,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let r_dir = remote_dir.clone();
 
                 rt_handle.spawn(async move {
-                    let _ = if is_dir {
-                        state_sftp.sftp_manager.delete_dir(&sid, &target_path).await
-                    } else {
-                        state_sftp
-                            .sftp_manager
-                            .delete_file(&sid, &target_path)
-                            .await
-                    };
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(app) = app_weak.upgrade() {
-                            app.invoke_request_sftp_remote_navigate(r_dir.into());
-                        }
-                    });
+                    if let Ok(_) = ensure_sftp_connected(&state_sftp, &sid).await {
+                        let _ = if is_dir {
+                            state_sftp.sftp_manager.delete_dir(&sid, &target_path).await
+                        } else {
+                            state_sftp
+                                .sftp_manager
+                                .delete_file(&sid, &target_path)
+                                .await
+                        };
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = app_weak.upgrade() {
+                                app.invoke_request_sftp_remote_navigate(r_dir.into());
+                            }
+                        });
+                    }
                 });
             }
         }
@@ -3813,21 +3927,15 @@ fn sync_remote_cursor(
     target_offset: usize,
 ) {
     let mut buf = buffer.lock();
-    let total = buf.lines.len();
-    let rows = buf.visible_rows.max(10).min(150);
-    let end_idx = total.saturating_sub(buf.scroll_offset).min(total).max(1);
-    let start_idx = end_idx.saturating_sub(rows);
-
-    let active_row = buf.cursor_row.min(total.saturating_sub(1));
-
-    if active_row >= start_idx && active_row < end_idx {
+    if buf.scroll_offset == 0 {
+        let active_row = buf.cursor_row.min(buf.screen.len().saturating_sub(1));
         let mut line_start_in_visible = 0;
-        for i in start_idx..active_row {
-            line_start_in_visible += buf.lines[i].chars().count() + 1; // +1 for '\n'
+        for i in 0..active_row {
+            line_start_in_visible += buf.screen[i].chars().count() + 1; // +1 for '\n'
         }
 
         let line_len = buf
-            .lines
+            .screen
             .get(active_row)
             .map(|l| l.chars().count())
             .unwrap_or(0);
@@ -3892,10 +4000,9 @@ fn refresh_sessions_ui(
 ) {
     let q = filter_query.trim().to_lowercase();
     let sess_guard = session_cache.read();
+    let exp = expanded_folders.lock();
 
     if q.is_empty() {
-        let exp = expanded_folders.lock();
-
         // Populate available session folders for folder pickers only when not filtering
         let mut folder_set = BTreeSet::new();
         for f in exp.iter() {
@@ -3936,11 +4043,11 @@ fn refresh_sessions_ui(
         }
 
         let mut models: Vec<SessionItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, 0, &mut models);
+        root_node.flatten_to_models(&exp, false, 0, &mut models);
         app.set_sessions(ModelRc::new(VecModel::from(models)));
     } else {
-        // Fast flat search path - instant sub-millisecond filtering with no tree overhead
-        let mut models: Vec<SessionItemModel> = Vec::with_capacity(sess_guard.len());
+        // Hierarchical search path - preserves folder structure and auto-expands containing folders
+        let mut root_node = SessionFolderNode::default();
         for s in sess_guard.iter() {
             let name_match = s.name.to_lowercase().contains(&q);
             let host_match = s.host.to_lowercase().contains(&q);
@@ -3958,20 +4065,17 @@ fn refresh_sessions_ui(
                 .contains(&q);
 
             if name_match || host_match || user_match || folder_match {
-                models.push(SessionItemModel {
-                    id: s.id.clone().into(),
-                    name: s.name.clone().into(),
-                    host: s.host.clone().into(),
-                    port: s.port as i32,
-                    username: s.username.clone().unwrap_or_default().into(),
-                    folder: s.folder.clone().unwrap_or_default().into(),
-                    is_folder: false,
-                    expanded: false,
-                    count: 0,
-                    depth: 0,
-                });
+                let folder_str = s.folder.clone().unwrap_or_default();
+                let parts: Vec<&str> = folder_str
+                    .split('/')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                root_node.insert_session(&parts, "", s.clone());
             }
         }
+        let mut models: Vec<SessionItemModel> = Vec::new();
+        root_node.flatten_to_models(&exp, true, 0, &mut models);
         app.set_sessions(ModelRc::new(VecModel::from(models)));
     }
 }
@@ -3984,10 +4088,9 @@ fn refresh_commands_ui(
 ) {
     let q = filter_query.trim().to_lowercase();
     let cmd_guard = command_cache.read();
+    let exp = expanded_folders.lock();
 
     if q.is_empty() {
-        let exp = expanded_folders.lock();
-
         // Populate available command folders for folder pickers only when not filtering
         let mut folder_set = BTreeSet::new();
         for f in exp.iter() {
@@ -4026,11 +4129,11 @@ fn refresh_commands_ui(
         }
 
         let mut models: Vec<CommandItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, 0, &mut models);
+        root_node.flatten_to_models(&exp, false, 0, &mut models);
         app.set_commands(ModelRc::new(VecModel::from(models)));
     } else {
-        // Fast flat search path - instant sub-millisecond filtering
-        let mut models: Vec<CommandItemModel> = Vec::with_capacity(cmd_guard.len());
+        // Hierarchical search path - preserves folder structure and auto-expands containing folders
+        let mut root_node = CommandFolderNode::default();
         for c in cmd_guard.iter() {
             let name_match = c.name.to_lowercase().contains(&q);
             let cmd_match = c.command.to_lowercase().contains(&q);
@@ -4043,20 +4146,17 @@ fn refresh_commands_ui(
             let folder_match = c.folder.to_lowercase().contains(&q);
 
             if name_match || cmd_match || desc_match || folder_match {
-                models.push(CommandItemModel {
-                    id: c.id.clone().into(),
-                    name: c.name.clone().into(),
-                    command: c.command.clone().into(),
-                    folder: c.folder.clone().into(),
-                    color: c.icon.clone().unwrap_or_else(|| "cyan".to_string()).into(),
-                    description: c.description.clone().unwrap_or_default().into(),
-                    is_folder: false,
-                    expanded: false,
-                    count: 0,
-                    depth: 0,
-                });
+                let folder_clone = c.folder.clone();
+                let parts: Vec<&str> = folder_clone
+                    .split('/')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                root_node.insert_command(&parts, "", c.clone());
             }
         }
+        let mut models: Vec<CommandItemModel> = Vec::new();
+        root_node.flatten_to_models(&exp, true, 0, &mut models);
         app.set_commands(ModelRc::new(VecModel::from(models)));
     }
 }
@@ -4284,9 +4384,29 @@ async fn connect_ssh_session(
     ));
     state.connections.write().insert(session_id.clone(), conn);
 
-    let mut initial_buffer = TerminalBuffer::new(80, 24, 10000);
+    let init_cols = state
+        .current_terminal_cols
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let init_rows = state
+        .current_terminal_rows
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let mut initial_buffer = TerminalBuffer::new(init_cols, init_rows, 10000);
     let init_msg = format!("Connecting to {}:{} as {}...\r\n", host, port, username);
     initial_buffer.process_bytes(init_msg.as_bytes());
+
+    state.session_credentials.write().insert(
+        session_id.clone(),
+        ConnectRequest {
+            host: host.clone(),
+            port,
+            username: username.clone(),
+            password: password.clone(),
+            log_directory: log_directory.clone(),
+            auth_method: auth_method.clone(),
+            private_key_name: private_key_name.clone(),
+            private_key_passphrase: private_key_passphrase.clone(),
+        },
+    );
 
     let buffer = Arc::new(parking_lot::Mutex::new(initial_buffer));
     state
@@ -4389,13 +4509,6 @@ async fn connect_ssh_session(
                                     };
 
                                     if needs_init {
-                                        let term_h = app.invoke_get_terminal_viewport_height();
-                                        let calculated_rows = if term_h > 20.0 {
-                                            ((term_h - 8.0) / 17.6).floor().max(8.0) as usize
-                                        } else {
-                                            24
-                                        };
-                                        buf_clone.lock().set_visible_rows(calculated_rows);
                                         app.invoke_focus_terminal();
                                     }
 
@@ -4479,30 +4592,6 @@ async fn connect_ssh_session(
         }
     });
 
-    // Auto-connect SFTP subsystem in background so SFTP browser is immediately available
-    let sftp_mgr = state.sftp_manager.clone();
-    let sid_sftp = session_id.clone();
-    let host_sftp = host.clone();
-    let user_sftp = username.clone();
-    let pwd_sftp = password.clone();
-    let auth_sftp = auth_method.clone();
-    let pk_name_sftp = private_key_name.clone();
-    let pk_pass_sftp = private_key_passphrase.clone();
-    tokio::spawn(async move {
-        let _ = sftp_mgr
-            .connect(
-                &sid_sftp,
-                &host_sftp,
-                port,
-                &user_sftp,
-                pwd_sftp.as_deref(),
-                &auth_sftp,
-                pk_name_sftp.as_deref(),
-                pk_pass_sftp.as_deref(),
-            )
-            .await;
-    });
-
     // Run SSH connection loop
     let conn_res = ssh::connect_ssh_async(
         &session_id,
@@ -4514,6 +4603,8 @@ async fn connect_ssh_session(
         private_key_name.as_deref(),
         private_key_passphrase.as_deref(),
         log_directory,
+        init_cols as u16,
+        init_rows as u16,
         output_tx.clone(),
         &mut input_rx,
         false,

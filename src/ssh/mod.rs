@@ -258,6 +258,8 @@ pub async fn connect_ssh_async(
     private_key_name: Option<&str>,
     private_key_passphrase: Option<&str>,
     log_directory: Option<String>,
+    initial_cols: u16,
+    initial_rows: u16,
     output_tx: mpsc::UnboundedSender<Vec<u8>>,
     input_rx: &mut mpsc::UnboundedReceiver<SshInput>,
     debug_mode: bool,
@@ -285,7 +287,8 @@ pub async fn connect_ssh_async(
             Err(e) => {
                 last_err = format!("Connection to {}:{} failed: {}", host, port, e);
                 if attempt < 2 {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                    let delay_ms = 400 * (attempt + 1) as u64;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     continue;
                 }
                 let err = format!("\r\nConnection failed to {}:{}: {}\r\n", host, port, e);
@@ -303,11 +306,14 @@ pub async fn connect_ssh_async(
             Err(e) => {
                 last_err = format!("SSH handshake failed: {}", e);
                 if attempt < 2 {
+                    let delay_ms = 400 * (attempt + 1) as u64;
                     if debug_mode {
-                        let _ = output_tx
-                            .send(b"Handshake interrupted; retrying in 150ms...\r\n".to_vec());
+                        let _ = output_tx.send(
+                            format!("Handshake interrupted; retrying in {}ms...\r\n", delay_ms)
+                                .into_bytes(),
+                        );
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
                     continue;
                 }
                 let err = format!("\r\nSSH handshake failed: {}\r\n", e);
@@ -403,8 +409,10 @@ pub async fn connect_ssh_async(
         }
     };
 
+    let pty_cols = initial_cols.max(20) as u32;
+    let pty_rows = initial_rows.max(8) as u32;
     if let Err(e) = channel
-        .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
+        .request_pty(true, "xterm-256color", pty_cols, pty_rows, 0, 0, &[])
         .await
     {
         let _ = output_tx.send(format!("\r\nFailed to request PTY: {}\r\n", e).into_bytes());

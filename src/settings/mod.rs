@@ -196,9 +196,120 @@ pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
     Ok(())
 }
 
+pub fn get_available_system_fonts() -> Vec<String> {
+    let mut fonts = std::collections::BTreeSet::new();
+
+    // Standard high-quality monospace and terminal fonts
+    let curated = [
+        "Cascadia Code",
+        "JetBrains Mono",
+        "Fira Code",
+        "Consolas",
+        "Menlo",
+        "Monaco",
+        "SF Mono",
+        "DejaVu Sans Mono",
+        "Liberation Mono",
+        "Ubuntu Mono",
+        "Source Code Pro",
+        "Hack",
+        "Inconsolata",
+        "Courier New",
+        "Lucida Console",
+        "PT Mono",
+        "IBM Plex Mono",
+        "Monospace",
+    ];
+    for f in curated {
+        fonts.insert(f.to_string());
+    }
+
+    // Linux font discovery via fc-list or font paths
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(output) = std::process::Command::new("fc-list")
+            .arg(":spacing=mono")
+            .arg("family")
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    for family in line.split(',') {
+                        let name = family.trim();
+                        if !name.is_empty() && !name.starts_with('.') {
+                            fonts.insert(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // macOS font discovery
+    #[cfg(target_os = "macos")]
+    {
+        let font_dirs = ["/System/Library/Fonts", "/Library/Fonts"];
+        for dir in font_dirs {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        if ["ttf", "otf", "ttc", "dfont"].contains(&ext.to_lowercase().as_str()) {
+                            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                                if !stem.starts_with('.') {
+                                    fonts.insert(stem.replace('-', " ").replace('_', " "));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(home) = dirs::home_dir() {
+            let user_fonts = home.join("Library").join("Fonts");
+            if let Ok(entries) = fs::read_dir(user_fonts) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if !stem.starts_with('.') {
+                            fonts.insert(stem.replace('-', " ").replace('_', " "));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Windows font discovery
+    #[cfg(target_os = "windows")]
+    {
+        let win_fonts = PathBuf::from(r"C:\Windows\Fonts");
+        if let Ok(entries) = fs::read_dir(win_fonts) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !stem.starts_with('.') {
+                        fonts.insert(stem.replace('-', " ").replace('_', " "));
+                    }
+                }
+            }
+        }
+    }
+
+    fonts.into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_get_available_system_fonts() {
+        let fonts = get_available_system_fonts();
+        assert!(!fonts.is_empty());
+        assert!(fonts.iter().any(|f| f == "Cascadia Code" || f == "JetBrains Mono" || f == "Monospace"));
+    }
 
     #[test]
     fn test_default_log_dir_location() {

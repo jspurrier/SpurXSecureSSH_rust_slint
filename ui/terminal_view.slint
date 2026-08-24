@@ -48,6 +48,8 @@ export component TerminalView inherits Rectangle {
     in property <int> scrollback-total: 1;
     in property <int> scrollback-offset: 0;
     in property <int> scrollback-visible: 24;
+    in property <string> terminal-font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
+    in property <length> terminal-font-size: 14px;
 
     // AI Inline Autocomplete Properties
     in property <bool> ai-autocomplete-visible: false;
@@ -67,7 +69,7 @@ export component TerminalView inherits Rectangle {
     callback request-clipboard-paste();
     callback request-clear-terminal();
     callback ymodem-abort();
-    callback terminal-viewport-resized(float);
+    callback terminal-viewport-resized(float, float);
     callback trigger-ai-autocomplete();
     callback accept-ai-suggestion(string);
     callback dismiss-ai-autocomplete();
@@ -413,7 +415,10 @@ export component TerminalView inherits Rectangle {
             clip: true;
 
             changed height => {
-                root.terminal-viewport-resized(self.height / 1px);
+                root.terminal-viewport-resized(self.height / 1px, self.width / 1px);
+            }
+            changed width => {
+                root.terminal-viewport-resized(self.height / 1px, self.width / 1px);
             }
 
             HorizontalLayout {
@@ -456,8 +461,8 @@ export component TerminalView inherits Rectangle {
                             read-only: true;
                             single-line: false;
                             wrap: no-wrap;
-                            font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
-                            font-size: 13px;
+                            font-family: root.terminal-font-family;
+                            font-size: root.terminal-font-size;
                             color: Theme.term-fg;
                             selection-background-color: #264f78;
                             selection-foreground-color: #ffffff;

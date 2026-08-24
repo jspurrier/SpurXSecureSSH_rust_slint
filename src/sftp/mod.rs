@@ -126,6 +126,12 @@ impl SftpManager {
         Ok(())
     }
 
+    /// Check if SFTP session is connected
+    pub async fn is_connected(&self, session_id: &str) -> bool {
+        let sessions = self.sessions.lock().await;
+        sessions.contains_key(session_id)
+    }
+
     /// Disconnect SFTP session
     pub async fn disconnect(&self, session_id: &str) {
         let mut sessions = self.sessions.lock().await;

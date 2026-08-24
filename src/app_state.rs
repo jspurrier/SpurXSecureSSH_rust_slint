@@ -37,6 +37,11 @@ pub struct AppState {
     pub tunnel_manager: Arc<TunnelManager>,
     pub sftp_manager: Arc<SftpManager>,
     pub tab_groups: RwLock<HashMap<String, TabGroup>>,
+    pub current_terminal_rows: std::sync::atomic::AtomicUsize,
+    pub current_terminal_cols: std::sync::atomic::AtomicUsize,
+    pub current_terminal_font_size: std::sync::atomic::AtomicU32,
+    pub current_terminal_font_family: RwLock<String>,
+    pub session_credentials: RwLock<HashMap<String, ConnectRequest>>,
 }
 
 impl AppState {
@@ -48,6 +53,13 @@ impl AppState {
             tunnel_manager: Arc::new(TunnelManager::new()),
             sftp_manager: Arc::new(SftpManager::new()),
             tab_groups: RwLock::new(HashMap::new()),
+            current_terminal_rows: std::sync::atomic::AtomicUsize::new(24),
+            current_terminal_cols: std::sync::atomic::AtomicUsize::new(80),
+            current_terminal_font_size: std::sync::atomic::AtomicU32::new(14),
+            current_terminal_font_family: RwLock::new(
+                "Cascadia Code, JetBrains Mono, Fira Code, monospace".to_string(),
+            ),
+            session_credentials: RwLock::new(HashMap::new()),
         }
     }
 }
