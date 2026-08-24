@@ -872,7 +872,13 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     spacing: 6px;
                     alignment: start;
-                    Text { text: "🚀"; font-size: 12px; vertical-alignment: center; }
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: Theme.accent-primary;
+                        y: (parent.height - self.height) / 2;
+                    }
                     Text {
                         text: "Update Available!";
                         font-size: 11px;
@@ -898,6 +904,7 @@ export component AppWindow inherits Window {
                     variant: "primary";
                     custom-height: 26px;
                     clicked => {
+                        root.update-toast-visible = false;
                         root.request-open-url(root.update-toast-url);
                     }
                 }

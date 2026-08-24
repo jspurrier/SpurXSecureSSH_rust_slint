@@ -96,11 +96,12 @@ export component AboutModal inherits Rectangle {
                     }
 
                     if root.update-available : SpurxButton {
-                        text: "🚀 Download Update (GitHub)";
+                        text: "Download Update (GitHub)";
                         variant: "primary";
                         custom-height: 28px;
                         custom-padding: 14px;
                         clicked => {
+                            root.close();
                             root.open-release-url(root.release-url);
                         }
                     }

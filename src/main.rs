@@ -2331,13 +2331,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let curr_parts = parse_parts(current_version);
                         let latest_parts = parse_parts(&tag);
                         if latest_parts > curr_parts {
-                            (format!("🚀 New update available: {} (Current: v{})", tag, current_version), true)
+                            (format!("New update available: {} (Current: v{})", tag, current_version), true)
                         } else {
-                            (format!("✓ You are running the latest version (v{})!", current_version), false)
+                            (format!("You are running the latest version (v{})!", current_version), false)
                         }
                     }
                     None => {
-                        (format!("✓ Up to date! Running v{} (no newer GitHub release found).", current_version), false)
+                        (format!("Up to date! Running v{} (no newer GitHub release found).", current_version), false)
                     }
                 };
 

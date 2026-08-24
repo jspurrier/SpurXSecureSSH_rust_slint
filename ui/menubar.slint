@@ -199,7 +199,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     alignment: space-between;
-                    Text { text: "⚡ Open Connection..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Open Connection..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                     Text { text: "Alt+Q"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
                 }
                 f1-touch := TouchArea {
@@ -218,7 +218,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: f2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "📥 Import Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Import Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 f2-touch := TouchArea {
                     clicked => {
@@ -234,7 +234,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: f3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "📤 Export Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Export Sessions..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 f3-touch := TouchArea {
                     clicked => {
@@ -253,7 +253,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     alignment: space-between;
-                    Text { text: "✕ Exit"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Exit"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                     Text { text: "Alt+F4"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
                 }
                 f4-touch := TouchArea {
@@ -290,7 +290,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     alignment: space-between;
-                    Text { text: "📋 Copy"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Copy"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                     Text { text: "Ctrl+C"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
                 }
                 e1-touch := TouchArea {
@@ -308,7 +308,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     alignment: space-between;
-                    Text { text: "📋 Paste"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Paste"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                     Text { text: "Ctrl+V"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
                 }
                 e2-touch := TouchArea {
@@ -327,7 +327,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: e3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "🧹 Clear Terminal"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Clear Terminal"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 e3-touch := TouchArea {
                     clicked => {
@@ -363,7 +363,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     Text {
-                        text: Theme.is-dark ? "☀️ Switch to Light Theme" : "🌙 Switch to Dark Theme";
+                        text: Theme.is-dark ? "Switch to Light Theme" : "Switch to Dark Theme";
                         font-size: 12px;
                         color: Theme.text-primary;
                         vertical-alignment: center;
@@ -385,7 +385,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: o1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "🔀 SSH Tunnels & Forwarding..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "SSH Tunnels & Forwarding..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 o1-touch := TouchArea {
                     clicked => {
@@ -401,7 +401,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: o2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "⚙️ Global Settings..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Global Settings..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 o2-touch := TouchArea {
                     clicked => {
@@ -417,7 +417,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: o3-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "🔑 SSH Key Manager..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "SSH Key Manager..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 o3-touch := TouchArea {
                     clicked => {
@@ -433,7 +433,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: o4-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "🔒 Master Password Lock..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Master Password Lock..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 o4-touch := TouchArea {
                     clicked => {
@@ -468,7 +468,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: t1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "📁 SFTP Browser..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "SFTP Browser..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 t1-touch := TouchArea {
                     clicked => {
@@ -484,7 +484,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: t2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "📦 Send via YModem..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Send via YModem..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 t2-touch := TouchArea {
                     clicked => {
@@ -519,7 +519,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: sc1-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "📢 Broadcast Command..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "Broadcast Command..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 sc1-touch := TouchArea {
                     clicked => {
@@ -555,7 +555,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
                     alignment: space-between;
-                    Text { text: "📖 User Guide & Shortcuts"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "User Guide & Shortcuts"; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                     Text { text: "F1"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
                 }
                 h1-touch := TouchArea {
@@ -574,7 +574,7 @@ export component MenuDropdownOverlay inherits Rectangle {
                 background: h2-touch.has-hover ? Theme.bg-hover : Colors.transparent;
                 HorizontalLayout {
                     padding-left: 10px; padding-right: 10px;
-                    Text { text: "ℹ️ About SpurX Secure SSH..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
+                    Text { text: "About SpurX Secure SSH..."; font-size: 12px; color: Theme.text-primary; vertical-alignment: center; }
                 }
                 h2-touch := TouchArea {
                     clicked => {
