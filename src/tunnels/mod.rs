@@ -1,13 +1,14 @@
 //! SSH Tunnels and Port Forwarding module
 //! Manages Local Port Forwarding (e.g. localhost:8080 -> remote_host:80) via russh direct-tcpip
 
+use parking_lot::RwLock;
 use russh::client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::broadcast;
 
 use crate::ssh::ClientHandler;
 use crate::ConnectRequest;
@@ -68,9 +69,9 @@ struct RunningTunnel {
 /// Global manager for SSH Tunnels
 pub struct TunnelManager {
     /// Active running tunnels by tunnel ID
-    tunnels: Mutex<HashMap<String, Arc<RunningTunnel>>>,
+    tunnels: RwLock<HashMap<String, Arc<RunningTunnel>>>,
     /// Shared SSH sessions keyed by session identifier or host:port:user
-    ssh_sessions: Mutex<HashMap<String, Arc<Mutex<client::Handle<ClientHandler>>>>>,
+    ssh_sessions: RwLock<HashMap<String, Arc<client::Handle<ClientHandler>>>>,
 }
 
 impl Default for TunnelManager {
@@ -82,8 +83,8 @@ impl Default for TunnelManager {
 impl TunnelManager {
     pub fn new() -> Self {
         Self {
-            tunnels: Mutex::new(HashMap::new()),
-            ssh_sessions: Mutex::new(HashMap::new()),
+            tunnels: RwLock::new(HashMap::new()),
+            ssh_sessions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -92,17 +93,18 @@ impl TunnelManager {
         &self,
         key: &str,
         req: &ConnectRequest,
-    ) -> Result<Arc<Mutex<client::Handle<ClientHandler>>>, String> {
-        let mut sessions = self.ssh_sessions.lock().await;
-
-        if let Some(handle_arc) = sessions.get(key) {
-            let handle = handle_arc.lock().await;
-            if !handle.is_closed() {
-                return Ok(handle_arc.clone());
+    ) -> Result<Arc<client::Handle<ClientHandler>>, String> {
+        // Fast path: check under read lock
+        {
+            let sessions = self.ssh_sessions.read();
+            if let Some(handle_arc) = sessions.get(key) {
+                if !handle_arc.is_closed() {
+                    return Ok(handle_arc.clone());
+                }
             }
         }
 
-        // Connect new SSH session
+        // Connect new SSH session without holding any lock
         let config = Arc::new(crate::ssh::get_russh_config());
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let handler = ClientHandler {
@@ -110,49 +112,68 @@ impl TunnelManager {
             output_tx: tx,
         };
 
-        let mut session = client::connect(config, (req.host.as_str(), req.port), handler)
-            .await
-            .map_err(|e| {
-                format!(
+        let connect_fut = client::connect(config, (req.host.as_str(), req.port), handler);
+        let mut session = match tokio::time::timeout(std::time::Duration::from_secs(10), connect_fut).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
+                return Err(format!(
                     "SSH tunnel connect to {}:{} failed: {}",
                     req.host, req.port, e
-                )
-            })?;
-
-        let auth_res = if req.auth_method == "publickey" {
-            if let Some(ref key_name) = req.private_key_name {
-                let key_path = match crate::keys::find_private_key_path(key_name) {
-                    Some(p) => p,
-                    None => return Err(format!("Private key '{}' not found", key_name)),
-                };
-
-                let passphrase_str = req
-                    .private_key_passphrase
-                    .as_deref()
-                    .filter(|s| !s.is_empty());
-                let key_pair = russh_keys::load_secret_key(&key_path, passphrase_str)
-                    .map_err(|e| format!("Failed to load private key for tunnel: {}", e))?;
-
-                session
-                    .authenticate_publickey(&req.username, Arc::new(key_pair))
-                    .await
-                    .map_err(|e| format!("Tunnel publickey auth failed: {}", e))?
-            } else {
-                return Err("Publickey auth selected but no key name provided".to_string());
+                ))
             }
-        } else {
-            session
-                .authenticate_password(&req.username, req.password.as_deref().unwrap_or(""))
-                .await
-                .map_err(|e| format!("Tunnel password auth failed: {}", e))?
+            Err(_) => {
+                return Err(format!(
+                    "SSH tunnel connect to {}:{} timed out after 10s",
+                    req.host, req.port
+                ))
+            }
+        };
+
+        let auth_fut = async {
+            if req.auth_method == "publickey" {
+                if let Some(ref key_name) = req.private_key_name {
+                    let key_path = match crate::keys::find_private_key_path(key_name) {
+                        Some(p) => p,
+                        None => return Err(format!("Private key '{}' not found", key_name)),
+                    };
+
+                    let passphrase_str = req
+                        .private_key_passphrase
+                        .as_deref()
+                        .filter(|s| !s.is_empty());
+                    let key_pair = russh_keys::load_secret_key(&key_path, passphrase_str)
+                        .map_err(|e| format!("Failed to load private key for tunnel: {}", e))?;
+
+                    session
+                        .authenticate_publickey(&req.username, Arc::new(key_pair))
+                        .await
+                        .map_err(|e| format!("Tunnel publickey auth failed: {}", e))
+                } else {
+                    Err("Publickey auth selected but no key name provided".to_string())
+                }
+            } else {
+                session
+                    .authenticate_password(&req.username, req.password.as_deref().unwrap_or(""))
+                    .await
+                    .map_err(|e| format!("Tunnel password auth failed: {}", e))
+            }
+        };
+
+        let auth_res = match tokio::time::timeout(std::time::Duration::from_secs(10), auth_fut).await {
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err("Tunnel SSH authentication timed out after 10s".to_string()),
         };
 
         if !auth_res {
             return Err("Tunnel SSH authentication failed: Invalid credentials".to_string());
         }
 
-        let handle_arc = Arc::new(Mutex::new(session));
-        sessions.insert(key.to_string(), handle_arc.clone());
+        let handle_arc = Arc::new(session);
+        {
+            let mut sessions = self.ssh_sessions.write();
+            sessions.insert(key.to_string(), handle_arc.clone());
+        }
         Ok(handle_arc)
     }
 
@@ -163,7 +184,7 @@ impl TunnelManager {
         req: ConnectRequest,
     ) -> Result<(), String> {
         // If already running, stop it first
-        self.stop_tunnel(&config.id).await;
+        self.stop_tunnel(&config.id);
 
         let session_key = if let Some(ref sid) = config.session_id {
             format!("session:{}", sid)
@@ -195,7 +216,7 @@ impl TunnelManager {
         });
 
         {
-            let mut tunnels = self.tunnels.lock().await;
+            let mut tunnels = self.tunnels.write();
             tunnels.insert(config.id.clone(), running_tunnel);
         }
 
@@ -212,7 +233,7 @@ impl TunnelManager {
                     accept_res = listener.accept() => {
                         match accept_res {
                             Ok((mut local_stream, peer_addr)) => {
-                                let session_handle_arc = session_arc.clone();
+                                let session_handle = session_arc.clone();
                                 let remote_h = remote_host.clone();
                                 let active_conn = active_connections.clone();
                                 let rx_counter = bytes_rx.clone();
@@ -222,12 +243,11 @@ impl TunnelManager {
                                 tokio::spawn(async move {
                                     active_conn.fetch_add(1, Ordering::SeqCst);
 
-                                    let open_channel_res = {
-                                        let session = session_handle_arc.lock().await;
-                                        if session.is_closed() {
+                                    let open_channel_fut = async {
+                                        if session_handle.is_closed() {
                                             Err(russh::Error::SendError)
                                         } else {
-                                            session.channel_open_direct_tcpip(
+                                            session_handle.channel_open_direct_tcpip(
                                                 remote_h,
                                                 remote_port as u32,
                                                 peer_addr.ip().to_string(),
@@ -236,16 +256,24 @@ impl TunnelManager {
                                         }
                                     };
 
+                                    let open_channel_res = tokio::time::timeout(
+                                        std::time::Duration::from_secs(10),
+                                        open_channel_fut,
+                                    ).await;
+
                                     match open_channel_res {
-                                        Ok(channel) => {
+                                        Ok(Ok(channel)) => {
                                             let mut channel_stream = channel.into_stream();
                                             if let Ok((from_client, from_remote)) = tokio::io::copy_bidirectional(&mut local_stream, &mut channel_stream).await {
                                                 tx_counter.fetch_add(from_client, Ordering::Relaxed);
                                                 rx_counter.fetch_add(from_remote, Ordering::Relaxed);
                                             }
                                         }
-                                        Err(e) => {
+                                        Ok(Err(e)) => {
                                             eprintln!("Failed to open direct-tcpip channel for tunnel {}: {:?}", tid, e);
+                                        }
+                                        Err(_) => {
+                                            eprintln!("Direct-tcpip channel open timed out for tunnel {}", tid);
                                         }
                                     }
 
@@ -270,19 +298,19 @@ impl TunnelManager {
         Ok(())
     }
 
-    /// Stop a running tunnel
-    pub async fn stop_tunnel(&self, tunnel_id: &str) {
-        let mut tunnels = self.tunnels.lock().await;
+    /// Stop a running tunnel (synchronous and instant)
+    pub fn stop_tunnel(&self, tunnel_id: &str) {
+        let mut tunnels = self.tunnels.write();
         if let Some(tunnel) = tunnels.remove(tunnel_id) {
             let _ = tunnel.cancel_tx.send(());
         }
     }
 
     /// Stop all running tunnels for a specific session ID
-    pub async fn stop_session_tunnels(&self, session_id: &str) {
+    pub fn stop_session_tunnels(&self, session_id: &str) {
         let mut to_remove = Vec::new();
         {
-            let tunnels = self.tunnels.lock().await;
+            let tunnels = self.tunnels.read();
             for (id, t) in tunnels.iter() {
                 if t.config.session_id.as_deref() == Some(session_id) {
                     to_remove.push(id.clone());
@@ -290,34 +318,34 @@ impl TunnelManager {
             }
         }
         for id in to_remove {
-            self.stop_tunnel(&id).await;
+            self.stop_tunnel(&id);
         }
 
         // Clean up cached SSH session for this session
         let session_key = format!("session:{}", session_id);
-        let mut sessions = self.ssh_sessions.lock().await;
+        let mut sessions = self.ssh_sessions.write();
         sessions.remove(&session_key);
     }
 
     /// Stop all tunnels across all sessions
-    pub async fn stop_all_tunnels(&self) {
-        let mut tunnels = self.tunnels.lock().await;
+    pub fn stop_all_tunnels(&self) {
+        let mut tunnels = self.tunnels.write();
         for (_, t) in tunnels.drain() {
             let _ = t.cancel_tx.send(());
         }
-        let mut sessions = self.ssh_sessions.lock().await;
+        let mut sessions = self.ssh_sessions.write();
         sessions.clear();
     }
 
     /// Check if a tunnel is actively running
-    pub async fn is_running(&self, tunnel_id: &str) -> bool {
-        let tunnels = self.tunnels.lock().await;
+    pub fn is_running(&self, tunnel_id: &str) -> bool {
+        let tunnels = self.tunnels.read();
         tunnels.contains_key(tunnel_id)
     }
 
-    /// Get real-time status of all running tunnels
-    pub async fn get_statuses(&self) -> Vec<TunnelStatus> {
-        let tunnels = self.tunnels.lock().await;
+    /// Get real-time status of all running tunnels (instant, non-blocking)
+    pub fn get_statuses(&self) -> Vec<TunnelStatus> {
+        let tunnels = self.tunnels.read();
         tunnels
             .iter()
             .map(|(id, t)| TunnelStatus {
@@ -381,3 +409,44 @@ pub fn delete_tunnel(id: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("Failed to write tunnels file: {}", e))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tunnel_config_serialization() {
+        let config = TunnelConfig {
+            id: "tun-123".to_string(),
+            name: "Web Forward".to_string(),
+            session_id: Some("sess-1".to_string()),
+            tunnel_type: "local".to_string(),
+            local_host: "127.0.0.1".to_string(),
+            local_port: 8080,
+            remote_host: "192.168.1.100".to_string(),
+            remote_port: 80,
+            auto_start: true,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: TunnelConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, "tun-123");
+        assert_eq!(deserialized.local_port, 8080);
+        assert_eq!(deserialized.remote_port, 80);
+        assert!(deserialized.auto_start);
+    }
+
+    #[test]
+    fn test_tunnel_manager_sync_status_operations() {
+        let manager = TunnelManager::new();
+        assert!(!manager.is_running("nonexistent"));
+        let statuses = manager.get_statuses();
+        assert!(statuses.is_empty());
+
+        // Test stopping nonexistent tunnel does not panic
+        manager.stop_tunnel("nonexistent");
+        manager.stop_session_tunnels("session-nonexistent");
+        manager.stop_all_tunnels();
+    }
+}
+

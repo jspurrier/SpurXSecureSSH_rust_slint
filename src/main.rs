@@ -1363,6 +1363,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     state_clone.connections.write().remove(&sid);
                     state_clone.input_senders.write().remove(&sid);
                     state_clone.terminal_buffers.write().remove(&sid);
+                    tunnels::TUNNEL_MANAGER.stop_session_tunnels(&sid);
                     // Remove from any tab group
                     let mut groups = state_clone.tab_groups.write();
                     for g in groups.values_mut() {
@@ -1568,6 +1569,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let sid = tab.id.to_string();
                     state.connections.write().remove(&sid);
                     state.input_senders.write().remove(&sid);
+                    tunnels::TUNNEL_MANAGER.stop_session_tunnels(&sid);
 
                     let buffers = state.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
@@ -3433,20 +3435,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Delete Tunnel Rule callback
     let app_weak = app.as_weak();
     let state_del_tun = app_state.clone();
-    let rt_handle = rt.handle().clone();
     app.on_request_delete_tunnel(move |id| {
         let id_str = id.to_string();
         let _ = tunnels::delete_tunnel(&id_str);
-        let app_weak = app_weak.clone();
-        let state = state_del_tun.clone();
-        rt_handle.spawn(async move {
-            tunnels::TUNNEL_MANAGER.stop_tunnel(&id_str).await;
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(app) = app_weak.upgrade() {
-                    refresh_tunnels_ui(&app, &state);
-                }
-            });
-        });
+        tunnels::TUNNEL_MANAGER.stop_tunnel(&id_str);
+        if let Some(app) = app_weak.upgrade() {
+            refresh_tunnels_ui(&app, &state_del_tun);
+        }
     });
 
     // Setup Start Tunnel callback
@@ -3487,20 +3482,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Stop Tunnel callback
     let app_weak = app.as_weak();
     let state_stop_tun = app_state.clone();
-    let rt_handle = rt.handle().clone();
     app.on_request_stop_tunnel(move |id| {
         let id_str = id.to_string();
-        let app_weak = app_weak.clone();
-        let state = state_stop_tun.clone();
-        rt_handle.spawn(async move {
-            tunnels::TUNNEL_MANAGER.stop_tunnel(&id_str).await;
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(app) = app_weak.upgrade() {
-                    app.set_status_text("Tunnel stopped".into());
-                    refresh_tunnels_ui(&app, &state);
-                }
-            });
-        });
+        tunnels::TUNNEL_MANAGER.stop_tunnel(&id_str);
+        if let Some(app) = app_weak.upgrade() {
+            app.set_status_text("Tunnel stopped".into());
+            refresh_tunnels_ui(&app, &state_stop_tun);
+        }
     });
 
     // Setup Start All Tunnels callback
@@ -3530,19 +3518,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Stop All Tunnels callback
     let app_weak = app.as_weak();
     let state_stop_all = app_state.clone();
-    let rt_handle = rt.handle().clone();
     app.on_request_stop_all_tunnels(move || {
-        let app_weak = app_weak.clone();
-        let state = state_stop_all.clone();
-        rt_handle.spawn(async move {
-            tunnels::TUNNEL_MANAGER.stop_all_tunnels().await;
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(app) = app_weak.upgrade() {
-                    app.set_status_text("Stopped all port forwarding tunnels".into());
-                    refresh_tunnels_ui(&app, &state);
-                }
-            });
-        });
+        tunnels::TUNNEL_MANAGER.stop_all_tunnels();
+        if let Some(app) = app_weak.upgrade() {
+            app.set_status_text("Stopped all port forwarding tunnels".into());
+            refresh_tunnels_ui(&app, &state_stop_all);
+        }
     });
 
     // Setup Move to Folder Modal callbacks
@@ -4209,7 +4190,7 @@ fn refresh_known_hosts_ui(app: &AppWindow) {
 
 fn refresh_tunnels_ui(app: &AppWindow, _state: &Arc<AppState>) {
     let saved = tunnels::load_tunnels();
-    let running = futures::executor::block_on(tunnels::TUNNEL_MANAGER.get_statuses());
+    let running = tunnels::TUNNEL_MANAGER.get_statuses();
 
     let mut models: Vec<TunnelItemModel> = Vec::new();
     for cfg in &saved {
