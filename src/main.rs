@@ -435,6 +435,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Apply initial theme
     let theme_global = app.global::<Theme>();
+    theme_global.set_is_macos(cfg!(target_os = "macos"));
     let (effective_scheme, _) = theme::apply_theme(
         &theme_global,
         &app_cfg.theme,
@@ -1060,10 +1061,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_request_copy_selection(move |sel| {
         let text = sel.to_string();
         if !text.is_empty() {
-            use copypasta::{ClipboardContext, ClipboardProvider};
-            if let Ok(mut ctx) = ClipboardContext::new() {
-                let _ = ctx.set_contents(text);
-            }
+            let _ = clipboard::set_text(&text);
             if let Some(app) = app_weak.upgrade() {
                 app.set_status_text("Copied selection to clipboard".into());
             }
@@ -1082,12 +1080,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let sid = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
-                        let text = buf.lock().get_lines().join("\n");
-                        use copypasta::{ClipboardContext, ClipboardProvider};
-                        if let Ok(mut ctx) = ClipboardContext::new() {
-                            let _ = ctx.set_contents(text);
+                        let b = buf.lock();
+                        let text = b.get_lines().join("\n");
+                        let (_, cur_off, _, _, _) = b.get_visible_text();
+                        drop(b);
+                        if let Ok(()) = clipboard::set_text(&text) {
                             app.set_status_text("Copied terminal lines to clipboard".into());
                         }
+                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
                     }
                 }
             }
@@ -1098,20 +1098,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     app.on_request_clipboard_paste(move || {
-        use copypasta::{ClipboardContext, ClipboardProvider};
-        if let Ok(mut ctx) = ClipboardContext::new() {
-            if let Ok(text) = ctx.get_contents() {
-                if let Some(app) = app_weak.upgrade() {
-                    let active_idx = app.get_active_tab_index() as usize;
-                    let tabs = app.get_tabs();
-                    if active_idx < tabs.row_count() {
-                        if let Some(tab) = tabs.row_data(active_idx) {
-                            let sid = tab.id.to_string();
-                            let senders = state_clone.input_senders.read();
-                            if let Some(tx) = senders.get(&sid) {
-                                let _ = tx.send(ssh::SshInput::Data(text.into_bytes()));
-                                app.set_status_text("Pasted clipboard text into terminal".into());
-                            }
+        if let Ok(text) = clipboard::get_text() {
+            if let Some(app) = app_weak.upgrade() {
+                let active_idx = app.get_active_tab_index() as usize;
+                let tabs = app.get_tabs();
+                if active_idx < tabs.row_count() {
+                    if let Some(tab) = tabs.row_data(active_idx) {
+                        let sid = tab.id.to_string();
+                        let senders = state_clone.input_senders.read();
+                        if let Some(tx) = senders.get(&sid) {
+                            let _ = tx.send(ssh::SshInput::Data(text.into_bytes()));
+                            app.set_status_text("Pasted clipboard text into terminal".into());
+                        }
+                        let buffers = state_clone.terminal_buffers.read();
+                        if let Some(buf) = buffers.get(&sid) {
+                            let b = buf.lock();
+                            let (_, cur_off, _, _, _) = b.get_visible_text();
+                            drop(b);
+                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
                         }
                     }
                 }
@@ -3937,7 +3941,17 @@ fn sync_remote_cursor(
             .unwrap_or(0);
         if target_offset >= line_start_in_visible {
             let clicked_col = target_offset - line_start_in_visible;
-            let target_col = clicked_col.min(line_len);
+            let line_str = buf.screen.get(active_row).map(|s| s.as_str()).unwrap_or("");
+            let prompt_col = if let Some(pos) = line_str.rfind('#') {
+                pos + 1
+            } else if let Some(pos) = line_str.rfind('$') {
+                pos + 1
+            } else if let Some(pos) = line_str.rfind('>') {
+                pos + 1
+            } else {
+                0
+            };
+            let target_col = clicked_col.min(line_len).max(prompt_col);
             let current_col = buf.cursor_col;
 
             if target_col < current_col {

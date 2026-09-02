@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod app_state;
+pub mod clipboard;
 pub mod command_storage;
 pub mod import_export;
 pub mod keys;
@@ -48,3 +49,5 @@ pub fn get_app_config_dir() -> std::path::PathBuf {
     }
     default_dir
 }
+
+

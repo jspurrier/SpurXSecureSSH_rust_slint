@@ -114,7 +114,21 @@ export component TerminalView inherits Rectangle {
     in-out property <int> create-group-tab-idx: -1;
 
     public function set-cursor-pos(pos: int) {
+        root.terminal-cursor-pos = pos;
         term-input.set-selection-offsets(pos, pos);
+    }
+
+    public function copy-selection-or-all() {
+        if term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+            term-input.copy();
+        } else {
+            root.request-clipboard-copy();
+        }
+        root.set-cursor-pos(root.terminal-cursor-pos);
+    }
+
+    public function restore-cursor-pos() {
+        root.set-cursor-pos(root.terminal-cursor-pos);
     }
 
     public function focus-input() {
@@ -474,12 +488,25 @@ export component TerminalView inherits Rectangle {
                                 } else if event.modifiers.control && (event.text == " " || event.text == "\u{0000}" || event.text == "@") {
                                     root.trigger-ai-autocomplete();
                                     accept
+                                } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C") {
+                                    self.copy();
+                                    root.set-cursor-pos(root.terminal-cursor-pos);
+                                    accept
+                                } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
+                                    root.request-clipboard-paste();
+                                    root.set-cursor-pos(root.terminal-cursor-pos);
+                                    accept
                                 } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
                                     root.request-clipboard-paste();
+                                    root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
                                 } else if event.modifiers.control && (event.text == "c" || event.text == "C") {
-                                    self.copy();
-                                    root.terminal-key-pressed(event);
+                                    if self.anchor-position-byte-offset != self.cursor-position-byte-offset {
+                                        self.copy();
+                                        root.set-cursor-pos(root.terminal-cursor-pos);
+                                    } else {
+                                        root.terminal-key-pressed(event);
+                                    }
                                     accept
                                 } else {
                                     root.terminal-key-pressed(event);
@@ -680,7 +707,7 @@ export component TerminalView inherits Rectangle {
                 background: itm4.has-hover ? #252b3b : Colors.transparent;
                 HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
                     Text { text: "Close"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
-                    Text { text: "Ctrl+F4"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                    Text { text: Theme.is-macos ? "⌘W" : "Ctrl+F4"; font-size: 11px; color: #64748b; vertical-alignment: center; }
                 }
                 itm4 := TouchArea {
                     clicked => {
@@ -876,12 +903,17 @@ export component TerminalView inherits Rectangle {
                 background: tm1.has-hover ? #252b3b : Colors.transparent;
                 HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
                     Text { text: "Copy"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
-                    Text { text: "Ctrl+C"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                    Text { text: Theme.is-macos ? "⌘C" : "Ctrl+C"; font-size: 11px; color: #64748b; vertical-alignment: center; }
                 }
                 tm1 := TouchArea {
                     clicked => {
                         root.term-context-menu-open = false;
-                        root.request-clipboard-copy();
+                        if term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+                            term-input.copy();
+                        } else {
+                            root.request-clipboard-copy();
+                        }
+                        root.set-cursor-pos(root.terminal-cursor-pos);
                     }
                 }
             }
@@ -892,12 +924,13 @@ export component TerminalView inherits Rectangle {
                 background: tm2.has-hover ? #252b3b : Colors.transparent;
                 HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
                     Text { text: "Paste"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
-                    Text { text: "Ctrl+V"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                    Text { text: Theme.is-macos ? "⌘V" : "Ctrl+V"; font-size: 11px; color: #64748b; vertical-alignment: center; }
                 }
                 tm2 := TouchArea {
                     clicked => {
                         root.term-context-menu-open = false;
                         root.request-clipboard-paste();
+                        root.set-cursor-pos(root.terminal-cursor-pos);
                     }
                 }
             }
@@ -908,7 +941,7 @@ export component TerminalView inherits Rectangle {
                 background: tm3.has-hover ? #252b3b : Colors.transparent;
                 HorizontalLayout { padding-left: 10px; padding-right: 10px; alignment: space-between;
                     Text { text: "Clear Screen"; font-size: 12px; color: #e2e8f0; vertical-alignment: center; }
-                    Text { text: "Ctrl+L"; font-size: 11px; color: #64748b; vertical-alignment: center; }
+                    Text { text: Theme.is-macos ? "⌘K" : "Ctrl+L"; font-size: 11px; color: #64748b; vertical-alignment: center; }
                 }
                 tm3 := TouchArea {
                     clicked => {

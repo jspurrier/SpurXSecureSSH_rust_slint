@@ -1,6 +1,7 @@
 export global Theme {
     // Mode
     in-out property <bool> is-dark: true;
+    in-out property <bool> is-macos: false;
 
     // Colors
     in-out property <color> bg-primary: #0a0e14;
@@ -260,6 +261,20 @@ export component ModalBackdrop inherits Rectangle {
     TouchArea {}
 }
 
+export component CloseIcon inherits Path {
+    in property <color> icon-color: #8b949e;
+    in property <length> icon-size: 12px;
+    width: icon-size;
+    height: icon-size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: icon-color;
+    stroke-width: 2.2px;
+    commands: "M18 6 L6 18 M6 6 L18 18";
+}
+
 export component ModalCard inherits Rectangle {
     in property <string> title: "";
     in property <length> card-width: 480px;
@@ -300,10 +315,23 @@ export component ModalCard inherits Rectangle {
                     vertical-alignment: center;
                 }
 
-                SpurxIconButton {
-                    icon-text: "✕";
-                    size: 26px;
-                    clicked => { root.close-requested(); }
+                Rectangle {
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 4px;
+                    background: close-card-touch.pressed ? Theme.bg-active :
+                        close-card-touch.has-hover ? Theme.bg-hover : Colors.transparent;
+
+                    CloseIcon {
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                        icon-size: 13px;
+                        icon-color: close-card-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+                    }
+
+                    close-card-touch := TouchArea {
+                        clicked => { root.close-requested(); }
+                    }
                 }
             }
         }
@@ -366,20 +394,6 @@ export component EditIcon inherits Path {
     stroke: icon-color;
     stroke-width: 2px;
     commands: "M17 3 a2.828 2.828 0 1 1 4 4 L7.5 20.5 2 22 l1.5-5.5 L17 3 z";
-}
-
-export component CloseIcon inherits Path {
-    in property <color> icon-color: #8b949e;
-    in property <length> icon-size: 12px;
-    width: icon-size;
-    height: icon-size;
-    viewbox-x: 0;
-    viewbox-y: 0;
-    viewbox-width: 24;
-    viewbox-height: 24;
-    stroke: icon-color;
-    stroke-width: 2.2px;
-    commands: "M18 6 L6 18 M6 6 L18 18";
 }
 
 export component SidebarIcon inherits Path {

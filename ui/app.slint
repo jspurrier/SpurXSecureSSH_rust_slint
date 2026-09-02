@@ -89,7 +89,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.2 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.3 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -500,8 +500,11 @@ export component AppWindow inherits Window {
         action-import => { root.ui-state.active-modal = "import_export"; }
         action-export => { root.ui-state.active-modal = "import_export"; }
         action-exit => { root.request-exit(); }
-        action-copy => { root.request-clipboard-copy(); }
-        action-paste => { root.request-clipboard-paste(); }
+        action-copy => { term-view.copy-selection-or-all(); }
+        action-paste => {
+            root.request-clipboard-paste();
+            term-view.restore-cursor-pos();
+        }
         action-clear-terminal => { root.request-clear-terminal(); }
         action-tunnels => { root.ui-state.active-modal = "tunnels"; }
         action-settings => { root.ui-state.active-modal = "settings"; }
