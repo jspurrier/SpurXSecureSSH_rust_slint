@@ -89,7 +89,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.3 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.4 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -281,6 +281,7 @@ export component AppWindow inherits Window {
     callback request-open-log-dir();
     callback request-exit();
     callback request-copy-selection(string);
+    callback request-copy-selected-range(int, int);
     in property <int> terminal-scroll-total: 1;
     in property <int> terminal-scroll-offset: 0;
     in property <int> terminal-scroll-visible: 24;
@@ -459,6 +460,7 @@ export component AppWindow inherits Window {
                 terminal-scrolled(delta) => { root.request-terminal-scrolled(delta); }
                 scrollbar-dragged(ratio) => { root.request-scrollbar-dragged(ratio); }
                 copy-selection(sel) => { root.request-copy-selection(sel); }
+                request-copy-selected-range(start, end) => { root.request-copy-selected-range(start, end); }
                 request-clipboard-copy => { root.request-clipboard-copy(); }
                 request-clipboard-paste => { root.request-clipboard-paste(); }
                 request-clear-terminal => { root.request-clear-terminal(); }

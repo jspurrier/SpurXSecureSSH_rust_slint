@@ -2,7 +2,7 @@
 ; Installs per-user to %LocalAppData%\Programs\SpurX Secure SSH without requiring Administrator privileges
 
 #ifndef MyAppVersion
-#define MyAppVersion "3.0.3"
+#define MyAppVersion "3.0.4"
 #endif
 
 #define MyAppName "SpurX Secure SSH"

@@ -65,6 +65,7 @@ export component TerminalView inherits Rectangle {
     callback terminal-scrolled(length);
     callback scrollbar-dragged(float);
     callback copy-selection(string);
+    callback request-copy-selected-range(int, int);
     callback request-clipboard-copy();
     callback request-clipboard-paste();
     callback request-clear-terminal();
@@ -120,7 +121,10 @@ export component TerminalView inherits Rectangle {
 
     public function copy-selection-or-all() {
         if term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+            let start = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
+            let end = max(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
             term-input.copy();
+            root.request-copy-selected-range(start, end);
         } else {
             root.request-clipboard-copy();
         }
@@ -489,7 +493,14 @@ export component TerminalView inherits Rectangle {
                                     root.trigger-ai-autocomplete();
                                     accept
                                 } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C") {
-                                    self.copy();
+                                    if self.anchor-position-byte-offset != self.cursor-position-byte-offset {
+                                        let start = min(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
+                                        let end = max(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
+                                        self.copy();
+                                        root.request-copy-selected-range(start, end);
+                                    } else {
+                                        root.request-clipboard-copy();
+                                    }
                                     root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
                                 } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
@@ -500,9 +511,16 @@ export component TerminalView inherits Rectangle {
                                     root.request-clipboard-paste();
                                     root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
+                                } else if event.modifiers.shift && event.text == Key.Insert {
+                                    root.request-clipboard-paste();
+                                    root.set-cursor-pos(root.terminal-cursor-pos);
+                                    accept
                                 } else if event.modifiers.control && (event.text == "c" || event.text == "C") {
                                     if self.anchor-position-byte-offset != self.cursor-position-byte-offset {
+                                        let start = min(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
+                                        let end = max(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
                                         self.copy();
+                                        root.request-copy-selected-range(start, end);
                                         root.set-cursor-pos(root.terminal-cursor-pos);
                                     } else {
                                         root.terminal-key-pressed(event);
@@ -909,7 +927,10 @@ export component TerminalView inherits Rectangle {
                     clicked => {
                         root.term-context-menu-open = false;
                         if term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+                            let start = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
+                            let end = max(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
                             term-input.copy();
+                            root.request-copy-selected-range(start, end);
                         } else {
                             root.request-clipboard-copy();
                         }

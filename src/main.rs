@@ -1061,9 +1061,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.on_request_copy_selection(move |sel| {
         let text = sel.to_string();
         if !text.is_empty() {
-            let _ = clipboard::set_text(&text);
+            let formatted = clipboard::format_text_for_system_clipboard(&text);
+            let _ = clipboard::set_text(&formatted);
             if let Some(app) = app_weak.upgrade() {
                 app.set_status_text("Copied selection to clipboard".into());
+            }
+        }
+    });
+
+    // Setup Copy Selected Range callback
+    let state_clone = app_state.clone();
+    let app_weak = app.as_weak();
+    app.on_request_copy_selected_range(move |start, end| {
+        if let Some(app) = app_weak.upgrade() {
+            let active_idx = app.get_active_tab_index() as usize;
+            let tabs = app.get_tabs();
+            if active_idx < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_idx) {
+                    let sid = tab.id.to_string();
+                    let buffers = state_clone.terminal_buffers.read();
+                    if let Some(buf) = buffers.get(&sid) {
+                        let b = buf.lock();
+                        let (text, cur_off, _, _, _) = b.get_visible_text();
+                        drop(b);
+
+                        let start_idx = (start as usize).min(text.len());
+                        let end_idx = (end as usize).min(text.len());
+                        if start_idx < end_idx {
+                            let slice = safe_byte_slice(&text, start_idx, end_idx);
+                            if !slice.is_empty() {
+                                let formatted = clipboard::format_text_for_system_clipboard(slice);
+                                if let Ok(()) = clipboard::set_text(&formatted) {
+                                    app.set_status_text("Copied selection to clipboard".into());
+                                }
+                            }
+                        }
+                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                    }
+                }
             }
         }
     });
@@ -1084,7 +1119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let text = b.get_lines().join("\n");
                         let (_, cur_off, _, _, _) = b.get_visible_text();
                         drop(b);
-                        if let Ok(()) = clipboard::set_text(&text) {
+                        let formatted = clipboard::format_text_for_system_clipboard(&text);
+                        if let Ok(()) = clipboard::set_text(&formatted) {
                             app.set_status_text("Copied terminal lines to clipboard".into());
                         }
                         app.invoke_set_terminal_cursor_pos(cur_off as i32);
@@ -1097,8 +1133,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Clipboard Paste callback
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
+    let rt_handle_paste = rt.handle().clone();
     app.on_request_clipboard_paste(move || {
-        if let Ok(text) = clipboard::get_text() {
+        if let Ok(raw_text) = clipboard::get_text() {
+            if raw_text.is_empty() {
+                return;
+            }
             if let Some(app) = app_weak.upgrade() {
                 let active_idx = app.get_active_tab_index() as usize;
                 let tabs = app.get_tabs();
@@ -1106,9 +1146,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(tab) = tabs.row_data(active_idx) {
                         let sid = tab.id.to_string();
                         let senders = state_clone.input_senders.read();
-                        if let Some(tx) = senders.get(&sid) {
-                            let _ = tx.send(ssh::SshInput::Data(text.into_bytes()));
-                            app.set_status_text("Pasted clipboard text into terminal".into());
+                        if let Some(tx) = senders.get(&sid).cloned() {
+                            let commands = clipboard::prepare_paste_commands(&raw_text);
+                            let count = commands.len();
+                            if count > 0 {
+                                rt_handle_paste.spawn(async move {
+                                    for (i, cmd) in commands.into_iter().enumerate() {
+                                        if i > 0 {
+                                            // 25ms delay between consecutive lines to prevent buffer overflow on Cisco / Adtran CLI
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+                                        }
+                                        let mut bytes = cmd.text.into_bytes();
+                                        if cmd.submit {
+                                            bytes.push(b'\r');
+                                        }
+                                        if tx.send(ssh::SshInput::Data(bytes)).is_err() {
+                                            break;
+                                        }
+                                    }
+                                });
+
+                                if count > 1 {
+                                    app.set_status_text(format!("Pasted {} lines into terminal", count).into());
+                                } else {
+                                    app.set_status_text("Pasted clipboard text into terminal".into());
+                                }
+                            }
                         }
                         let buffers = state_clone.terminal_buffers.read();
                         if let Some(buf) = buffers.get(&sid) {
@@ -3919,6 +3982,25 @@ fn translate_slint_key(text_str: &str, is_ctrl: bool, is_alt: bool) -> Vec<u8> {
 
     // 5. Standard Unicode text input (including shifted symbols like "@", "!", "$", uppercase letters, etc.)
     text_str.as_bytes().to_vec()
+}
+
+fn safe_byte_slice(s: &str, mut start: usize, mut end: usize) -> &str {
+    if start > end {
+        std::mem::swap(&mut start, &mut end);
+    }
+    start = start.min(s.len());
+    end = end.min(s.len());
+    while !s.is_char_boundary(start) && start > 0 {
+        start -= 1;
+    }
+    while !s.is_char_boundary(end) && end < s.len() {
+        end += 1;
+    }
+    if start <= end && end <= s.len() {
+        &s[start..end]
+    } else {
+        ""
+    }
 }
 
 fn sync_remote_cursor(
