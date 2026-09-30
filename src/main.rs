@@ -11,6 +11,12 @@ use spurx_secure_ssh::terminal::TerminalBuffer;
 use spurx_secure_ssh::*;
 
 #[derive(Default, Debug)]
+struct FolderExpansionState {
+    expanded: HashSet<String>,
+    search_collapsed: HashSet<String>,
+}
+
+#[derive(Default, Debug)]
 struct SessionFolderNode {
     full_path: String,
     subfolders: BTreeMap<String, SessionFolderNode>,
@@ -48,12 +54,15 @@ impl SessionFolderNode {
     fn flatten_to_models(
         &self,
         expanded_set: &HashSet<String>,
-        auto_expand_all: bool,
+        search_collapsed: Option<&HashSet<String>>,
         depth: usize,
         out: &mut Vec<SessionItemModel>,
     ) {
         for (name, folder_node) in &self.subfolders {
-            let is_expanded = auto_expand_all || expanded_set.contains(&folder_node.full_path);
+            let is_expanded = match search_collapsed {
+                Some(collapsed) => !collapsed.contains(&folder_node.full_path),
+                None => expanded_set.contains(&folder_node.full_path),
+            };
             let count = folder_node.total_items();
 
             out.push(SessionItemModel {
@@ -70,7 +79,7 @@ impl SessionFolderNode {
             });
 
             if is_expanded {
-                folder_node.flatten_to_models(expanded_set, auto_expand_all, depth + 1, out);
+                folder_node.flatten_to_models(expanded_set, search_collapsed, depth + 1, out);
             }
         }
 
@@ -129,12 +138,15 @@ impl CommandFolderNode {
     fn flatten_to_models(
         &self,
         expanded_set: &HashSet<String>,
-        auto_expand_all: bool,
+        search_collapsed: Option<&HashSet<String>>,
         depth: usize,
         out: &mut Vec<CommandItemModel>,
     ) {
         for (name, folder_node) in &self.subfolders {
-            let is_expanded = auto_expand_all || expanded_set.contains(&folder_node.full_path);
+            let is_expanded = match search_collapsed {
+                Some(collapsed) => !collapsed.contains(&folder_node.full_path),
+                None => expanded_set.contains(&folder_node.full_path),
+            };
             let count = folder_node.total_items();
 
             out.push(CommandItemModel {
@@ -151,7 +163,7 @@ impl CommandFolderNode {
             });
 
             if is_expanded {
-                folder_node.flatten_to_models(expanded_set, auto_expand_all, depth + 1, out);
+                folder_node.flatten_to_models(expanded_set, search_collapsed, depth + 1, out);
             }
         }
 
@@ -253,10 +265,20 @@ fn update_terminal_geometry(
         .current_terminal_font_size
         .load(std::sync::atomic::Ordering::Relaxed)
         .max(8) as f32;
-    // Accurate monospace line height in Slint TextInput (typically ~1.20 - 1.25 of font size).
-    // Using 1.22 * font_sz + 0.2 brings terminal prompt lines directly to the bottom of the viewport
-    // while keeping a small safety margin so text never overflows.
-    let row_height_px = (font_sz * 1.22 + 0.2).max(10.0);
+    // Font-aware monospace line height in Slint TextInput.
+    // Measured font metrics (UPEM, ascent, descent, win metrics):
+    // JetBrains Mono: ~1.34-1.35x
+    // Cascadia Code / Fira Code: ~1.34-1.36x
+    // Source Code Pro / Ubuntu Mono: ~1.40-1.42x
+    let font_fam_lower = app_state.current_terminal_font_family.read().to_lowercase();
+    let line_height_factor = if font_fam_lower.contains("source code") || font_fam_lower.contains("ubuntu") {
+        1.42
+    } else if font_fam_lower.contains("fira") || font_fam_lower.contains("cascadia") || font_fam_lower.contains("inconsolata") {
+        1.36
+    } else {
+        1.34
+    };
+    let row_height_px = (font_sz * line_height_factor + 0.5).max(11.0);
     let char_width_px = (font_sz * 0.60).max(5.0);
 
     let calculated_cols = if term_w_px > 40.0 {
@@ -264,8 +286,10 @@ fn update_terminal_geometry(
     } else {
         80
     };
-    let calculated_rows = if term_h_px > 24.0 {
-        ((term_h_px - 8.0) / row_height_px).floor().max(4.0) as usize
+    let calculated_rows = if term_h_px > 30.0 {
+        // Reserve 14px padding clearance and subtract 1 row safety buffer so prompt line is always fully visible
+        let usable_h = (term_h_px - 14.0).max(row_height_px);
+        ((usable_h / row_height_px).floor().max(4.0) as usize).saturating_sub(1).max(4)
     } else {
         24
     };
@@ -374,8 +398,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_cfg = settings::load_settings();
 
-    let expanded_session_folders = Arc::new(parking_lot::Mutex::new(HashSet::<String>::new()));
-    let expanded_command_folders = Arc::new(parking_lot::Mutex::new(HashSet::<String>::new()));
+    let expanded_session_folders = Arc::new(parking_lot::Mutex::new(FolderExpansionState::default()));
+    let expanded_command_folders = Arc::new(parking_lot::Mutex::new(FolderExpansionState::default()));
     let session_cache = Arc::new(parking_lot::RwLock::new(
         session::load_sessions().unwrap_or_default(),
     ));
@@ -387,7 +411,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if app_cfg.remember_expanded_folders {
         let mut exp = expanded_session_folders.lock();
         for f in &app_cfg.expanded_folders {
-            exp.insert(f.clone());
+            exp.expanded.insert(f.clone());
         }
     }
 
@@ -588,6 +612,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if q.is_empty() {
                                 // Instant reset when clearing filter
                                 pending_query = None;
+                                exp_sess_filt.lock().search_collapsed.clear();
+                                exp_cmd_filt.lock().search_collapsed.clear();
                                 let app_handle = app_weak_filter.clone();
                                 let sess_cache = sess_cache_filt.clone();
                                 let exp_sess = exp_sess_filt.clone();
@@ -609,6 +635,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(280)), if pending_query.is_some() => {
                     if let Some(q) = pending_query.take() {
+                        exp_sess_filt.lock().search_collapsed.clear();
+                        exp_cmd_filt.lock().search_collapsed.clear();
                         let app_handle = app_weak_filter.clone();
                         let sess_cache = sess_cache_filt.clone();
                         let exp_sess = exp_sess_filt.clone();
@@ -633,22 +661,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sess_cache_toggle = session_cache.clone();
     app.on_request_toggle_session_folder(move |folder| {
         let f_str = folder.to_string();
-        let exp_vec: Vec<String> = {
+        let is_searching = !filter_for_sess.lock().trim().is_empty();
+        let mut exp_vec = Vec::new();
+        {
             let mut exp = exp_sess.lock();
-            if exp.contains(&f_str) {
-                exp.remove(&f_str);
+            if is_searching {
+                if exp.search_collapsed.contains(&f_str) {
+                    exp.search_collapsed.remove(&f_str);
+                } else {
+                    exp.search_collapsed.insert(f_str);
+                }
             } else {
-                exp.insert(f_str);
+                if exp.expanded.contains(&f_str) {
+                    exp.expanded.remove(&f_str);
+                } else {
+                    exp.expanded.insert(f_str);
+                }
+                exp_vec = exp.expanded.iter().cloned().collect();
             }
-            exp.iter().cloned().collect()
-        };
-        std::thread::spawn(move || {
-            let mut app_cfg = settings::load_settings();
-            if app_cfg.remember_expanded_folders {
-                app_cfg.expanded_folders = exp_vec;
-                let _ = settings::save_settings(&app_cfg);
-            }
-        });
+        }
+        if !is_searching {
+            std::thread::spawn(move || {
+                let mut app_cfg = settings::load_settings();
+                if app_cfg.remember_expanded_folders {
+                    app_cfg.expanded_folders = exp_vec;
+                    let _ = settings::save_settings(&app_cfg);
+                }
+            });
+        }
         if let Some(app) = app_weak.upgrade() {
             refresh_sessions_ui(&app, &sess_cache_toggle, &exp_sess, &filter_for_sess.lock());
         }
@@ -661,12 +701,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cmd_cache_toggle = command_cache.clone();
     app.on_request_toggle_command_folder(move |folder| {
         let f_str = folder.to_string();
+        let is_searching = !filter_for_cmd.lock().trim().is_empty();
         {
             let mut exp = exp_cmd.lock();
-            if exp.contains(&f_str) {
-                exp.remove(&f_str);
+            if is_searching {
+                if exp.search_collapsed.contains(&f_str) {
+                    exp.search_collapsed.remove(&f_str);
+                } else {
+                    exp.search_collapsed.insert(f_str);
+                }
             } else {
-                exp.insert(f_str);
+                if exp.expanded.contains(&f_str) {
+                    exp.expanded.remove(&f_str);
+                } else {
+                    exp.expanded.insert(f_str);
+                }
             }
         }
         if let Some(app) = app_weak.upgrade() {
@@ -931,7 +980,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             app_cfg.accent_color = acc_col.to_string();
             if rem_f {
                 let exp = exp_sess_save.lock();
-                app_cfg.expanded_folders = exp.iter().cloned().collect();
+                app_cfg.expanded_folders = exp.expanded.iter().cloned().collect();
             } else {
                 app_cfg.expanded_folders.clear();
             }
@@ -3070,12 +3119,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 {
                     let mut exp_s = exp_sess_fld.lock();
-                    if exp_s.remove(&target_str) {
-                        exp_s.insert(new_path.clone());
+                    if exp_s.expanded.remove(&target_str) {
+                        exp_s.expanded.insert(new_path.clone());
                     }
                     let mut exp_c = exp_cmd_fld.lock();
-                    if exp_c.remove(&target_str) {
-                        exp_c.insert(new_path.clone());
+                    if exp_c.expanded.remove(&target_str) {
+                        exp_c.expanded.insert(new_path.clone());
                     }
                 }
             }
@@ -3085,13 +3134,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     format!("{}/{}", target_str, name_str)
                 };
-                exp_sess_fld.lock().insert(full_subpath.clone());
-                exp_sess_fld.lock().insert(target_str);
-                exp_cmd_fld.lock().insert(full_subpath);
+                exp_sess_fld.lock().expanded.insert(full_subpath.clone());
+                exp_sess_fld.lock().expanded.insert(target_str);
+                exp_cmd_fld.lock().expanded.insert(full_subpath);
             }
             _ => {
-                exp_sess_fld.lock().insert(name_str.clone());
-                exp_cmd_fld.lock().insert(name_str);
+                exp_sess_fld.lock().expanded.insert(name_str.clone());
+                exp_cmd_fld.lock().expanded.insert(name_str);
             }
         }
 
@@ -3117,9 +3166,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = command_storage::delete_folder(&f_str);
         {
             let mut exp_s = exp_sess_fld_del.lock();
-            exp_s.remove(&f_str);
+            exp_s.expanded.remove(&f_str);
             let mut exp_c = exp_cmd_fld_del.lock();
-            exp_c.remove(&f_str);
+            exp_c.expanded.remove(&f_str);
         }
         *sess_cache_fld_del.write() = session::load_sessions().unwrap_or_default();
         *cmd_cache_fld_del.write() = command_storage::load_commands().unwrap_or_default();
@@ -4094,7 +4143,7 @@ fn setup_initial_tab(app: &AppWindow) {
 fn refresh_sessions_ui(
     app: &AppWindow,
     session_cache: &Arc<parking_lot::RwLock<Vec<SavedSession>>>,
-    expanded_folders: &Arc<parking_lot::Mutex<HashSet<String>>>,
+    expanded_folders: &Arc<parking_lot::Mutex<FolderExpansionState>>,
     filter_query: &str,
 ) {
     let q = filter_query.trim().to_lowercase();
@@ -4104,7 +4153,7 @@ fn refresh_sessions_ui(
     if q.is_empty() {
         // Populate available session folders for folder pickers only when not filtering
         let mut folder_set = BTreeSet::new();
-        for f in exp.iter() {
+        for f in exp.expanded.iter() {
             let trimmed = f.trim();
             if !trimmed.is_empty() {
                 folder_set.insert(trimmed.to_string());
@@ -4142,10 +4191,10 @@ fn refresh_sessions_ui(
         }
 
         let mut models: Vec<SessionItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, false, 0, &mut models);
+        root_node.flatten_to_models(&exp.expanded, None, 0, &mut models);
         app.set_sessions(ModelRc::new(VecModel::from(models)));
     } else {
-        // Hierarchical search path - preserves folder structure and auto-expands containing folders
+        // Hierarchical search path - preserves folder structure, starts expanded, but allows collapsing
         let mut root_node = SessionFolderNode::default();
         for s in sess_guard.iter() {
             let name_match = s.name.to_lowercase().contains(&q);
@@ -4174,7 +4223,7 @@ fn refresh_sessions_ui(
             }
         }
         let mut models: Vec<SessionItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, true, 0, &mut models);
+        root_node.flatten_to_models(&exp.expanded, Some(&exp.search_collapsed), 0, &mut models);
         app.set_sessions(ModelRc::new(VecModel::from(models)));
     }
 }
@@ -4182,7 +4231,7 @@ fn refresh_sessions_ui(
 fn refresh_commands_ui(
     app: &AppWindow,
     command_cache: &Arc<parking_lot::RwLock<Vec<QuickCommand>>>,
-    expanded_folders: &Arc<parking_lot::Mutex<HashSet<String>>>,
+    expanded_folders: &Arc<parking_lot::Mutex<FolderExpansionState>>,
     filter_query: &str,
 ) {
     let q = filter_query.trim().to_lowercase();
@@ -4192,7 +4241,7 @@ fn refresh_commands_ui(
     if q.is_empty() {
         // Populate available command folders for folder pickers only when not filtering
         let mut folder_set = BTreeSet::new();
-        for f in exp.iter() {
+        for f in exp.expanded.iter() {
             let trimmed = f.trim();
             if !trimmed.is_empty() {
                 folder_set.insert(trimmed.to_string());
@@ -4228,10 +4277,10 @@ fn refresh_commands_ui(
         }
 
         let mut models: Vec<CommandItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, false, 0, &mut models);
+        root_node.flatten_to_models(&exp.expanded, None, 0, &mut models);
         app.set_commands(ModelRc::new(VecModel::from(models)));
     } else {
-        // Hierarchical search path - preserves folder structure and auto-expands containing folders
+        // Hierarchical search path - preserves folder structure, starts expanded, but allows collapsing
         let mut root_node = CommandFolderNode::default();
         for c in cmd_guard.iter() {
             let name_match = c.name.to_lowercase().contains(&q);
@@ -4255,7 +4304,7 @@ fn refresh_commands_ui(
             }
         }
         let mut models: Vec<CommandItemModel> = Vec::new();
-        root_node.flatten_to_models(&exp, true, 0, &mut models);
+        root_node.flatten_to_models(&exp.expanded, Some(&exp.search_collapsed), 0, &mut models);
         app.set_commands(ModelRc::new(VecModel::from(models)));
     }
 }
@@ -4718,5 +4767,88 @@ async fn connect_ssh_session(
                 app.set_status_text(format!("Disconnected: {}", e).into());
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_folder_collapse_and_expand() {
+        let mut root = SessionFolderNode::default();
+        let s1 = SavedSession::new(
+            "austin-rtr".into(),
+            "10.0.0.1".into(),
+            22,
+            Some("Texas/Austin".into()),
+            None,
+            None,
+        );
+        let s2 = SavedSession::new(
+            "dallas-rtr".into(),
+            "10.0.0.2".into(),
+            22,
+            Some("Texas/Dallas".into()),
+            None,
+            None,
+        );
+        let s3 = SavedSession::new(
+            "houston-rtr".into(),
+            "10.0.0.3".into(),
+            22,
+            Some("Texas/Houston".into()),
+            None,
+            None,
+        );
+
+        root.insert_session(&["Texas", "Austin"], "", s1);
+        root.insert_session(&["Texas", "Dallas"], "", s2);
+        root.insert_session(&["Texas", "Houston"], "", s3);
+
+        let expanded_set = HashSet::new();
+        let mut search_collapsed = HashSet::new();
+
+        // 1. Initial search state: search_collapsed is empty -> all matching folders are expanded
+        let mut models = Vec::new();
+        root.flatten_to_models(&expanded_set, Some(&search_collapsed), 0, &mut models);
+
+        // Models: folder:Texas, folder:Texas/Austin, austin-rtr, folder:Texas/Dallas, dallas-rtr, folder:Texas/Houston, houston-rtr
+        assert_eq!(models.len(), 7);
+        let texas_model = models.iter().find(|m| m.id == "folder:Texas").unwrap();
+        assert!(texas_model.expanded);
+        assert_eq!(texas_model.count, 3);
+
+        // 2. User collapses "Texas/Dallas" to focus on other folders
+        search_collapsed.insert("Texas/Dallas".into());
+        let mut models2 = Vec::new();
+        root.flatten_to_models(&expanded_set, Some(&search_collapsed), 0, &mut models2);
+        assert_eq!(models2.len(), 6); // dallas-rtr is now hidden
+        assert!(models2.iter().any(|m| m.name == "austin-rtr"));
+        assert!(!models2.iter().any(|m| m.name == "dallas-rtr"));
+        let dallas_folder = models2.iter().find(|m| m.id == "folder:Texas/Dallas").unwrap();
+        assert!(!dallas_folder.expanded);
+
+        // 3. User collapses top-level "Texas"
+        search_collapsed.insert("Texas".into());
+        let mut models3 = Vec::new();
+        root.flatten_to_models(&expanded_set, Some(&search_collapsed), 0, &mut models3);
+        assert_eq!(models3.len(), 1); // Only folder:Texas is visible
+        assert!(!models3[0].expanded);
+
+        // 4. User re-expands "Texas"
+        search_collapsed.remove("Texas");
+        let mut models4 = Vec::new();
+        root.flatten_to_models(&expanded_set, Some(&search_collapsed), 0, &mut models4);
+        assert_eq!(models4.len(), 6); // Austin and Houston are visible, Dallas remains collapsed
+        assert!(models4.iter().any(|m| m.name == "austin-rtr"));
+        assert!(!models4.iter().any(|m| m.name == "dallas-rtr"));
+
+        // 5. Normal mode (search query cleared, search_collapsed = None)
+        let mut normal_models = Vec::new();
+        root.flatten_to_models(&expanded_set, None, 0, &mut normal_models);
+        // With expanded_set empty, only top-level Texas folder is visible and collapsed
+        assert_eq!(normal_models.len(), 1);
+        assert!(!normal_models[0].expanded);
     }
 }

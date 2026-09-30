@@ -467,12 +467,15 @@ export component TerminalView inherits Rectangle {
                         root.cursor-clicked(term-input.cursor-position-byte-offset);
                     }
 
-                    VerticalLayout {
-                        padding-left: 8px;
-                        padding-right: 4px;
-                        padding-top: 4px;
-                        padding-bottom: 4px;
-                        alignment: start;
+                    Rectangle {
+                        clip: true;
+
+                        VerticalLayout {
+                            padding-left: 8px;
+                            padding-right: 4px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            alignment: start;
 
                         term-input := TextInput {
                             text: root.terminal-full-text;
@@ -533,6 +536,7 @@ export component TerminalView inherits Rectangle {
                             }
                         }
                     }
+                }
                 }
 
                 // Native Right-Edge Scrollbar
