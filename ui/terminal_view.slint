@@ -48,7 +48,7 @@ export component TerminalView inherits Rectangle {
     in property <int> scrollback-total: 1;
     in property <int> scrollback-offset: 0;
     in property <int> scrollback-visible: 24;
-    in property <string> terminal-font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
+    in property <string> terminal-font-family: "JetBrains Mono";
     in property <length> terminal-font-size: 14px;
 
     // AI Inline Autocomplete Properties
@@ -1266,7 +1266,7 @@ export component TerminalView inherits Rectangle {
                                     horizontal-stretch: 1;
                                     Text {
                                         text: item.cmd;
-                                        font-family: "Cascadia Code, JetBrains Mono, Fira Code, monospace";
+                                        font-family: "JetBrains Mono";
                                         font-size: 11px;
                                         font-weight: 700;
                                         color: item-touch.has-hover ? Theme.accent-primary : Theme.text-primary;

@@ -56,9 +56,7 @@ impl AppState {
             current_terminal_rows: std::sync::atomic::AtomicUsize::new(24),
             current_terminal_cols: std::sync::atomic::AtomicUsize::new(80),
             current_terminal_font_size: std::sync::atomic::AtomicU32::new(14),
-            current_terminal_font_family: RwLock::new(
-                "Cascadia Code, JetBrains Mono, Fira Code, monospace".to_string(),
-            ),
+            current_terminal_font_family: RwLock::new("JetBrains Mono".to_string()),
             session_credentials: RwLock::new(HashMap::new()),
         }
     }

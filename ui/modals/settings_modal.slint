@@ -11,7 +11,7 @@ export component SettingsModal inherits Rectangle {
     in-out property <int> active-tab: 0; // 0: Terminal, 1: Appearance, 2: Connection, 3: Security, 4: Logging, 5: Behavior
 
     // Terminal Settings
-    in-out property <string> font-family: "Cascadia Code, Consolas, monospace";
+    in-out property <string> font-family: "JetBrains Mono";
     in-out property <string> font-size: "14";
     in-out property <string> scrollback-lines: "10000";
     in-out property <bool> cursor-blink: true;
@@ -166,7 +166,7 @@ export component SettingsModal inherits Rectangle {
                                 VerticalLayout {
                                     spacing: 4px;
                                     Text { text: "Terminal Font Family:"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
-                                    SpurxTextInput { text <=> root.font-family; placeholder: "Cascadia Code, JetBrains Mono, monospace"; }
+                                    SpurxTextInput { text <=> root.font-family; placeholder: "e.g. JetBrains Mono, Lucida Console, Hack"; }
 
                                     // System Monospace Font Quick Picker
                                     HorizontalLayout {

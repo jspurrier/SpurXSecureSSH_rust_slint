@@ -1,6 +1,6 @@
 [package]
 name = "spurx-secure-ssh"
-version = "3.0.4"
+version = "3.0.5"
 description = "SpurX Secure SSH - A Modern Slint-based SSH Client"
 authors = ["John Spurrier"]
 edition = "2021"
@@ -12,7 +12,7 @@ slint-build = "1.9"
 winres = "0.1"
 
 [dependencies]
-slint = { version = "1.9", features = ["compat-1-2", "backend-winit", "renderer-femtovg"] }
+slint = { version = "1.9", features = ["compat-1-2", "backend-winit", "renderer-skia", "renderer-femtovg", "renderer-software"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"

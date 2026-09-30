@@ -359,6 +359,11 @@ fn make_tab_model(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Prioritize Skia GPU acceleration (Metal on macOS, D3D12 on Windows, Vulkan/OpenGL on Linux)
+    if std::env::var("SLINT_BACKEND").is_err() {
+        std::env::set_var("SLINT_BACKEND", "winit-skia");
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -903,13 +908,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             app_cfg.log_format = log_fmt.to_string();
             app_cfg.log_timestamps = log_ts;
-            app_cfg.font_family = font_fam.to_string();
+            let clean_font_fam = font_fam.split(',').next().unwrap_or("JetBrains Mono").trim().to_string();
+            let clean_font_fam = if clean_font_fam.is_empty() { "JetBrains Mono".to_string() } else { clean_font_fam };
+            app_cfg.font_family = clean_font_fam.clone();
             let fs_val = font_sz.parse::<u32>().unwrap_or(14);
             app_cfg.font_size = fs_val;
             state_save
                 .current_terminal_font_size
                 .store(fs_val, std::sync::atomic::Ordering::Relaxed);
-            *state_save.current_terminal_font_family.write() = font_fam.to_string();
+            *state_save.current_terminal_font_family.write() = clean_font_fam.clone();
 
             if let Ok(sl) = scroll_l.parse::<u32>() {
                 app_cfg.scrollback_lines = sl;
@@ -945,7 +952,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(app) = app_weak.upgrade() {
                 let theme_global = app.global::<Theme>();
                 let (eff, _) = theme::apply_theme(&theme_global, &th_m, &col_sch, &acc_col);
-                app.set_settings_font_family(font_fam.clone());
+                app.set_settings_font_family(clean_font_fam.into());
                 app.set_settings_font_size(font_sz.clone());
                 app.set_settings_theme_mode(th_m.clone());
                 app.set_settings_color_scheme(eff.into());

@@ -1,3 +1,5 @@
+import "../assets/fonts/JetBrainsMono-Regular.ttf";
+import "../assets/fonts/JetBrainsMono-Bold.ttf";
 import { Theme, ModalBackdrop, SpurxButton } from "theme.slint";
 export { Theme } from "theme.slint";
 import { MenuBar, MenuDropdownOverlay } from "menubar.slint";
@@ -89,7 +91,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.4 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.5 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -138,7 +140,7 @@ export component AppWindow inherits Window {
     in-out property <string> settings-log-dir: "";
     in-out property <string> settings-log-format: "{session}_{date}_{time}.log";
     in-out property <bool> settings-log-timestamps: true;
-    in-out property <string> settings-font-family: "Cascadia Code, Consolas, monospace";
+    in-out property <string> settings-font-family: "JetBrains Mono";
     in-out property <string> settings-font-size: "14";
     in-out property <[string]> available-system-fonts: [];
     in-out property <string> settings-scrollback: "10000";

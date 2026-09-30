@@ -57,8 +57,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             os: Some(std::env::consts::OS.to_string()),
-            font_family: "Cascadia Code, JetBrains Mono, Fira Code, Consolas, monospace"
-                .to_string(),
+            font_family: "JetBrains Mono".to_string(),
             font_size: 14,
             cursor_style: "block".to_string(),
             cursor_blink: true,
@@ -183,6 +182,10 @@ pub fn load_settings() -> AppSettings {
         }
     }
 
+    if settings.font_family.contains(',') || settings.font_family.trim().is_empty() {
+        settings.font_family = "JetBrains Mono".to_string();
+    }
+
     settings
 }
 
@@ -197,32 +200,42 @@ pub fn save_settings(settings: &AppSettings) -> Result<(), String> {
 }
 
 pub fn get_available_system_fonts() -> Vec<String> {
-    let mut fonts = std::collections::BTreeSet::new();
+    let mut font_list = Vec::new();
+    let mut seen = std::collections::HashSet::new();
 
-    // Standard high-quality monospace and terminal fonts
+    // Primary bundled font always top of list
+    let primary = "JetBrains Mono";
+    font_list.push(primary.to_string());
+    seen.insert(primary.to_string());
+
+    // Curated popular terminal and SSH client fonts (SecureCRT, Windows Terminal, Warp)
     let curated = [
-        "Cascadia Code",
-        "JetBrains Mono",
-        "Fira Code",
+        "Lucida Console",
         "Consolas",
+        "Cascadia Code",
+        "Cascadia Mono",
+        "Hack",
+        "Fira Code",
         "Menlo",
         "Monaco",
         "SF Mono",
-        "DejaVu Sans Mono",
         "Liberation Mono",
+        "DejaVu Sans Mono",
         "Ubuntu Mono",
         "Source Code Pro",
-        "Hack",
         "Inconsolata",
         "Courier New",
-        "Lucida Console",
         "PT Mono",
         "IBM Plex Mono",
         "Monospace",
     ];
     for f in curated {
-        fonts.insert(f.to_string());
+        if seen.insert(f.to_string()) {
+            font_list.push(f.to_string());
+        }
     }
+
+    let mut discovered = std::collections::BTreeSet::new();
 
     // Linux font discovery via fc-list or font paths
     #[cfg(target_os = "linux")]
@@ -238,7 +251,7 @@ pub fn get_available_system_fonts() -> Vec<String> {
                     for family in line.split(',') {
                         let name = family.trim();
                         if !name.is_empty() && !name.starts_with('.') {
-                            fonts.insert(name.to_string());
+                            discovered.insert(name.to_string());
                         }
                     }
                 }
@@ -258,7 +271,7 @@ pub fn get_available_system_fonts() -> Vec<String> {
                         if ["ttf", "otf", "ttc", "dfont"].contains(&ext.to_lowercase().as_str()) {
                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                                 if !stem.starts_with('.') {
-                                    fonts.insert(stem.replace('-', " ").replace('_', " "));
+                                    discovered.insert(stem.replace('-', " ").replace('_', " "));
                                 }
                             }
                         }
@@ -273,7 +286,7 @@ pub fn get_available_system_fonts() -> Vec<String> {
                     let path = entry.path();
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                         if !stem.starts_with('.') {
-                            fonts.insert(stem.replace('-', " ").replace('_', " "));
+                            discovered.insert(stem.replace('-', " ").replace('_', " "));
                         }
                     }
                 }
@@ -290,14 +303,20 @@ pub fn get_available_system_fonts() -> Vec<String> {
                 let path = entry.path();
                 if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                     if !stem.starts_with('.') {
-                        fonts.insert(stem.replace('-', " ").replace('_', " "));
+                        discovered.insert(stem.replace('-', " ").replace('_', " "));
                     }
                 }
             }
         }
     }
 
-    fonts.into_iter().collect()
+    for f in discovered {
+        if seen.insert(f.clone()) {
+            font_list.push(f);
+        }
+    }
+
+    font_list
 }
 
 #[cfg(test)]

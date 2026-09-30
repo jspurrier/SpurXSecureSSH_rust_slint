@@ -34,7 +34,7 @@ jobs:
       - name: Build Windows Installer (Inno Setup)
         shell: pwsh
         run: |
-          $ver = "3.0.4"
+          $ver = "3.0.5"
           if ($env:GITHUB_REF_NAME -match '^v?(.+)$') {
             $ver = $Matches[1]
           }
@@ -43,7 +43,7 @@ jobs:
       - name: Package Windows artifacts
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v3.0.4" }
+          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v3.0.5" }
           $outDir = "dist-windows"
           New-Item -ItemType Directory -Path $outDir -Force
           Copy-Item "target/release/spurx-secure-ssh.exe" -Destination "$outDir/"
@@ -90,7 +90,7 @@ jobs:
 
       - name: Create Universal Binary & App Bundle
         run: |
-          TAG="${GITHUB_REF_NAME:-v3.0.4}"
+          TAG="${GITHUB_REF_NAME:-v3.0.5}"
           mkdir -p target/universal/release
           lipo -create -output target/universal/release/spurx-secure-ssh \
             target/aarch64-apple-darwin/release/spurx-secure-ssh \
@@ -119,7 +119,7 @@ jobs:
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleShortVersionString</key>
-              <string>3.0.4</string>
+              <string>3.0.5</string>
               <key>LSMinimumSystemVersion</key>
               <string>10.15</string>
               <key>NSHighResolutionCapable</key>
@@ -190,7 +190,7 @@ jobs:
 
       - name: Package Linux tar.gz
         run: |
-          TAG="${GITHUB_REF_NAME:-v3.0.4}"
+          TAG="${GITHUB_REF_NAME:-v3.0.5}"
           PKG_DIR="spurx-secure-ssh-linux-x86_64"
           mkdir -p "${PKG_DIR}"
           cp target/release/spurx-secure-ssh "${PKG_DIR}/"
@@ -201,7 +201,7 @@ jobs:
 
       - name: Package Debian (.deb)
         run: |
-          TAG="${GITHUB_REF_NAME:-v3.0.4}"
+          TAG="${GITHUB_REF_NAME:-v3.0.5}"
           VERSION="${TAG#v}"
           DEB_ROOT="deb_root"
           mkdir -p "${DEB_ROOT}/usr/bin"
@@ -245,7 +245,7 @@ jobs:
 
       - name: Package Red Hat / Fedora (.rpm)
         run: |
-          TAG="${GITHUB_REF_NAME:-v3.0.4}"
+          TAG="${GITHUB_REF_NAME:-v3.0.5}"
           VERSION="${TAG#v}"
           RPM_ROOT="${HOME}/rpmbuild"
           mkdir -p "${RPM_ROOT}/BUILD" "${RPM_ROOT}/RPMS" "${RPM_ROOT}/SOURCES" "${RPM_ROOT}/SPECS" "${RPM_ROOT}/SRPMS"
@@ -311,7 +311,7 @@ jobs:
 
       - name: Package AppImage
         run: |
-          TAG="${GITHUB_REF_NAME:-v3.0.4}"
+          TAG="${GITHUB_REF_NAME:-v3.0.5}"
           VERSION="${TAG#v}"
           APP_DIR="AppDir"
           mkdir -p "${APP_DIR}/usr/bin"
