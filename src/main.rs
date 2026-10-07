@@ -382,11 +382,38 @@ fn make_tab_model(
     }
 }
 
+/// Synchronizes the native window chrome and appearance with the application theme
+fn sync_window_theme(app: &AppWindow, is_dark: bool) {
+    use slint::winit_030::WinitWindowAccessor;
+    app.window().with_winit_window(|winit_window| {
+        winit_window.set_transparent(false);
+        winit_window.set_theme(Some(if is_dark {
+            slint::winit_030::winit::window::Theme::Dark
+        } else {
+            slint::winit_030::winit::window::Theme::Light
+        }));
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Prioritize Skia GPU acceleration (Metal on macOS, D3D12 on Windows, Vulkan/OpenGL on Linux)
     if std::env::var("SLINT_BACKEND").is_err() {
         std::env::set_var("SLINT_BACKEND", "winit-skia");
     }
+
+    // Configure window attributes hook to ensure titlebar and window chrome are opaque
+    slint::BackendSelector::new()
+        .with_winit_window_attributes_hook(|attrs| {
+            #[allow(unused_mut)]
+            let mut attrs = attrs.with_transparent(false);
+            #[cfg(target_os = "macos")]
+            {
+                use slint::winit_030::winit::platform::macos::WindowAttributesExtMacOS;
+                attrs = attrs.with_titlebar_transparent(false);
+            }
+            attrs
+        })
+        .select()?;
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -465,13 +492,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Apply initial theme
     let theme_global = app.global::<Theme>();
     theme_global.set_is_macos(cfg!(target_os = "macos"));
-    let (effective_scheme, _) = theme::apply_theme(
+    let (effective_scheme, is_dark) = theme::apply_theme(
         &theme_global,
         &app_cfg.theme,
         &app_cfg.color_scheme,
         &app_cfg.accent_color,
     );
     app.set_settings_color_scheme(effective_scheme.into());
+
+    // Synchronize window appearance and ensure titlebar opacity on macOS / desktop
+    let app_weak = app.as_weak();
+    slint::spawn_local(async move {
+        if let Some(app) = app_weak.upgrade() {
+            use slint::winit_030::WinitWindowAccessor;
+            if let Ok(winit_window) = app.window().winit_window().await {
+                winit_window.set_transparent(false);
+                winit_window.set_theme(Some(if is_dark {
+                    slint::winit_030::winit::window::Theme::Dark
+                } else {
+                    slint::winit_030::winit::window::Theme::Light
+                }));
+            }
+        }
+    }).ok();
 
     // Populate initial AI settings
     let ai_cfg = ai::load_config();
@@ -1000,7 +1043,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             if let Some(app) = app_weak.upgrade() {
                 let theme_global = app.global::<Theme>();
-                let (eff, _) = theme::apply_theme(&theme_global, &th_m, &col_sch, &acc_col);
+                let (eff, is_dark) = theme::apply_theme(&theme_global, &th_m, &col_sch, &acc_col);
                 app.set_settings_font_family(clean_font_fam.into());
                 app.set_settings_font_size(font_sz.clone());
                 app.set_settings_theme_mode(th_m.clone());
@@ -1011,6 +1054,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let h = app.invoke_get_terminal_viewport_height();
                 let w = app.invoke_get_terminal_viewport_width();
                 update_terminal_geometry(&app, &state_save, h, w);
+                sync_window_theme(&app, is_dark);
                 app.set_status_text("Settings saved successfully".into());
             }
         },
@@ -1023,9 +1067,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scheme = app.get_settings_color_scheme().to_string();
             let accent = app.get_settings_accent_color().to_string();
             let theme_global = app.global::<Theme>();
-            let (effective_scheme, _is_dark) =
+            let (effective_scheme, is_dark) =
                 theme::apply_theme(&theme_global, &mode, &scheme, &accent);
             app.set_settings_color_scheme(effective_scheme.into());
+            sync_window_theme(&app, is_dark);
         }
     });
 
@@ -1036,9 +1081,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mode = app.get_settings_theme_mode().to_string();
             let accent = app.get_settings_accent_color().to_string();
             let theme_global = app.global::<Theme>();
-            let (effective_scheme, _is_dark) =
+            let (effective_scheme, is_dark) =
                 theme::apply_theme(&theme_global, &mode, &scheme, &accent);
             app.set_settings_color_scheme(effective_scheme.into());
+            sync_window_theme(&app, is_dark);
         }
     });
 
@@ -1049,9 +1095,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mode = app.get_settings_theme_mode().to_string();
             let scheme = app.get_settings_color_scheme().to_string();
             let theme_global = app.global::<Theme>();
-            let (effective_scheme, _is_dark) =
+            let (effective_scheme, is_dark) =
                 theme::apply_theme(&theme_global, &mode, &scheme, &accent);
             app.set_settings_color_scheme(effective_scheme.into());
+            sync_window_theme(&app, is_dark);
         }
     });
 
@@ -1076,6 +1123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 theme::apply_theme(&theme_global, new_mode, new_scheme, &app_cfg.accent_color);
             app.set_settings_theme_mode(new_mode.into());
             app.set_settings_color_scheme(effective_scheme.into());
+            sync_window_theme(&app, is_dark);
             app.set_status_text(
                 format!(
                     "Switched to {} theme",
