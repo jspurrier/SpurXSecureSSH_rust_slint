@@ -395,6 +395,248 @@ fn sync_window_theme(app: &AppWindow, is_dark: bool) {
     });
 }
 
+fn collect_all_folder_paths(
+    item_type: &str,
+    sess_cache: &Arc<parking_lot::RwLock<Vec<SavedSession>>>,
+    cmd_cache: &Arc<parking_lot::RwLock<Vec<QuickCommand>>>,
+    exp_sess: &Arc<parking_lot::Mutex<FolderExpansionState>>,
+    exp_cmd: &Arc<parking_lot::Mutex<FolderExpansionState>>,
+) -> BTreeSet<String> {
+    let mut set = BTreeSet::new();
+
+    if item_type == "session" {
+        let sessions = sess_cache.read();
+        for s in sessions.iter() {
+            if let Some(ref f) = s.folder {
+                let trimmed = f.trim();
+                if !trimmed.is_empty() {
+                    let parts: Vec<&str> = trimmed
+                        .split('/')
+                        .map(|p| p.trim())
+                        .filter(|p| !p.is_empty())
+                        .collect();
+                    let mut cur = String::new();
+                    for p in parts {
+                        if !cur.is_empty() {
+                            cur.push('/');
+                        }
+                        cur.push_str(p);
+                        set.insert(cur.clone());
+                    }
+                }
+            }
+        }
+        let exp = exp_sess.lock();
+        for f in &exp.expanded {
+            let trimmed = f.trim();
+            if !trimmed.is_empty() {
+                let parts: Vec<&str> = trimmed
+                    .split('/')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                let mut cur = String::new();
+                for p in parts {
+                    if !cur.is_empty() {
+                        cur.push('/');
+                    }
+                    cur.push_str(p);
+                    set.insert(cur.clone());
+                }
+            }
+        }
+    } else {
+        let cmds = cmd_cache.read();
+        for c in cmds.iter() {
+            let trimmed = c.folder.trim();
+            if !trimmed.is_empty() {
+                let parts: Vec<&str> = trimmed
+                    .split('/')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                let mut cur = String::new();
+                for p in parts {
+                    if !cur.is_empty() {
+                        cur.push('/');
+                    }
+                    cur.push_str(p);
+                    set.insert(cur.clone());
+                }
+            }
+        }
+        let exp = exp_cmd.lock();
+        for f in &exp.expanded {
+            let trimmed = f.trim();
+            if !trimmed.is_empty() {
+                let parts: Vec<&str> = trimmed
+                    .split('/')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                let mut cur = String::new();
+                for p in parts {
+                    if !cur.is_empty() {
+                        cur.push('/');
+                    }
+                    cur.push_str(p);
+                    set.insert(cur.clone());
+                }
+            }
+        }
+    }
+
+    set
+}
+
+fn filter_folder_suggestions(
+    all_folders: &BTreeSet<String>,
+    query: &str,
+) -> Vec<MoveFolderSuggestion> {
+    let mut suggestions = Vec::new();
+    let q_trimmed = query.trim();
+    let q_lower = q_trimmed.to_lowercase();
+
+    let get_subfolder_count = |folder_path: &str| -> (bool, i32) {
+        let prefix = format!("{}/", folder_path);
+        let count = all_folders.iter().filter(|f| f.starts_with(&prefix)).count();
+        (count > 0, count as i32)
+    };
+
+    if q_trimmed.is_empty() {
+        // Root option
+        suggestions.push(MoveFolderSuggestion {
+            path: "".into(),
+            display_name: "📁 / (Root Level / No Folder)".into(),
+            is_root: true,
+            is_new: false,
+            has_subfolders: false,
+            subfolder_count: 0,
+        });
+
+        // Top-level or all existing folders
+        for f in all_folders {
+            let (has_sub, sub_count) = get_subfolder_count(f);
+            suggestions.push(MoveFolderSuggestion {
+                path: f.clone().into(),
+                display_name: f.clone().into(),
+                is_root: false,
+                is_new: false,
+                has_subfolders: has_sub,
+                subfolder_count: sub_count,
+            });
+        }
+        return suggestions;
+    }
+
+    // Check if query is explicitly asking for root
+    if q_lower == "root" || q_lower == "/" || q_lower == "none" {
+        suggestions.push(MoveFolderSuggestion {
+            path: "".into(),
+            display_name: "📁 / (Root Level / No Folder)".into(),
+            is_root: true,
+            is_new: false,
+            has_subfolders: false,
+            subfolder_count: 0,
+        });
+    }
+
+    // If query ends with a slash (e.g. "Adtran/"), the user is specifically browsing inside that folder
+    if q_trimmed.ends_with('/') {
+        let parent_prefix_lower = q_lower.clone();
+
+        let mut subfolders: Vec<&String> = all_folders
+            .iter()
+            .filter(|f| f.to_lowercase().starts_with(&parent_prefix_lower))
+            .collect();
+
+        // Sort so immediate child folders come before deeper descendants
+        subfolders.sort_by_key(|f| f.split('/').count());
+
+        for f in subfolders {
+            let (has_sub, sub_count) = get_subfolder_count(f);
+            suggestions.push(MoveFolderSuggestion {
+                path: f.clone().into(),
+                display_name: f.clone().into(),
+                is_root: false,
+                is_new: false,
+                has_subfolders: has_sub,
+                subfolder_count: sub_count,
+            });
+        }
+
+        if suggestions.is_empty() {
+            suggestions.push(MoveFolderSuggestion {
+                path: q_trimmed.trim_end_matches('/').to_string().into(),
+                display_name: format!("➕ Create new subfolder \"{}\"", q_trimmed).into(),
+                is_root: false,
+                is_new: true,
+                has_subfolders: false,
+                subfolder_count: 0,
+            });
+        }
+
+        return suggestions;
+    }
+
+    // Standard search query without trailing slash
+    let mut exact_matches = Vec::new();
+    let mut prefix_matches = Vec::new();
+    let mut segment_matches = Vec::new();
+    let mut substring_matches = Vec::new();
+
+    for f in all_folders {
+        let f_lower = f.to_lowercase();
+        if f_lower == q_lower {
+            exact_matches.push(f);
+        } else if f_lower.starts_with(&q_lower) {
+            prefix_matches.push(f);
+        } else {
+            let has_segment_prefix = f_lower.split('/').any(|seg| seg.starts_with(&q_lower));
+            if has_segment_prefix {
+                segment_matches.push(f);
+            } else if f_lower.contains(&q_lower) {
+                substring_matches.push(f);
+            }
+        }
+    }
+
+    let mut combined: Vec<&String> = Vec::new();
+    combined.extend(exact_matches);
+    combined.extend(prefix_matches);
+    combined.extend(segment_matches);
+    combined.extend(substring_matches);
+
+    for f in combined {
+        let (has_sub, sub_count) = get_subfolder_count(f);
+        suggestions.push(MoveFolderSuggestion {
+            path: f.clone().into(),
+            display_name: f.clone().into(),
+            is_root: false,
+            is_new: false,
+            has_subfolders: has_sub,
+            subfolder_count: sub_count,
+        });
+    }
+
+    let exact_exists = all_folders.iter().any(|f| f.eq_ignore_ascii_case(q_trimmed));
+    if !exact_exists && !q_trimmed.is_empty() {
+        suggestions.insert(
+            0,
+            MoveFolderSuggestion {
+                path: q_trimmed.to_string().into(),
+                display_name: format!("➕ Create new folder \"{}\"", q_trimmed).into(),
+                is_root: false,
+                is_new: true,
+                has_subfolders: false,
+                subfolder_count: 0,
+            },
+        );
+    }
+
+    suggestions
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Prioritize Skia GPU acceleration (Metal on macOS, D3D12 on Windows, Vulkan/OpenGL on Linux)
     if std::env::var("SLINT_BACKEND").is_err() {
@@ -3701,40 +3943,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak = app.as_weak();
     let sess_cache_move = session_cache.clone();
     let cmd_cache_move = command_cache.clone();
+    let exp_sess_move = expanded_session_folders.clone();
+    let exp_cmd_move = expanded_command_folders.clone();
+    let cached_move_folders = Arc::new(parking_lot::RwLock::new(BTreeSet::new()));
+
+    let cached_move_for_open = cached_move_folders.clone();
     app.on_request_open_move_modal(move |item_type, item_id, item_name, current_folder| {
         if let Some(app) = app_weak.upgrade() {
-            let folders: Vec<slint::SharedString> = if item_type == "session" {
-                let sessions = sess_cache_move.read();
-                let mut set = BTreeSet::new();
-                for s in sessions.iter() {
-                    if let Some(ref f) = s.folder {
-                        let trimmed = f.trim();
-                        if !trimmed.is_empty() {
-                            set.insert(trimmed.to_string());
-                        }
-                    }
-                }
-                set.into_iter().map(slint::SharedString::from).collect()
-            } else {
-                let cmds = cmd_cache_move.read();
-                let mut set = BTreeSet::new();
-                for c in cmds.iter() {
-                    let trimmed = c.folder.trim();
-                    if !trimmed.is_empty() {
-                        set.insert(trimmed.to_string());
-                    }
-                }
-                set.into_iter().map(slint::SharedString::from).collect()
-            };
+            let all_folders = collect_all_folder_paths(
+                &item_type,
+                &sess_cache_move,
+                &cmd_cache_move,
+                &exp_sess_move,
+                &exp_cmd_move,
+            );
+            *cached_move_for_open.write() = all_folders.clone();
+
+            let initial_suggestions = filter_folder_suggestions(&all_folders, &current_folder);
 
             app.set_move_modal_item_type(item_type);
             app.set_move_modal_item_id(item_id);
             app.set_move_modal_item_name(item_name);
-            app.set_move_modal_current_folder(current_folder);
-            app.set_move_modal_existing_folders(ModelRc::new(VecModel::from(folders)));
+            app.set_move_modal_current_folder(current_folder.clone());
+            app.set_move_modal_suggestions(ModelRc::new(VecModel::from(initial_suggestions)));
             let mut ui_st = app.get_ui_state();
             ui_st.active_modal = "move".into();
             app.set_ui_state(ui_st);
+        }
+    });
+
+    let app_weak = app.as_weak();
+    let cached_move_for_filter = cached_move_folders.clone();
+    app.on_request_filter_move_folders(move |query| {
+        if let Some(app) = app_weak.upgrade() {
+            let folders = cached_move_for_filter.read();
+            let suggestions = filter_folder_suggestions(&folders, &query);
+            app.set_move_modal_suggestions(ModelRc::new(VecModel::from(suggestions)));
         }
     });
 
@@ -3755,11 +3999,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if item_type == "session" {
             let mut sessions = sess_cache_domove.write();
             if let Some(sess) = sessions.iter_mut().find(|s| s.id == item_id.as_str()) {
-                sess.folder = target_opt;
+                sess.folder = target_opt.clone();
                 let _ = session::save_session(sess.clone());
             }
             drop(sessions);
             *sess_cache_domove.write() = session::load_sessions().unwrap_or_default();
+            if let Some(ref target_path) = target_opt {
+                let parts: Vec<&str> = target_path.split('/').collect();
+                let mut cur = String::new();
+                let mut exp = exp_sess_domove.lock();
+                for p in parts {
+                    if !cur.is_empty() {
+                        cur.push('/');
+                    }
+                    cur.push_str(p);
+                    exp.expanded.insert(cur.clone());
+                }
+            }
             if let Some(app) = app_weak.upgrade() {
                 refresh_sessions_ui(
                     &app,
@@ -3771,11 +4027,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let mut cmds = cmd_cache_domove.write();
             if let Some(cmd) = cmds.iter_mut().find(|c| c.id == item_id.as_str()) {
-                cmd.folder = target_str;
+                cmd.folder = target_str.clone();
                 let _ = command_storage::save_command(cmd.clone());
             }
             drop(cmds);
             *cmd_cache_domove.write() = command_storage::load_commands().unwrap_or_default();
+            if !target_str.is_empty() {
+                let parts: Vec<&str> = target_str.split('/').collect();
+                let mut cur = String::new();
+                let mut exp = exp_cmd_domove.lock();
+                for p in parts {
+                    if !cur.is_empty() {
+                        cur.push('/');
+                    }
+                    cur.push_str(p);
+                    exp.expanded.insert(cur.clone());
+                }
+            }
             if let Some(app) = app_weak.upgrade() {
                 refresh_commands_ui(
                     &app,
@@ -4898,5 +5166,83 @@ mod tests {
         // With expanded_set empty, only top-level Texas folder is visible and collapsed
         assert_eq!(normal_models.len(), 1);
         assert!(!normal_models[0].expanded);
+    }
+
+    #[test]
+    fn test_filter_folder_suggestions_empty_and_root() {
+        let mut folders = BTreeSet::new();
+        folders.insert("Adtran".into());
+        folders.insert("Adtran/Routers".into());
+        folders.insert("Cisco".into());
+
+        // Empty query: first is root, then all folders
+        let suggestions = filter_folder_suggestions(&folders, "");
+        assert_eq!(suggestions.len(), 4);
+        assert!(suggestions[0].is_root);
+        assert_eq!(suggestions[0].path.as_str(), "");
+        assert_eq!(suggestions[1].path.as_str(), "Adtran");
+        assert!(suggestions[1].has_subfolders);
+        assert_eq!(suggestions[1].subfolder_count, 1);
+        assert_eq!(suggestions[2].path.as_str(), "Adtran/Routers");
+        assert!(!suggestions[2].has_subfolders);
+
+        // Query "root" explicitly
+        let root_res = filter_folder_suggestions(&folders, "root");
+        assert!(root_res.iter().any(|s| s.is_root));
+    }
+
+    #[test]
+    fn test_filter_folder_suggestions_prefix_and_subfolder() {
+        let mut folders = BTreeSet::new();
+        folders.insert("Adtran".into());
+        folders.insert("Adtran/Routers".into());
+        folders.insert("Adtran/Switches".into());
+        folders.insert("Adtran/Switches/Core".into());
+        folders.insert("Apple".into());
+        folders.insert("Cisco".into());
+
+        // 1. Typing "A" (case-insensitive) matches all starting with "A"
+        let res_a = filter_folder_suggestions(&folders, "a");
+        let paths: Vec<&str> = res_a.iter().map(|s| s.path.as_str()).collect();
+        assert!(paths.contains(&"Adtran"));
+        assert!(paths.contains(&"Adtran/Routers"));
+        assert!(paths.contains(&"Adtran/Switches"));
+        assert!(paths.contains(&"Apple"));
+        assert!(!paths.contains(&"Cisco"));
+
+        // 2. Typing "Adtran/" specifically targets subfolders under Adtran/
+        let res_sub = filter_folder_suggestions(&folders, "Adtran/");
+        let sub_paths: Vec<&str> = res_sub.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(sub_paths.len(), 3);
+        assert_eq!(sub_paths[0], "Adtran/Routers");
+        assert_eq!(sub_paths[1], "Adtran/Switches");
+        assert_eq!(sub_paths[2], "Adtran/Switches/Core");
+
+        // 3. Typing new folder offers "Create new folder"
+        let res_new = filter_folder_suggestions(&folders, "NewBrandFolder");
+        assert!(res_new[0].is_new);
+        assert_eq!(res_new[0].path.as_str(), "NewBrandFolder");
+    }
+
+    #[test]
+    fn test_collect_all_folder_paths_hierarchy() {
+        let sess_cache = Arc::new(parking_lot::RwLock::new(vec![
+            SavedSession::new(
+                "r1".into(),
+                "10.0.0.1".into(),
+                22,
+                Some("Adtran/Routers/Core".into()),
+                None,
+                None,
+            ),
+        ]));
+        let cmd_cache = Arc::new(parking_lot::RwLock::new(Vec::new()));
+        let exp_sess = Arc::new(parking_lot::Mutex::new(FolderExpansionState::default()));
+        let exp_cmd = Arc::new(parking_lot::Mutex::new(FolderExpansionState::default()));
+
+        let set = collect_all_folder_paths("session", &sess_cache, &cmd_cache, &exp_sess, &exp_cmd);
+        assert!(set.contains("Adtran"));
+        assert!(set.contains("Adtran/Routers"));
+        assert!(set.contains("Adtran/Routers/Core"));
     }
 }

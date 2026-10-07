@@ -13,7 +13,8 @@ import { QuickConnectModal } from "modals/quick_connect_modal.slint";
 import { SessionEditModal, SessionTunnelRuleModel } from "modals/session_edit_modal.slint";
 import { CommandEditModal } from "modals/command_edit_modal.slint";
 import { FolderEditModal } from "modals/folder_edit_modal.slint";
-import { MoveModal } from "modals/move_modal.slint";
+import { MoveModal, MoveFolderSuggestion } from "modals/move_modal.slint";
+export { MoveFolderSuggestion } from "modals/move_modal.slint";
 import { SettingsModal, KnownHostItemModel } from "modals/settings_modal.slint";
 import { SftpModal, SftpFileItemModel } from "modals/sftp_modal.slint";
 import { TunnelsModal, TunnelItemModel } from "modals/tunnels_modal.slint";
@@ -91,7 +92,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.7 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.8 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -183,7 +184,7 @@ export component AppWindow inherits Window {
     in-out property <string> move-modal-item-id: "";
     in-out property <string> move-modal-item-name: "";
     in-out property <string> move-modal-current-folder: "";
-    in-out property <[string]> move-modal-existing-folders: [];
+    in property <[MoveFolderSuggestion]> move-modal-suggestions: [];
 
     // Folder Modal State
     in-out property <string> folder-modal-title: "New Folder";
@@ -207,6 +208,7 @@ export component AppWindow inherits Window {
     callback request-new-command();
     callback request-save-command-data(string, string, string, string, string);
     callback request-open-move-modal(string, string, string, string);
+    callback request-filter-move-folders(string);
     callback request-move-item(string, string, string);
     callback request-toggle-session-folder(string);
     callback request-toggle-command-folder(string);
@@ -613,8 +615,11 @@ export component AppWindow inherits Window {
         item-id: root.move-modal-item-id;
         item-name: root.move-modal-item-name;
         current-folder: root.move-modal-current-folder;
-        existing-folders: root.move-modal-existing-folders;
+        suggestions: root.move-modal-suggestions;
         target-folder: root.move-modal-current-folder;
+        filter-changed(query) => {
+            root.request-filter-move-folders(query);
+        }
         close => { root.ui-state.active-modal = "none"; }
         move-item(typ, id, f) => {
             root.ui-state.active-modal = "none";

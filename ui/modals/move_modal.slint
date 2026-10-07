@@ -1,113 +1,269 @@
 import { Theme, SpurxButton, SpurxTextInput, ModalCard } from "../theme.slint";
 
+export struct MoveFolderSuggestion {
+    path: string,           // Actual folder string to assign (e.g. "Adtran/Routers" or "" for root)
+    display-name: string,   // Text displayed in row
+    is-root: bool,          // True if Root level option
+    is-new: bool,           // True if prompt to create a new folder path
+    has-subfolders: bool,   // True if subfolders exist under this path
+    subfolder-count: int,   // Number of subfolders
+}
+
 export component MoveModal inherits Rectangle {
     in property <bool> is-open: false;
     in property <string> item-type: "session"; // "session" or "command"
     in property <string> item-id: "";
     in property <string> item-name: "";
     in property <string> current-folder: "";
-    in property <[string]> existing-folders: [];
+    in property <[MoveFolderSuggestion]> suggestions: [];
     in-out property <string> target-folder: "";
 
     callback close();
     callback move-item(string, string, string); // item-type, item-id, target-folder
+    callback filter-changed(string);
 
     visible: root.is-open;
 
     ModalCard {
         title: "Move to Folder";
-        card-width: 440px;
-        card-height: 280px;
+        card-width: 500px;
+        card-height: 480px;
         close-requested => { root.close(); }
 
         VerticalLayout {
-            padding: 16px;
+            padding: 18px;
             spacing: 12px;
             alignment: space-between;
 
-            VerticalLayout {
-                spacing: 4px;
-                Text {
-                    text: "Move " + (root.item-type == "session" ? "Session" : "Command") + ":";
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: Theme.text-muted;
-                }
-                Text {
-                    text: root.item-name;
-                    font-size: 13px;
-                    font-weight: 700;
-                    color: Theme.text-primary;
-                    overflow: elide;
-                }
-                if root.current-folder != "" : Text {
-                    text: "Current folder: " + root.current-folder;
-                    font-size: 11px;
-                    color: Theme.accent-primary;
+            // Target Item Summary
+            Rectangle {
+                background: Theme.bg-tertiary;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: Theme.border-secondary;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 4px;
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Text {
+                            text: (root.item-type == "session" ? "🖥️ Session:" : "⚡ Command:");
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.item-name;
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        Text {
+                            text: "Current location:";
+                            font-size: 11px;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.current-folder != "" ? ("📁 " + root.current-folder) : "📁 / (Root Level)";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.accent-primary;
+                            vertical-alignment: center;
+                        }
+                    }
                 }
             }
 
+            // Target Folder Input
             VerticalLayout {
                 spacing: 6px;
-                Text {
-                    text: "Target Folder Name (leave blank for root):";
-                    font-size: 11px;
-                    font-weight: 600;
-                    color: Theme.text-secondary;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Target Folder:";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    if root.target-folder != "" : Rectangle {
+                        height: 20px;
+                        border-radius: 4px;
+                        background: clear-touch.has-hover ? Theme.bg-hover : Theme.bg-tertiary;
+                        border-width: 1px;
+                        border-color: Theme.border-secondary;
+                        HorizontalLayout {
+                            padding-left: 6px; padding-right: 6px;
+                            Text {
+                                text: "Clear to Root ✕";
+                                font-size: 10px;
+                                color: Theme.accent-danger;
+                                vertical-alignment: center;
+                            }
+                        }
+                        clear-touch := TouchArea {
+                            clicked => {
+                                root.target-folder = "";
+                                root.filter-changed("");
+                            }
+                        }
+                    }
                 }
+
                 SpurxTextInput {
                     text <=> root.target-folder;
-                    placeholder: "e.g. Production, Routers, Lab...";
-                }
-
-                // Existing folders chips
-                if root.existing-folders.length > 0 : HorizontalLayout {
-                    spacing: 6px;
-                    padding-top: 4px;
-                    alignment: start;
-
-                    Rectangle {
-                        height: 22px;
-                        border-radius: 4px;
-                        background: root.target-folder == "" ? Theme.accent-primary.darker(0.6) : Theme.bg-tertiary;
-                        border-width: 1px;
-                        border-color: root.target-folder == "" ? Theme.accent-primary : Theme.border-secondary;
-
-                        HorizontalLayout {
-                            padding-left: 6px; padding-right: 6px; alignment: center;
-                            Text {
-                                text: "📁 Root (No Folder)";
-                                font-size: 10px;
-                                font-weight: 600;
-                                color: root.target-folder == "" ? Theme.accent-primary : Theme.text-secondary;
-                                vertical-alignment: center;
-                            }
-                        }
-                        TouchArea { clicked => { root.target-folder = ""; } }
+                    placeholder: "Type folder name (e.g. Adtran, Routers/Core)...";
+                    edited(txt) => {
+                        root.filter-changed(txt);
                     }
-
-                    for f in root.existing-folders : Rectangle {
-                        height: 22px;
-                        border-radius: 4px;
-                        background: root.target-folder == f ? Theme.accent-primary.darker(0.6) : Theme.bg-tertiary;
-                        border-width: 1px;
-                        border-color: root.target-folder == f ? Theme.accent-primary : Theme.border-secondary;
-
-                        HorizontalLayout {
-                            padding-left: 6px; padding-right: 6px; alignment: center;
-                            Text {
-                                text: "📁 " + f;
-                                font-size: 10px;
-                                font-weight: 600;
-                                color: root.target-folder == f ? Theme.accent-primary : Theme.text-secondary;
-                                vertical-alignment: center;
-                            }
-                        }
-                        TouchArea { clicked => { root.target-folder = f; } }
+                    accepted => {
+                        root.move-item(root.item-type, root.item-id, root.target-folder);
+                        root.close();
                     }
                 }
             }
 
+            // Suggestions List
+            VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Matching Folders (" + root.suggestions.length + "):";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.text-muted;
+                    }
+                    Text {
+                        text: "Click to select, or [📂 ...] to explore";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                    }
+                }
+
+                Rectangle {
+                    height: 200px;
+                    border-radius: 6px;
+                    background: Theme.bg-secondary;
+                    border-width: 1px;
+                    border-color: Theme.border-secondary;
+                    clip: true;
+
+                    if root.suggestions.length == 0 : Rectangle {
+                        Text {
+                            text: root.target-folder != "" ? ("➕ Press 'Move' to create new folder \"" + root.target-folder + "\"") : "No folders found";
+                            font-size: 12px;
+                            color: Theme.accent-primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if root.suggestions.length > 0 : Flickable {
+                        viewport-height: max(200px, root.suggestions.length * 34px + 8px);
+
+                        VerticalLayout {
+                            padding: 4px;
+                            spacing: 2px;
+
+                            for item[idx] in root.suggestions : Rectangle {
+                                height: 32px;
+                                border-radius: 4px;
+                                background: root.target-folder == item.path ? Theme.bg-active : (row-touch.has-hover ? Theme.bg-hover : Colors.transparent);
+                                border-width: root.target-folder == item.path ? 1px : 0px;
+                                border-color: Theme.accent-primary;
+
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 8px;
+                                    alignment: space-between;
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: start;
+
+                                        Text {
+                                            text: item.is-root ? "📁" : (item.is-new ? "➕" : (item.has-subfolders ? "📂" : "📁"));
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Text {
+                                            text: item.display-name;
+                                            font-size: 12px;
+                                            font-weight: (root.target-folder == item.path || item.is-root) ? 600 : 400;
+                                            color: item.is-new ? Theme.accent-warning : (root.target-folder == item.path ? Theme.accent-primary : Theme.text-primary);
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: end;
+
+                                        // Subfolders explore badge
+                                        if item.has-subfolders && !item.is-root : Rectangle {
+                                            height: 22px;
+                                            border-radius: 11px;
+                                            background: sub-touch.has-hover ? Theme.accent-primary.darker(0.3) : Theme.bg-tertiary;
+                                            border-width: 1px;
+                                            border-color: sub-touch.has-hover ? Theme.accent-primary : Theme.border-secondary;
+
+                                            HorizontalLayout {
+                                                padding-left: 8px; padding-right: 8px;
+                                                Text {
+                                                    text: "📂 " + item.subfolder-count + " subfolders ▸";
+                                                    font-size: 10px;
+                                                    font-weight: 600;
+                                                    color: sub-touch.has-hover ? Theme.text-primary : Theme.text-secondary;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+
+                                            sub-touch := TouchArea {
+                                                clicked => {
+                                                    root.target-folder = item.path + "/";
+                                                    root.filter-changed(root.target-folder);
+                                                }
+                                            }
+                                        }
+
+                                        if root.target-folder == item.path : Text {
+                                            text: "✓";
+                                            font-size: 12px;
+                                            font-weight: 700;
+                                            color: Theme.accent-primary;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                row-touch := TouchArea {
+                                    clicked => {
+                                        root.target-folder = item.path;
+                                        root.filter-changed(root.target-folder);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom Buttons
             HorizontalLayout {
                 spacing: 8px;
                 alignment: end;
@@ -118,6 +274,7 @@ export component MoveModal inherits Rectangle {
                     custom-height: 32px;
                     clicked => { root.close(); }
                 }
+
                 SpurxButton {
                     text: "Move";
                     variant: "primary";
