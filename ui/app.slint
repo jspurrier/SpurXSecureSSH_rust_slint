@@ -92,7 +92,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.9 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.10 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -289,6 +289,9 @@ export component AppWindow inherits Window {
     in property <int> terminal-scroll-total: 1;
     in property <int> terminal-scroll-offset: 0;
     in property <int> terminal-scroll-visible: 24;
+    in-out property <int> terminal-selection-anchor-offset: -1;
+    in-out property <int> terminal-selection-cursor-offset: -1;
+    in-out property <bool> terminal-selection-active: false;
 
     callback request-clipboard-copy();
     callback request-clipboard-paste();
@@ -306,6 +309,9 @@ export component AppWindow inherits Window {
     }
 
     public function set-terminal-selection-offsets(start: int, end: int) {
+        root.terminal-selection-anchor-offset = start;
+        root.terminal-selection-cursor-offset = end;
+        root.terminal-selection-active = (start != end);
         term-view.set-selection-offsets(start, end);
     }
 
@@ -435,6 +441,9 @@ export component AppWindow inherits Window {
                 scrollback-visible: root.terminal-scroll-visible;
                 terminal-font-family: root.settings-font-family;
                 terminal-font-size: (root.settings-font-size.to-float() > 0.0 ? root.settings-font-size.to-float() : 14.0) * 1px;
+                selection-anchor-offset: root.terminal-selection-anchor-offset;
+                selection-cursor-offset: root.terminal-selection-cursor-offset;
+                selection-active: root.terminal-selection-active;
                 tab-selected(idx) => { root.request-tab-selected(idx); }
                 tab-closed(idx) => { root.request-tab-closed(idx); }
                 tab-added => { root.request-tab-added(); }

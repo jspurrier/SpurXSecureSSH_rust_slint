@@ -247,6 +247,27 @@ impl TerminalBuffer {
         }
     }
 
+    pub fn get_line_char_count(&self, global_row: usize) -> usize {
+        let sb_len = self.scrollback.len();
+        if global_row < sb_len {
+            self.scrollback.get(global_row).map(|l| l.chars().count()).unwrap_or(0)
+        } else {
+            let screen_idx = global_row - sb_len;
+            self.screen.get(screen_idx).map(|l| l.chars().count()).unwrap_or(0)
+        }
+    }
+
+    pub fn extend_selection_to_visible_edge(&self, sel: &mut crate::app_state::BufferSelection, scroll_down: bool) {
+        let (start_idx, end_idx) = self.visible_line_range();
+        if scroll_down {
+            let bottom_row = end_idx.saturating_sub(1);
+            let col = self.get_line_char_count(bottom_row);
+            sel.end = (bottom_row, col);
+        } else {
+            sel.end = (start_idx, 0);
+        }
+    }
+
     pub fn get_selected_text(&self, sel_start: (usize, usize), sel_end: (usize, usize)) -> String {
         let (s, e) = if sel_start <= sel_end {
             (sel_start, sel_end)
@@ -859,6 +880,36 @@ mod tests {
         // Partial columns
         let partial = buf.get_selected_text((1, 10), (1, 25));
         assert_eq!(partial, "GigabitEthernet");
+    }
+
+    #[test]
+    fn test_extend_selection_to_visible_edge() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        buf.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
+        // Start at scroll_offset = 2 (visible: Line 0, Line 1, Line 2 -> indices 0, 1, 2)
+        buf.scroll_by(2);
+        assert_eq!(buf.scroll_offset, 2);
+
+        let mut sel = crate::app_state::BufferSelection {
+            start: (1, 0),
+            end: (2, 5),
+        };
+
+        // Scroll down by 1 line (visible: Line 1, Line 2, Line 3 -> indices 1, 2, 3)
+        buf.scroll_by(-1);
+        buf.extend_selection_to_visible_edge(&mut sel, true);
+        assert_eq!(sel.start, (1, 0));
+        assert_eq!(sel.end.0, 3); // Extended to row 3 (bottom of visible window)
+
+        // Scroll down again to the bottom (visible: Line 2, Line 3, Line 4)
+        buf.scroll_by(-1);
+        buf.extend_selection_to_visible_edge(&mut sel, true);
+        assert_eq!(sel.start, (1, 0));
+        assert_eq!(sel.end.0, 4); // Extended to row 4 (bottom of buffer)
+
+        // Full multi-screen text should include lines 1, 2, 3, 4
+        let text = buf.get_selected_text(sel.start, sel.end);
+        assert_eq!(text, "Line 1\nLine 2\nLine 3\nLine 4");
     }
 }
 

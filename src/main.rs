@@ -1472,6 +1472,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         state_clone.terminal_selections.write().remove(&sid);
+                        app.set_terminal_selection_active(false);
+                        app.set_terminal_selection_anchor_offset(-1);
+                        app.set_terminal_selection_cursor_offset(-1);
                         app.invoke_set_terminal_cursor_pos(cur_off as i32);
                     }
                 }
@@ -1672,41 +1675,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
                         let mut b = buf.lock();
-                        let is_selecting = anchor_byte != cursor_byte;
+                        let has_saved_selection = state_clone.terminal_selections.read().contains_key(&sid);
+                        let has_screen_selection = anchor_byte != cursor_byte;
+                        let is_selecting = has_saved_selection || has_screen_selection;
 
                         if is_selecting {
                             let (old_text, _, _, _, _) = b.get_visible_text();
-                            let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
-                            let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
-
                             let mut selections = state_clone.terminal_selections.write();
-                            let sel = match selections.get(&sid).cloned() {
-                                Some(mut prev) => {
-                                    prev.end = end_pos;
-                                    selections.insert(sid.clone(), prev);
-                                    prev
-                                }
+                            let mut sel = match selections.get(&sid).cloned() {
+                                Some(prev) => prev,
                                 None => {
+                                    let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
+                                    let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
                                     let new_sel = BufferSelection { start: start_pos, end: end_pos };
                                     selections.insert(sid.clone(), new_sel);
                                     new_sel
                                 }
                             };
-                            drop(selections);
 
                             let lines_delta = if delta_y > 0.0 { 2 } else { -2 };
                             b.scroll_by(lines_delta);
                             let (new_text, _, total, scroll_off, vis_rows) = b.get_visible_text();
+
+                            // Extend selection end to include newly revealed visible content
+                            b.extend_selection_to_visible_edge(&mut sel, delta_y < 0.0);
+                            selections.insert(sid.clone(), sel);
+                            drop(selections);
+
                             let (new_start, new_end) = b.buffer_range_to_screen_offsets(&new_text, sel.start, sel.end);
                             drop(b);
 
                             app.set_terminal_scroll_total(total as i32);
                             app.set_terminal_scroll_offset(scroll_off as i32);
                             app.set_terminal_scroll_visible(vis_rows as i32);
+                            app.set_terminal_selection_anchor_offset(new_start as i32);
+                            app.set_terminal_selection_cursor_offset(new_end as i32);
+                            app.set_terminal_selection_active(true);
                             app.set_terminal_full_text(new_text.into());
                             app.invoke_set_terminal_selection_offsets(new_start as i32, new_end as i32);
                         } else {
                             state_clone.terminal_selections.write().remove(&sid);
+                            app.set_terminal_selection_active(false);
+                            app.set_terminal_selection_anchor_offset(-1);
+                            app.set_terminal_selection_cursor_offset(-1);
 
                             let lines_delta = if delta_y > 0.0 { 3 } else { -3 };
                             b.scroll_by(lines_delta);
@@ -1738,40 +1749,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
                         let mut b = buf.lock();
-                        let is_selecting = anchor_byte != cursor_byte;
+                        let has_saved_selection = state_clone.terminal_selections.read().contains_key(&sid);
+                        let has_screen_selection = anchor_byte != cursor_byte;
+                        let is_selecting = has_saved_selection || has_screen_selection;
 
                         if is_selecting {
                             let (old_text, _, _, _, _) = b.get_visible_text();
-                            let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
-                            let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
-
                             let mut selections = state_clone.terminal_selections.write();
-                            let sel = match selections.get(&sid).cloned() {
-                                Some(mut prev) => {
-                                    prev.end = end_pos;
-                                    selections.insert(sid.clone(), prev);
-                                    prev
-                                }
+                            let mut sel = match selections.get(&sid).cloned() {
+                                Some(prev) => prev,
                                 None => {
+                                    let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
+                                    let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
                                     let new_sel = BufferSelection { start: start_pos, end: end_pos };
                                     selections.insert(sid.clone(), new_sel);
                                     new_sel
                                 }
                             };
+
+                            let old_offset = b.scroll_offset;
+                            b.scroll_to_ratio(ratio);
+                            let new_offset = b.scroll_offset;
+                            let (new_text, _, total, scroll_off, vis_rows) = b.get_visible_text();
+
+                            if new_offset < old_offset {
+                                b.extend_selection_to_visible_edge(&mut sel, true);
+                            } else if new_offset > old_offset {
+                                b.extend_selection_to_visible_edge(&mut sel, false);
+                            }
+                            selections.insert(sid.clone(), sel);
                             drop(selections);
 
-                            b.scroll_to_ratio(ratio);
-                            let (new_text, _, total, scroll_off, vis_rows) = b.get_visible_text();
                             let (new_start, new_end) = b.buffer_range_to_screen_offsets(&new_text, sel.start, sel.end);
                             drop(b);
 
                             app.set_terminal_scroll_total(total as i32);
                             app.set_terminal_scroll_offset(scroll_off as i32);
                             app.set_terminal_scroll_visible(vis_rows as i32);
+                            app.set_terminal_selection_anchor_offset(new_start as i32);
+                            app.set_terminal_selection_cursor_offset(new_end as i32);
+                            app.set_terminal_selection_active(true);
                             app.set_terminal_full_text(new_text.into());
                             app.invoke_set_terminal_selection_offsets(new_start as i32, new_end as i32);
                         } else {
                             state_clone.terminal_selections.write().remove(&sid);
+                            app.set_terminal_selection_active(false);
+                            app.set_terminal_selection_anchor_offset(-1);
+                            app.set_terminal_selection_cursor_offset(-1);
 
                             b.scroll_to_ratio(ratio);
                             let (text, offset, total, scroll_off, vis_rows) = b.get_visible_text();
@@ -1819,6 +1843,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
+                    state_clone.terminal_selections.write().remove(&sid);
+                    app.set_terminal_selection_active(false);
+                    app.set_terminal_selection_anchor_offset(-1);
+                    app.set_terminal_selection_cursor_offset(-1);
                     let senders = state_clone.input_senders.read();
                     let buffers = state_clone.terminal_buffers.read();
                     if let (Some(tx), Some(buf)) = (senders.get(&sid), buffers.get(&sid)) {
