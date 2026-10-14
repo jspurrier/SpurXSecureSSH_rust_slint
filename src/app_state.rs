@@ -30,10 +30,17 @@ impl TabGroup {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BufferSelection {
+    pub start: (usize, usize),
+    pub end: (usize, usize),
+}
+
 pub struct AppState {
     pub connections: RwLock<HashMap<String, Arc<ssh::SshConnection>>>,
     pub input_senders: RwLock<HashMap<String, tokio::sync::mpsc::UnboundedSender<ssh::SshInput>>>,
     pub terminal_buffers: RwLock<HashMap<String, Arc<parking_lot::Mutex<TerminalBuffer>>>>,
+    pub terminal_selections: RwLock<HashMap<String, BufferSelection>>,
     pub tunnel_manager: Arc<TunnelManager>,
     pub sftp_manager: Arc<SftpManager>,
     pub tab_groups: RwLock<HashMap<String, TabGroup>>,
@@ -50,6 +57,7 @@ impl AppState {
             connections: RwLock::new(HashMap::new()),
             input_senders: RwLock::new(HashMap::new()),
             terminal_buffers: RwLock::new(HashMap::new()),
+            terminal_selections: RwLock::new(HashMap::new()),
             tunnel_manager: Arc::new(TunnelManager::new()),
             sftp_manager: Arc::new(SftpManager::new()),
             tab_groups: RwLock::new(HashMap::new()),

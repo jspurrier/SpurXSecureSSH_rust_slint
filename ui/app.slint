@@ -92,7 +92,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.8 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.9 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -294,8 +294,8 @@ export component AppWindow inherits Window {
     callback request-clipboard-paste();
     callback request-clear-terminal();
     callback request-cursor-clicked(int);
-    callback request-terminal-scrolled(length);
-    callback request-scrollbar-dragged(float);
+    callback request-terminal-scrolled(length, int, int);
+    callback request-scrollbar-dragged(float, int, int);
     callback request-sidebar-filter(string);
     callback request-check-for-updates();
     callback request-open-url(string);
@@ -303,6 +303,10 @@ export component AppWindow inherits Window {
 
     public function set-terminal-cursor-pos(pos: int) {
         term-view.set-cursor-pos(pos);
+    }
+
+    public function set-terminal-selection-offsets(start: int, end: int) {
+        term-view.set-selection-offsets(start, end);
     }
 
     public function focus-terminal() {
@@ -461,8 +465,8 @@ export component AppWindow inherits Window {
                 request-ai-analyze => { root.request-ai-analyze(); }
                 terminal-key-pressed(evt) => { root.request-terminal-key(evt); }
                 cursor-clicked(offset) => { root.request-cursor-clicked(offset); }
-                terminal-scrolled(delta) => { root.request-terminal-scrolled(delta); }
-                scrollbar-dragged(ratio) => { root.request-scrollbar-dragged(ratio); }
+                terminal-scrolled(delta, anchor, cursor) => { root.request-terminal-scrolled(delta, anchor, cursor); }
+                scrollbar-dragged(ratio, anchor, cursor) => { root.request-scrollbar-dragged(ratio, anchor, cursor); }
                 copy-selection(sel) => { root.request-copy-selection(sel); }
                 request-copy-selected-range(start, end) => { root.request-copy-selected-range(start, end); }
                 request-clipboard-copy => { root.request-clipboard-copy(); }

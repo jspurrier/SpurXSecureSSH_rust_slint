@@ -56,14 +56,15 @@ export component TerminalView inherits Rectangle {
     in property <bool> ai-autocomplete-loading: false;
     in property <string> ai-autocomplete-context: "Auto-Detected Context";
     in property <[AiAutocompleteItemModel]> ai-autocomplete-suggestions: [];
+    in-out property <bool> is-selecting: false;
 
     callback tab-selected(int);
     callback tab-closed(int);
     callback tab-added();
     callback terminal-key-pressed(KeyEvent);
     callback cursor-clicked(int);
-    callback terminal-scrolled(length);
-    callback scrollbar-dragged(float);
+    callback terminal-scrolled(length, int, int);
+    callback scrollbar-dragged(float, int, int);
     callback copy-selection(string);
     callback request-copy-selected-range(int, int);
     callback request-clipboard-copy();
@@ -119,6 +120,10 @@ export component TerminalView inherits Rectangle {
         term-input.set-selection-offsets(pos, pos);
     }
 
+    public function set-selection-offsets(start: int, end: int) {
+        term-input.set-selection-offsets(start, end);
+    }
+
     public function copy-selection-or-all() {
         if term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
             let start = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
@@ -145,6 +150,26 @@ export component TerminalView inherits Rectangle {
 
     public function get-term-width() -> length {
         return term-viewport-container.width;
+    }
+
+    auto-scroll-timer := Timer {
+        interval: 60ms;
+        running: root.is-selecting && (term-touch.mouse-y >= term-touch.height - 24px || term-touch.mouse-y <= 24px);
+        triggered => {
+            if term-touch.mouse-y >= term-touch.height - 24px {
+                root.terminal-scrolled(
+                    -60px,
+                    term-input.anchor-position-byte-offset,
+                    term-input.cursor-position-byte-offset
+                );
+            } else if term-touch.mouse-y <= 24px {
+                root.terminal-scrolled(
+                    60px,
+                    term-input.anchor-position-byte-offset,
+                    term-input.cursor-position-byte-offset
+                );
+            }
+        }
     }
 
     init => {
@@ -445,7 +470,7 @@ export component TerminalView inherits Rectangle {
                 spacing: 0px;
                 padding: 0px;
 
-                TouchArea {
+                term-touch := TouchArea {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
                     pointer-event(event) => {
@@ -456,9 +481,19 @@ export component TerminalView inherits Rectangle {
                             root.term-context-menu-open = true;
                             root.tab-context-menu-open = false;
                         }
+                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                            root.is-selecting = true;
+                        }
+                        if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                            root.is-selecting = false;
+                        }
                     }
                     scroll-event(event) => {
-                        root.terminal-scrolled(event.delta-y);
+                        root.terminal-scrolled(
+                            event.delta-y,
+                            term-input.anchor-position-byte-offset,
+                            term-input.cursor-position-byte-offset
+                        );
                         accept
                     }
                     clicked => {
@@ -566,7 +601,11 @@ export component TerminalView inherits Rectangle {
                                     if track-avail > 0.0 {
                                         let curr-y = (self.mouse-y + parent.y) / 1px;
                                         let ratio = 1.0 - (curr-y / track-avail);
-                                        root.scrollbar-dragged(max(0.0, min(1.0, ratio)));
+                                        root.scrollbar-dragged(
+                                            max(0.0, min(1.0, ratio)),
+                                            term-input.anchor-position-byte-offset,
+                                            term-input.cursor-position-byte-offset
+                                        );
                                     }
                                 }
                             }

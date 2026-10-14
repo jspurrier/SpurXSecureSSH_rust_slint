@@ -16,6 +16,38 @@ pub struct TerminalBuffer {
     parser: Parser,
 }
 
+fn row_col_to_screen_offset(visible_text: &str, target_row: usize, target_col: usize) -> usize {
+    let mut cur_row = 0;
+    let mut line_start = 0;
+    for (idx, b) in visible_text.bytes().enumerate() {
+        if cur_row == target_row {
+            let line_len = visible_text[line_start..]
+                .find('\n')
+                .unwrap_or(visible_text.len() - line_start);
+            let col = target_col.min(line_len);
+            let mut offset = line_start + col;
+            while offset > line_start && !visible_text.is_char_boundary(offset) {
+                offset -= 1;
+            }
+            return offset;
+        }
+        if b == b'\n' {
+            cur_row += 1;
+            line_start = idx + 1;
+        }
+    }
+    if cur_row == target_row {
+        let line_len = visible_text.len() - line_start;
+        let col = target_col.min(line_len);
+        let mut offset = line_start + col;
+        while offset > line_start && !visible_text.is_char_boundary(offset) {
+            offset -= 1;
+        }
+        return offset;
+    }
+    visible_text.len()
+}
+
 impl TerminalBuffer {
     pub fn new(cols: usize, rows: usize, max_scrollback: usize) -> Self {
         let actual_cols = cols.max(20);
@@ -151,6 +183,124 @@ impl TerminalBuffer {
 
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
+    }
+
+    pub fn visible_line_range(&self) -> (usize, usize) {
+        let total = self.scrollback.len() + self.screen.len();
+        let rows = self.visible_rows.max(2).min(300);
+        let end_idx = total.saturating_sub(self.scroll_offset).min(total).max(1);
+        let start_idx = end_idx.saturating_sub(rows);
+        (start_idx, end_idx)
+    }
+
+    pub fn screen_offset_to_buffer_pos(&self, visible_text: &str, byte_offset: usize) -> (usize, usize) {
+        let (start_idx, _) = self.visible_line_range();
+        let clamped_offset = byte_offset.min(visible_text.len());
+        let mut safe_offset = clamped_offset;
+        while safe_offset > 0 && !visible_text.is_char_boundary(safe_offset) {
+            safe_offset -= 1;
+        }
+        let prefix = &visible_text[..safe_offset];
+        let row = prefix.bytes().filter(|&b| b == b'\n').count();
+        let col = prefix.rfind('\n').map(|last_nl| safe_offset - (last_nl + 1)).unwrap_or(safe_offset);
+        (start_idx + row, col)
+    }
+
+    pub fn buffer_range_to_screen_offsets(
+        &self,
+        visible_text: &str,
+        sel_start: (usize, usize),
+        sel_end: (usize, usize),
+    ) -> (usize, usize) {
+        let is_forward = sel_start <= sel_end;
+        let (s, e) = if is_forward {
+            (sel_start, sel_end)
+        } else {
+            (sel_end, sel_start)
+        };
+
+        let (start_idx, end_idx) = self.visible_line_range();
+        if e.0 < start_idx {
+            return (0, 0);
+        }
+        if s.0 >= end_idx {
+            let len = visible_text.len();
+            return (len, len);
+        }
+
+        let start_byte = if s.0 < start_idx {
+            0
+        } else {
+            row_col_to_screen_offset(visible_text, s.0 - start_idx, s.1)
+        };
+
+        let end_byte = if e.0 >= end_idx {
+            visible_text.len()
+        } else {
+            row_col_to_screen_offset(visible_text, e.0 - start_idx, e.1)
+        };
+
+        if is_forward {
+            (start_byte, end_byte)
+        } else {
+            (end_byte, start_byte)
+        }
+    }
+
+    pub fn get_selected_text(&self, sel_start: (usize, usize), sel_end: (usize, usize)) -> String {
+        let (s, e) = if sel_start <= sel_end {
+            (sel_start, sel_end)
+        } else {
+            (sel_end, sel_start)
+        };
+        if s == e {
+            return String::new();
+        }
+        let lines = self.get_lines();
+        if lines.is_empty() || s.0 >= lines.len() {
+            return String::new();
+        }
+        let end_line = e.0.min(lines.len() - 1);
+
+        if s.0 == end_line {
+            let line = &lines[s.0];
+            let start_col = s.1.min(line.len());
+            let end_col = e.1.min(line.len());
+            if start_col < end_col {
+                let mut sc = start_col;
+                while sc > 0 && !line.is_char_boundary(sc) {
+                    sc -= 1;
+                }
+                let mut ec = end_col;
+                while ec < line.len() && !line.is_char_boundary(ec) {
+                    ec += 1;
+                }
+                return line[sc..ec].to_string();
+            } else {
+                return String::new();
+            }
+        }
+
+        let mut result = Vec::with_capacity(end_line - s.0 + 1);
+        for line_idx in s.0..=end_line {
+            let line = &lines[line_idx];
+            if line_idx == s.0 {
+                let mut sc = s.1.min(line.len());
+                while sc > 0 && !line.is_char_boundary(sc) {
+                    sc -= 1;
+                }
+                result.push(line[sc..].to_string());
+            } else if line_idx == end_line {
+                let mut ec = e.1.min(line.len());
+                while ec < line.len() && !line.is_char_boundary(ec) {
+                    ec += 1;
+                }
+                result.push(line[..ec].to_string());
+            } else {
+                result.push(line.clone());
+            }
+        }
+        result.join("\n")
     }
 
     pub fn clear(&mut self) {
@@ -635,6 +785,80 @@ mod tests {
         assert_eq!(buf.screen[0], "Line 1");
         assert_eq!(buf.screen[1], "Line 2");
         assert_eq!(buf.screen[2], "Line 3");
+    }
+
+    #[test]
+    fn test_screen_offset_to_buffer_pos() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        // Scrollback: Row 1, Row 2. Screen: Row 3, Row 4, Row 5
+        buf.process_bytes(b"Row 1\r\nRow 2\r\nRow 3\r\nRow 4\r\nRow 5");
+        let (vis_text, _, _, _, _) = buf.get_visible_text();
+        assert_eq!(vis_text, "Row 3\nRow 4\nRow 5");
+
+        // Offset 0 is Row 3, col 0 -> line index 2, col 0
+        let pos0 = buf.screen_offset_to_buffer_pos(&vis_text, 0);
+        assert_eq!(pos0, (2, 0));
+
+        // Offset 2 is "w" in Row 3 -> line index 2, col 2
+        let pos1 = buf.screen_offset_to_buffer_pos(&vis_text, 2);
+        assert_eq!(pos1, (2, 2));
+
+        // Offset 6 is "R" in Row 4 -> line index 3, col 0
+        let pos2 = buf.screen_offset_to_buffer_pos(&vis_text, 6);
+        assert_eq!(pos2, (3, 0));
+
+        // Now scroll back into history by 2 lines
+        buf.scroll_by(2);
+        let (hist_text, _, _, _, _) = buf.get_visible_text();
+        // Visible: Row 1, Row 2, Row 3
+        let pos_hist = buf.screen_offset_to_buffer_pos(&hist_text, 0);
+        assert_eq!(pos_hist, (0, 0));
+    }
+
+    #[test]
+    fn test_buffer_range_to_screen_offsets() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        buf.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
+        // Total = 5 lines. Visible: Line 2, Line 3, Line 4 (indices 2, 3, 4)
+        let (vis_text, _, _, _, _) = buf.get_visible_text();
+        assert_eq!(vis_text, "Line 2\nLine 3\nLine 4");
+
+        // 1. Selection within visible screen (Line 2 col 2 to Line 3 col 4)
+        let (s, e) = buf.buffer_range_to_screen_offsets(&vis_text, (2, 2), (3, 4));
+        assert_eq!(s, 2);
+        assert_eq!(e, 7 + 4); // "Line 2\n" is 7 bytes + 4 = 11
+
+        // 2. Selection starts above screen (Line 0 col 0 to Line 3 col 4)
+        let (s2, e2) = buf.buffer_range_to_screen_offsets(&vis_text, (0, 0), (3, 4));
+        assert_eq!(s2, 0);
+        assert_eq!(e2, 11);
+
+        // 3. Selection extends below screen when scrolled into history
+        buf.scroll_by(2);
+        let (hist_text, _, _, _, _) = buf.get_visible_text();
+        // Visible: Line 0, Line 1, Line 2 (indices 0, 1, 2)
+        let (s3, e3) = buf.buffer_range_to_screen_offsets(&hist_text, (1, 2), (4, 3));
+        assert_eq!(s3, 7 + 2); // Line 1 col 2
+        assert_eq!(e3, hist_text.len()); // Clamped to end
+    }
+
+    #[test]
+    fn test_get_selected_text_multi_screen() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        buf.process_bytes(b"Config Alpha\r\nInterface GigabitEthernet0/1\r\n ip address 10.0.0.1\r\n no shutdown\r\nexit");
+        let all_lines = buf.get_lines();
+        assert_eq!(all_lines.len(), 5);
+
+        // Select from Line 1 (Interface...) to Line 3 (no shutdown)
+        let selected = buf.get_selected_text((1, 0), (3, 12));
+        assert_eq!(
+            selected,
+            "Interface GigabitEthernet0/1\n ip address 10.0.0.1\n no shutdown"
+        );
+
+        // Partial columns
+        let partial = buf.get_selected_text((1, 10), (1, 25));
+        assert_eq!(partial, "GigabitEthernet");
     }
 }
 

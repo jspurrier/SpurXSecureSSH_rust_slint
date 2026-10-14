@@ -16,7 +16,7 @@ pub mod ymodem;
 
 slint::include_modules!();
 
-pub use app_state::{AppState, ConnectRequest, ConnectResponse, QuickCommand, SavedSession};
+pub use app_state::{AppState, BufferSelection, ConnectRequest, ConnectResponse, QuickCommand, SavedSession};
 
 pub fn get_default_config_dir() -> std::path::PathBuf {
     #[cfg(target_os = "windows")]
