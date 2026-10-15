@@ -247,25 +247,76 @@ impl TerminalBuffer {
         }
     }
 
-    pub fn get_line_char_count(&self, global_row: usize) -> usize {
+    /// Returns the text of a global buffer line (scrollback + screen), or None if out of range.
+    pub fn line_at(&self, global_row: usize) -> Option<&str> {
         let sb_len = self.scrollback.len();
         if global_row < sb_len {
-            self.scrollback.get(global_row).map(|l| l.chars().count()).unwrap_or(0)
+            self.scrollback.get(global_row).map(|s| s.as_str())
         } else {
-            let screen_idx = global_row - sb_len;
-            self.screen.get(screen_idx).map(|l| l.chars().count()).unwrap_or(0)
+            self.screen.get(global_row - sb_len).map(|s| s.as_str())
         }
     }
 
-    pub fn extend_selection_to_visible_edge(&self, sel: &mut crate::app_state::BufferSelection, scroll_down: bool) {
-        let (start_idx, end_idx) = self.visible_line_range();
-        if scroll_down {
-            let bottom_row = end_idx.saturating_sub(1);
-            let col = self.get_line_char_count(bottom_row);
-            sel.end = (bottom_row, col);
-        } else {
-            sel.end = (start_idx, 0);
+    pub fn total_lines(&self) -> usize {
+        self.scrollback.len() + self.screen.len()
+    }
+
+    /// Extracts text between two cell positions (global row, character column).
+    /// Columns are character cells (not bytes), so multi-byte glyphs such as
+    /// box-drawing characters are handled correctly. Trailing whitespace on each
+    /// line is trimmed, matching the copy behaviour of standard terminals.
+    pub fn get_text_in_cell_range(&self, a: (usize, usize), b: (usize, usize)) -> String {
+        let (s, e) = if a <= b { (a, b) } else { (b, a) };
+        if s == e {
+            return String::new();
         }
+        let total = self.total_lines();
+        if total == 0 || s.0 >= total {
+            return String::new();
+        }
+        let (end_row, end_col) = if e.0 >= total {
+            (total - 1, usize::MAX)
+        } else {
+            e
+        };
+
+        let slice_chars = |line: &str, from: usize, to: usize| -> String {
+            line.chars().skip(from).take(to.saturating_sub(from)).collect()
+        };
+
+        let mut out: Vec<String> = Vec::with_capacity(end_row - s.0 + 1);
+        for row in s.0..=end_row {
+            let line = self.line_at(row).unwrap_or("");
+            let from = if row == s.0 { s.1 } else { 0 };
+            let to = if row == end_row { end_col } else { usize::MAX };
+            out.push(slice_chars(line, from, to).trim_end().to_string());
+        }
+        out.join("\n")
+    }
+
+    /// Finds the word under a cell for double-click selection. Returns the
+    /// [start, end) character columns, or None when the cell is whitespace.
+    /// Word characters include the punctuation common in network output so
+    /// IPs, interface names, paths and MACs select as a single unit.
+    pub fn word_bounds_at(&self, global_row: usize, col: usize) -> Option<(usize, usize)> {
+        let line = self.line_at(global_row)?;
+        let chars: Vec<char> = line.chars().collect();
+        if col >= chars.len() {
+            return None;
+        }
+        let is_word = |c: char| c.is_alphanumeric() || "._-/:@~%+".contains(c);
+        if !is_word(chars[col]) {
+            return None;
+        }
+        let mut start = col;
+        while start > 0 && is_word(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = col + 1;
+        while end < chars.len() && is_word(chars[end]) {
+            end += 1;
+        }
+        Some((start, end))
     }
 
     pub fn get_selected_text(&self, sel_start: (usize, usize), sel_end: (usize, usize)) -> String {
@@ -883,33 +934,45 @@ mod tests {
     }
 
     #[test]
-    fn test_extend_selection_to_visible_edge() {
+    fn test_cell_range_copy_is_independent_of_scroll() {
         let mut buf = TerminalBuffer::new(80, 3, 1000);
         buf.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
-        // Start at scroll_offset = 2 (visible: Line 0, Line 1, Line 2 -> indices 0, 1, 2)
+        // Selection is in global buffer coordinates, so scrolling must not change it.
+        let expected = "ne 1\nLine 2\nLine 3\nLi";
+        assert_eq!(buf.get_text_in_cell_range((1, 2), (4, 2)), expected);
         buf.scroll_by(2);
-        assert_eq!(buf.scroll_offset, 2);
+        assert_eq!(buf.get_text_in_cell_range((1, 2), (4, 2)), expected);
+        // Reversed (dragging upwards) gives the same text.
+        assert_eq!(buf.get_text_in_cell_range((4, 2), (1, 2)), expected);
+        // End column past the line end selects to end of line; rows past the end clamp.
+        assert_eq!(buf.get_text_in_cell_range((3, 0), (99, 9999)), "Line 3\nLine 4");
+    }
 
-        let mut sel = crate::app_state::BufferSelection {
-            start: (1, 0),
-            end: (2, 5),
-        };
+    #[test]
+    fn test_cell_range_copy_utf8_and_trailing_space() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        buf.process_bytes("├── eth0   \r\n└── eth1".as_bytes());
+        // Columns are characters, not bytes; trailing spaces are trimmed.
+        assert_eq!(buf.get_text_in_cell_range((0, 4), (0, 100)), "eth0");
+        assert_eq!(buf.get_text_in_cell_range((0, 0), (1, 3)), "├── eth0\n└──");
+    }
 
-        // Scroll down by 1 line (visible: Line 1, Line 2, Line 3 -> indices 1, 2, 3)
-        buf.scroll_by(-1);
-        buf.extend_selection_to_visible_edge(&mut sel, true);
-        assert_eq!(sel.start, (1, 0));
-        assert_eq!(sel.end.0, 3); // Extended to row 3 (bottom of visible window)
-
-        // Scroll down again to the bottom (visible: Line 2, Line 3, Line 4)
-        buf.scroll_by(-1);
-        buf.extend_selection_to_visible_edge(&mut sel, true);
-        assert_eq!(sel.start, (1, 0));
-        assert_eq!(sel.end.0, 4); // Extended to row 4 (bottom of buffer)
-
-        // Full multi-screen text should include lines 1, 2, 3, 4
-        let text = buf.get_selected_text(sel.start, sel.end);
-        assert_eq!(text, "Line 1\nLine 2\nLine 3\nLine 4");
+    #[test]
+    fn test_word_bounds_at() {
+        let mut buf = TerminalBuffer::new(80, 3, 1000);
+        buf.process_bytes(b"Router# ping 10.0.0.1 via Gi0/1");
+        let line = buf.line_at(0).unwrap().to_string();
+        let ip_col = line.find("10.0").unwrap() + 3;
+        let (s, e) = buf.word_bounds_at(0, ip_col).unwrap();
+        assert_eq!(&line[s..e], "10.0.0.1");
+        let gi_col = line.find("Gi0").unwrap();
+        let (s, e) = buf.word_bounds_at(0, gi_col).unwrap();
+        assert_eq!(&line[s..e], "Gi0/1");
+        // Prompt '#' is not glued onto the hostname
+        let (s, e) = buf.word_bounds_at(0, 1).unwrap();
+        assert_eq!(&line[s..e], "Router");
+        // Whitespace selects nothing
+        assert!(buf.word_bounds_at(0, line.find(' ').unwrap()).is_none());
     }
 }
 

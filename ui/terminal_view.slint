@@ -59,7 +59,7 @@ export component TerminalView inherits Rectangle {
     in-out property <bool> is-selecting: false;
     in property <int> selection-anchor-offset: -1;
     in property <int> selection-cursor-offset: -1;
-    in property <bool> selection-active: false;
+    in-out property <bool> selection-active: false;
     in-out property <bool> auto-scroll-active: false;
     in-out property <length> auto-scroll-delta: 0px;
 
@@ -68,10 +68,12 @@ export component TerminalView inherits Rectangle {
     callback tab-added();
     callback terminal-key-pressed(KeyEvent);
     callback cursor-clicked(int);
-    callback terminal-scrolled(length, int, int);
+    callback terminal-scrolled(length, int, int, bool);
     callback scrollbar-dragged(float, int, int);
     callback copy-selection(string);
     callback request-copy-selected-range(int, int);
+    callback terminal-selection-changed(int, int);
+    callback request-select-word(int);
     callback request-clipboard-copy();
     callback request-clipboard-paste();
     callback request-clear-terminal();
@@ -138,7 +140,6 @@ export component TerminalView inherits Rectangle {
         } else {
             root.request-clipboard-copy();
         }
-        root.set-cursor-pos(root.terminal-cursor-pos);
     }
 
     public function restore-cursor-pos() {
@@ -158,14 +159,15 @@ export component TerminalView inherits Rectangle {
     }
 
     auto-scroll-timer := Timer {
-        interval: 50ms;
-        running: root.auto-scroll-active;
+        interval: 40ms;
+        running: root.auto-scroll-active && term-touch.pressed;
         triggered => {
-            if root.auto-scroll-active {
+            if root.auto-scroll-active && term-touch.pressed {
                 root.terminal-scrolled(
                     root.auto-scroll-delta,
                     term-input.anchor-position-byte-offset,
-                    term-input.cursor-position-byte-offset
+                    term-input.cursor-position-byte-offset,
+                    true
                 );
             }
         }
@@ -481,27 +483,48 @@ export component TerminalView inherits Rectangle {
                             root.tab-context-menu-open = false;
                         }
                         if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                            root.is-selecting = true;
+                            term-input.focus();
                         }
                         if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
-                            root.is-selecting = false;
                             root.auto-scroll-active = false;
                         }
                     }
+                    moved => {
+                        if self.pressed {
+                            let term-h = term-viewport-container.height;
+                            if self.mouse-y >= term-h - 28px {
+                                root.auto-scroll-active = true;
+                                root.auto-scroll-delta = -40px;
+                            } else if self.mouse-y <= 24px {
+                                root.auto-scroll-active = true;
+                                root.auto-scroll-delta = 40px;
+                            } else {
+                                root.auto-scroll-active = false;
+                            }
+                        }
+                    }
                     scroll-event(event) => {
+                        term-input.focus();
                         root.terminal-scrolled(
                             event.delta-y,
                             term-input.anchor-position-byte-offset,
-                            term-input.cursor-position-byte-offset
+                            term-input.cursor-position-byte-offset,
+                            self.pressed
                         );
                         accept
                     }
                     clicked => {
                         root.tab-context-menu-open = false;
                         root.term-context-menu-open = false;
-                        root.is-selecting = false;
                         root.auto-scroll-active = false;
-                        root.cursor-clicked(term-input.cursor-position-byte-offset);
+                        term-input.focus();
+                        if term-input.anchor-position-byte-offset == term-input.cursor-position-byte-offset {
+                            root.cursor-clicked(term-input.cursor-position-byte-offset);
+                        }
+                    }
+                    double-clicked => {
+                        term-input.focus();
+                        root.request-select-word(term-input.cursor-position-byte-offset);
                     }
 
                     Rectangle {
@@ -534,18 +557,8 @@ export component TerminalView inherits Rectangle {
                             cursor-position-changed(pos) => {
                                 let has-sel = self.anchor-position-byte-offset != self.cursor-position-byte-offset;
                                 if has-sel {
-                                    root.is-selecting = true;
-                                    if pos.y >= term-viewport-container.height - 36px {
-                                        root.auto-scroll-active = true;
-                                        root.auto-scroll-delta = -60px;
-                                    } else if pos.y <= 24px {
-                                        root.auto-scroll-active = true;
-                                        root.auto-scroll-delta = 60px;
-                                    } else {
-                                        root.auto-scroll-active = false;
-                                    }
-                                } else {
-                                    root.auto-scroll-active = false;
+                                    root.selection-active = true;
+                                    root.terminal-selection-changed(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
                                 }
                             }
 
@@ -557,35 +570,20 @@ export component TerminalView inherits Rectangle {
                                     root.trigger-ai-autocomplete();
                                     accept
                                 } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C") {
-                                    if root.selection-active || self.anchor-position-byte-offset != self.cursor-position-byte-offset {
-                                        let start = min(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
-                                        let end = max(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
-                                        self.copy();
-                                        root.request-copy-selected-range(start, end);
-                                    } else {
-                                        root.request-clipboard-copy();
-                                    }
-                                    root.set-cursor-pos(root.terminal-cursor-pos);
+                                    root.copy-selection-or-all();
                                     accept
                                 } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
                                     root.request-clipboard-paste();
-                                    root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
                                 } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
                                     root.request-clipboard-paste();
-                                    root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
                                 } else if event.modifiers.shift && event.text == Key.Insert {
                                     root.request-clipboard-paste();
-                                    root.set-cursor-pos(root.terminal-cursor-pos);
                                     accept
                                 } else if event.modifiers.control && (event.text == "c" || event.text == "C") {
                                     if root.selection-active || self.anchor-position-byte-offset != self.cursor-position-byte-offset {
-                                        let start = min(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
-                                        let end = max(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
-                                        self.copy();
-                                        root.request-copy-selected-range(start, end);
-                                        root.set-cursor-pos(root.terminal-cursor-pos);
+                                        root.copy-selection-or-all();
                                     } else {
                                         root.terminal-key-pressed(event);
                                     }
@@ -621,6 +619,15 @@ export component TerminalView inherits Rectangle {
                         background: scroll-touch.has-hover ? #586074 : #323846;
 
                         scroll-touch := TouchArea {
+                            scroll-event(event) => {
+                                root.terminal-scrolled(
+                                    event.delta-y,
+                                    term-input.anchor-position-byte-offset,
+                                    term-input.cursor-position-byte-offset,
+                                    false
+                                );
+                                accept
+                            }
                             moved => {
                                 if self.pressed {
                                     let track-avail = (parent.height / 1px) - parent.thumb-h;
@@ -995,15 +1002,7 @@ export component TerminalView inherits Rectangle {
                 tm1 := TouchArea {
                     clicked => {
                         root.term-context-menu-open = false;
-                        if root.selection-active || term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
-                            let start = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
-                            let end = max(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
-                            term-input.copy();
-                            root.request-copy-selected-range(start, end);
-                        } else {
-                            root.request-clipboard-copy();
-                        }
-                        root.set-cursor-pos(root.terminal-cursor-pos);
+                        root.copy-selection-or-all();
                     }
                 }
             }
@@ -1020,7 +1019,6 @@ export component TerminalView inherits Rectangle {
                     clicked => {
                         root.term-context-menu-open = false;
                         root.request-clipboard-paste();
-                        root.set-cursor-pos(root.terminal-cursor-pos);
                     }
                 }
             }

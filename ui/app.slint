@@ -40,6 +40,7 @@ export component AppWindow inherits Window {
     preferred-width: 1280px;
     preferred-height: 840px;
     background: Theme.bg-primary;
+    forward-focus: term-view;
 
     // Global UI Layout State
     in-out property <AppUiState> ui-state: {
@@ -92,7 +93,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.10 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.11 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -297,8 +298,10 @@ export component AppWindow inherits Window {
     callback request-clipboard-paste();
     callback request-clear-terminal();
     callback request-cursor-clicked(int);
-    callback request-terminal-scrolled(length, int, int);
+    callback request-terminal-scrolled(length, int, int, bool);
     callback request-scrollbar-dragged(float, int, int);
+    callback request-terminal-selection-changed(int, int);
+    callback request-select-word(int);
     callback request-sidebar-filter(string);
     callback request-check-for-updates();
     callback request-open-url(string);
@@ -311,7 +314,7 @@ export component AppWindow inherits Window {
     public function set-terminal-selection-offsets(start: int, end: int) {
         root.terminal-selection-anchor-offset = start;
         root.terminal-selection-cursor-offset = end;
-        root.terminal-selection-active = (start != end);
+        root.terminal-selection-active = (start != end && start >= 0 && end >= 0);
         term-view.set-selection-offsets(start, end);
     }
 
@@ -474,8 +477,10 @@ export component AppWindow inherits Window {
                 request-ai-analyze => { root.request-ai-analyze(); }
                 terminal-key-pressed(evt) => { root.request-terminal-key(evt); }
                 cursor-clicked(offset) => { root.request-cursor-clicked(offset); }
-                terminal-scrolled(delta, anchor, cursor) => { root.request-terminal-scrolled(delta, anchor, cursor); }
+                terminal-scrolled(delta, anchor, cursor, pressed) => { root.request-terminal-scrolled(delta, anchor, cursor, pressed); }
                 scrollbar-dragged(ratio, anchor, cursor) => { root.request-scrollbar-dragged(ratio, anchor, cursor); }
+                terminal-selection-changed(anchor, cursor) => { root.request-terminal-selection-changed(anchor, cursor); }
+                request-select-word(offset) => { root.request-select-word(offset); }
                 copy-selection(sel) => { root.request-copy-selection(sel); }
                 request-copy-selected-range(start, end) => { root.request-copy-selected-range(start, end); }
                 request-clipboard-copy => { root.request-clipboard-copy(); }
