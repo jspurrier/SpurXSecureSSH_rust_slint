@@ -60,6 +60,7 @@ export component TerminalView inherits Rectangle {
     in-out property <int> selection-anchor-offset: -1;
     in-out property <int> selection-cursor-offset: -1;
     in-out property <bool> selection-active: false;
+    in-out property <bool> is-drag-selecting: false;
     in-out property <bool> auto-scroll-active: false;
     in-out property <length> auto-scroll-delta: 0px;
 
@@ -161,7 +162,7 @@ export component TerminalView inherits Rectangle {
     }
 
     auto-scroll-timer := Timer {
-        interval: 40ms;
+        interval: 60ms;
         running: root.auto-scroll-active && term-touch.pressed;
         triggered => {
             if root.auto-scroll-active && term-touch.pressed {
@@ -490,6 +491,7 @@ export component TerminalView inherits Rectangle {
                         }
                         if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
                             term-input.focus();
+                            root.is-drag-selecting = false;
                             if !event.modifiers.shift {
                                 root.selection-active = false;
                                 root.selection-anchor-offset = -1;
@@ -502,16 +504,19 @@ export component TerminalView inherits Rectangle {
                         }
                         if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
                             root.auto-scroll-active = false;
-                            if root.selection-active || term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+                            if root.is-drag-selecting && root.selection-active {
                                 root.copy-selection-or-all();
                             }
+                            root.is-drag-selecting = false;
                         }
                         if event.kind == PointerEventKind.cancel {
                             root.auto-scroll-active = false;
+                            root.is-drag-selecting = false;
                         }
                     }
                     moved => {
                         if self.pressed {
+                            root.is-drag-selecting = true;
                             let term-h = term-viewport-container.height;
                             if self.mouse-y >= term-h - 28px {
                                 root.auto-scroll-active = true;
@@ -530,7 +535,7 @@ export component TerminalView inherits Rectangle {
                             event.delta-y,
                             term-input.anchor-position-byte-offset,
                             term-input.cursor-position-byte-offset,
-                            root.selection-active || self.pressed
+                            self.pressed
                         );
                         accept
                     }
@@ -538,10 +543,12 @@ export component TerminalView inherits Rectangle {
                         root.tab-context-menu-open = false;
                         root.term-context-menu-open = false;
                         root.auto-scroll-active = false;
+                        root.selection-active = false;
+                        root.selection-anchor-offset = -1;
+                        root.selection-cursor-offset = -1;
+                        term-input.set-selection-offsets(term-input.cursor-position-byte-offset, term-input.cursor-position-byte-offset);
                         term-input.focus();
-                        if !root.selection-active {
-                            root.cursor-clicked(term-input.cursor-position-byte-offset);
-                        }
+                        root.cursor-clicked(term-input.cursor-position-byte-offset);
                     }
                     double-clicked => {
                         term-input.focus();
@@ -569,12 +576,6 @@ export component TerminalView inherits Rectangle {
                             selection-background-color: #264f78;
                             selection-foreground-color: #ffffff;
 
-                            changed text => {
-                                if root.selection-active && root.selection-anchor-offset >= 0 && root.selection-cursor-offset >= 0 {
-                                    self.set-selection-offsets(root.selection-anchor-offset, root.selection-cursor-offset);
-                                }
-                            }
-
                             cursor-position-changed(pos) => {
                                 let has-sel = self.anchor-position-byte-offset != self.cursor-position-byte-offset;
                                 if term-touch.pressed && !root.auto-scroll-active {
@@ -586,34 +587,45 @@ export component TerminalView inherits Rectangle {
                             }
 
                             key-pressed(event) => {
-                                if root.ai-autocomplete-visible && event.text == Key.Escape {
-                                    root.dismiss-ai-autocomplete();
-                                    accept
-                                } else if event.modifiers.control && (event.text == " " || event.text == "\u{0000}" || event.text == "@") {
-                                    root.trigger-ai-autocomplete();
-                                    accept
-                                } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C") {
+                                let is-ctrl-c = event.modifiers.control && (event.text == "c" || event.text == "C");
+                                let is-copy = (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C");
+
+                                if is-copy || (is-ctrl-c && root.selection-active) {
                                     root.copy-selection-or-all();
-                                    accept
-                                } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
-                                    root.request-clipboard-paste();
-                                    accept
-                                } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
-                                    root.request-clipboard-paste();
-                                    accept
-                                } else if event.modifiers.shift && event.text == Key.Insert {
-                                    root.request-clipboard-paste();
-                                    accept
-                                } else if event.modifiers.control && (event.text == "c" || event.text == "C") {
-                                    if root.selection-active || self.anchor-position-byte-offset != self.cursor-position-byte-offset {
-                                        root.copy-selection-or-all();
-                                    } else {
-                                        root.terminal-key-pressed(event);
-                                    }
+                                    root.selection-active = false;
+                                    root.selection-anchor-offset = -1;
+                                    root.selection-cursor-offset = -1;
+                                    self.set-selection-offsets(self.cursor-position-byte-offset, self.cursor-position-byte-offset);
                                     accept
                                 } else {
-                                    root.terminal-key-pressed(event);
-                                    accept
+                                    // Clear selection immediately upon typing any terminal keystroke
+                                    if root.selection-active || root.selection-anchor-offset >= 0 || self.anchor-position-byte-offset != self.cursor-position-byte-offset {
+                                        root.selection-active = false;
+                                        root.selection-anchor-offset = -1;
+                                        root.selection-cursor-offset = -1;
+                                        self.set-selection-offsets(self.cursor-position-byte-offset, self.cursor-position-byte-offset);
+                                        root.cursor-clicked(self.cursor-position-byte-offset);
+                                    }
+
+                                    if root.ai-autocomplete-visible && event.text == Key.Escape {
+                                        root.dismiss-ai-autocomplete();
+                                        accept
+                                    } else if event.modifiers.control && (event.text == " " || event.text == "\u{0000}" || event.text == "@") {
+                                        root.trigger-ai-autocomplete();
+                                        accept
+                                    } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
+                                        root.request-clipboard-paste();
+                                        accept
+                                    } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
+                                        root.request-clipboard-paste();
+                                        accept
+                                    } else if event.modifiers.shift && event.text == Key.Insert {
+                                        root.request-clipboard-paste();
+                                        accept
+                                    } else {
+                                        root.terminal-key-pressed(event);
+                                        accept
+                                    }
                                 }
                             }
                         }

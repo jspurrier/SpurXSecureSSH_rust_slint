@@ -13,6 +13,9 @@ pub struct TerminalBuffer {
     pub visible_rows: usize,
     pub scroll_offset: usize,
     pub show_cursor: bool,
+    pub in_alternate_screen: bool,
+    saved_primary_screen: Vec<String>,
+    saved_primary_cursor: (usize, usize),
     parser: Parser,
 }
 
@@ -69,7 +72,43 @@ impl TerminalBuffer {
             visible_rows: actual_rows,
             scroll_offset: 0,
             show_cursor: true,
+            in_alternate_screen: false,
+            saved_primary_screen: Vec::new(),
+            saved_primary_cursor: (0, 0),
             parser: Parser::new(),
+        }
+    }
+
+    pub fn enter_alternate_screen(&mut self, clear_and_save: bool) {
+        if !self.in_alternate_screen {
+            self.in_alternate_screen = true;
+            self.saved_primary_screen = self.screen.clone();
+            self.saved_primary_cursor = (self.cursor_row, self.cursor_col);
+            self.scroll_offset = 0;
+            if clear_and_save {
+                for line in self.screen.iter_mut() {
+                    line.clear();
+                }
+                self.cursor_row = 0;
+                self.cursor_col = 0;
+            }
+        }
+    }
+
+    pub fn exit_alternate_screen(&mut self, restore_cursor: bool) {
+        if self.in_alternate_screen {
+            self.in_alternate_screen = false;
+            if !self.saved_primary_screen.is_empty() {
+                self.screen = std::mem::take(&mut self.saved_primary_screen);
+            }
+            while self.screen.len() < self.rows {
+                self.screen.push(String::with_capacity(128));
+            }
+            if restore_cursor {
+                self.cursor_row = self.saved_primary_cursor.0.min(self.visible_rows.saturating_sub(1));
+                self.cursor_col = self.saved_primary_cursor.1.min(self.cols.saturating_sub(1));
+            }
+            self.scroll_offset = 0;
         }
     }
 
@@ -127,10 +166,14 @@ impl TerminalBuffer {
     }
 
     pub fn get_visible_text(&self) -> (String, usize, usize, usize, usize) {
-        let total = self.scrollback.len() + self.screen.len();
+        let total = if self.in_alternate_screen {
+            self.screen.len()
+        } else {
+            self.scrollback.len() + self.screen.len()
+        };
         let rows = self.visible_rows.max(2).min(300);
 
-        if self.scroll_offset == 0 {
+        if self.scroll_offset == 0 || self.in_alternate_screen {
             // Viewing active screen directly
             let text = self.screen.join("\n");
             let cursor_line = self.cursor_row.min(self.screen.len().saturating_sub(1));
@@ -749,6 +792,40 @@ impl<'a> Perform for BufferPerformer<'a> {
                     .1
                     .min(self.buffer.cols.saturating_sub(1));
             }
+            'h' => {
+                if _intermediates.contains(&b'?') {
+                    for param_slice in params.iter() {
+                        if let Some(&p) = param_slice.first() {
+                            match p {
+                                1049 | 47 | 1047 => {
+                                    self.buffer.enter_alternate_screen(p == 1049);
+                                }
+                                25 => {
+                                    self.buffer.show_cursor = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            'l' => {
+                if _intermediates.contains(&b'?') {
+                    for param_slice in params.iter() {
+                        if let Some(&p) = param_slice.first() {
+                            match p {
+                                1049 | 47 | 1047 => {
+                                    self.buffer.exit_alternate_screen(p == 1049);
+                                }
+                                25 => {
+                                    self.buffer.show_cursor = false;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -973,6 +1050,31 @@ mod tests {
         assert_eq!(&line[s..e], "Router");
         // Whitespace selects nothing
         assert!(buf.word_bounds_at(0, line.find(' ').unwrap()).is_none());
+    }
+
+    #[test]
+    fn test_alternate_screen_enter_and_exit() {
+        let mut buf = TerminalBuffer::new(80, 24, 1000);
+        buf.process_bytes(b"user@host:~$ ls\r\nfile1.txt\r\n");
+        assert!(!buf.in_alternate_screen);
+        assert_eq!(buf.screen[0], "user@host:~$ ls");
+
+        // Entering alternate screen via \x1b[?1049h
+        buf.process_bytes(b"\x1b[?1049h");
+        assert!(buf.in_alternate_screen);
+        // Alternate screen should be cleared
+        assert_eq!(buf.screen[0], "");
+
+        // Render something in nano
+        buf.process_bytes(b"GNU nano 7.2\r\nFile: test.txt");
+        assert_eq!(buf.screen[0], "GNU nano 7.2");
+        assert_eq!(buf.screen[1], "File: test.txt");
+
+        // Exit alternate screen via \x1b[?1049l
+        buf.process_bytes(b"\x1b[?1049l");
+        assert!(!buf.in_alternate_screen);
+        // Primary screen text restored!
+        assert_eq!(buf.screen[0], "user@host:~$ ls");
     }
 }
 

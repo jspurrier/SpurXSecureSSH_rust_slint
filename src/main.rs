@@ -1773,6 +1773,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
+                    state_clone.terminal_selections.write().remove(&sid);
+                    app.set_terminal_selection_active(false);
+                    app.set_terminal_selection_anchor_offset(-1);
+                    app.set_terminal_selection_cursor_offset(-1);
+                    app.invoke_set_terminal_selection_offsets(0, 0);
+
                     let senders = state_clone.input_senders.read();
                     if let Some(tx) = senders.get(&sid) {
                         let _ = tx.send(ssh::SshInput::Data(bytes));
@@ -1839,6 +1845,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
                         let mut b = buf.lock();
+
+                        // In alternate screen mode (e.g. nano, vim, less, htop),
+                        // scrollback is not used; mouse wheel and edge drag send Up/Down arrows.
+                        if b.in_alternate_screen {
+                            drop(b);
+                            let senders = state_clone.input_senders.read();
+                            if let Some(tx) = senders.get(&sid) {
+                                let key_seq: &[u8] = if is_pressed {
+                                    if delta_y > 0.0 { b"\x1b[A" } else { b"\x1b[B" }
+                                } else {
+                                    if delta_y > 0.0 { b"\x1b[A\x1b[A\x1b[A" } else { b"\x1b[B\x1b[B\x1b[B" }
+                                };
+                                let _ = tx.send(ssh::SshInput::Data(key_seq.to_vec()));
+                            }
+                            return;
+                        }
+
                         let (old_text, _, _, _, _) = b.get_visible_text();
 
                         let mut sel_opt = state_clone.terminal_selections.read().get(&sid).cloned();
@@ -4692,6 +4715,52 @@ fn sync_remote_cursor(
     target_offset: usize,
 ) {
     let mut buf = buffer.lock();
+    if buf.in_alternate_screen {
+        let visible_text = buf.screen.join("\n");
+        let mut cur_row = 0;
+        let mut line_start = 0;
+        let mut target_row = 0;
+        let mut target_col = 0;
+        let mut found = false;
+        for (idx, b) in visible_text.bytes().enumerate() {
+            if idx == target_offset {
+                target_row = cur_row;
+                target_col = target_offset.saturating_sub(line_start);
+                found = true;
+                break;
+            }
+            if b == b'\n' {
+                cur_row += 1;
+                line_start = idx + 1;
+            }
+        }
+        if !found {
+            target_row = cur_row.min(buf.screen.len().saturating_sub(1));
+            target_col = target_offset.saturating_sub(line_start);
+        }
+        let line_len = buf.screen.get(target_row).map(|l| l.chars().count()).unwrap_or(0);
+        let target_col = target_col.min(line_len);
+        let current_row = buf.cursor_row;
+        let current_col = buf.cursor_col;
+
+        let mut data = Vec::new();
+        if target_row < current_row {
+            data.extend("\x1b[A".repeat(current_row - target_row).into_bytes());
+        } else if target_row > current_row {
+            data.extend("\x1b[B".repeat(target_row - current_row).into_bytes());
+        }
+        if target_col < current_col {
+            data.extend("\x1b[D".repeat(current_col - target_col).into_bytes());
+        } else if target_col > current_col {
+            data.extend("\x1b[C".repeat(target_col - current_col).into_bytes());
+        }
+        if !data.is_empty() {
+            let _ = tx.send(ssh::SshInput::Data(data));
+            buf.cursor_row = target_row;
+            buf.cursor_col = target_col;
+        }
+        return;
+    }
     if buf.scroll_offset == 0 {
         let active_row = buf.cursor_row.min(buf.screen.len().saturating_sub(1));
         let mut line_start_in_visible = 0;

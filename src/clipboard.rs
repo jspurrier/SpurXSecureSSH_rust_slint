@@ -12,9 +12,16 @@ pub struct PasteCommand {
 }
 
 /// Copies text to the system clipboard across Linux (Wayland/X11), macOS, and Windows.
+/// Runs in a background thread to prevent blocking the UI event loop.
 pub fn set_text(text: impl AsRef<str>) -> ClipResult<()> {
-    let content = text.as_ref();
+    let content = text.as_ref().to_string();
+    std::thread::spawn(move || {
+        let _ = set_text_internal(&content);
+    });
+    Ok(())
+}
 
+fn set_text_internal(content: &str) -> ClipResult<()> {
     #[cfg(target_os = "linux")]
     {
         // 1. If running under Wayland or wl-copy is installed, try wl-copy first
@@ -184,11 +191,17 @@ pub fn set_text(text: impl AsRef<str>) -> ClipResult<()> {
 }
 
 /// Copies text to both the primary selection (Linux) and system clipboard.
-/// This matches standard Linux terminal behavior (Konsole/GNOME Terminal) where
-/// selected text is immediately ready for middle-click paste or Ctrl+Shift+V.
+/// Runs in a background thread so the UI thread never hitches or lags.
 pub fn set_primary_text(text: impl AsRef<str>) -> ClipResult<()> {
-    let content = text.as_ref();
+    let content = text.as_ref().to_string();
+    std::thread::spawn(move || {
+        let _ = set_primary_text_internal(&content);
+        let _ = set_text_internal(&content);
+    });
+    Ok(())
+}
 
+fn set_primary_text_internal(content: &str) -> ClipResult<()> {
     #[cfg(target_os = "linux")]
     {
         // 1. Try Wayland primary selection (wl-copy --primary)
@@ -243,8 +256,7 @@ pub fn set_primary_text(text: impl AsRef<str>) -> ClipResult<()> {
         }
     }
 
-    // Always also populate standard system clipboard
-    set_text(content)
+    Ok(())
 }
 
 /// Retrieves text from the primary selection (Linux) or falls back to system clipboard.
@@ -572,15 +584,31 @@ fn is_wayland() -> bool {
 
 #[cfg(target_os = "linux")]
 fn has_command(cmd: &str) -> bool {
-    if let Ok(path_var) = std::env::var("PATH") {
-        for dir in std::env::split_paths(&path_var) {
-            let full_path = dir.join(cmd);
-            if full_path.is_file() {
-                return true;
+    use std::sync::OnceLock;
+    static HAS_WL_COPY: OnceLock<bool> = OnceLock::new();
+    static HAS_WL_PASTE: OnceLock<bool> = OnceLock::new();
+    static HAS_XCLIP: OnceLock<bool> = OnceLock::new();
+    static HAS_XSEL: OnceLock<bool> = OnceLock::new();
+
+    let check = || {
+        if let Ok(path_var) = std::env::var("PATH") {
+            for dir in std::env::split_paths(&path_var) {
+                let full_path = dir.join(cmd);
+                if full_path.is_file() {
+                    return true;
+                }
             }
         }
+        false
+    };
+
+    match cmd {
+        "wl-copy" => *HAS_WL_COPY.get_or_init(check),
+        "wl-paste" => *HAS_WL_PASTE.get_or_init(check),
+        "xclip" => *HAS_XCLIP.get_or_init(check),
+        "xsel" => *HAS_XSEL.get_or_init(check),
+        _ => check(),
     }
-    false
 }
 
 #[cfg(test)]
