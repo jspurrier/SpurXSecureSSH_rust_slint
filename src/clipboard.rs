@@ -183,6 +183,124 @@ pub fn set_text(text: impl AsRef<str>) -> ClipResult<()> {
     }
 }
 
+/// Copies text to both the primary selection (Linux) and system clipboard.
+/// This matches standard Linux terminal behavior (Konsole/GNOME Terminal) where
+/// selected text is immediately ready for middle-click paste or Ctrl+Shift+V.
+pub fn set_primary_text(text: impl AsRef<str>) -> ClipResult<()> {
+    let content = text.as_ref();
+
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try Wayland primary selection (wl-copy --primary)
+        if is_wayland() || has_command("wl-copy") {
+            if let Ok(mut child) = std::process::Command::new("wl-copy")
+                .arg("--primary")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(content.as_bytes());
+                }
+                let _ = child.wait();
+            }
+        }
+
+        // 2. Try xclip primary selection
+        if has_command("xclip") {
+            if let Ok(mut child) = std::process::Command::new("xclip")
+                .args(["-selection", "primary"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(content.as_bytes());
+                }
+                let _ = child.wait();
+            }
+        }
+
+        // 3. Try xsel primary selection
+        if has_command("xsel") {
+            if let Ok(mut child) = std::process::Command::new("xsel")
+                .args(["--primary", "--input"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(content.as_bytes());
+                }
+                let _ = child.wait();
+            }
+        }
+    }
+
+    // Always also populate standard system clipboard
+    set_text(content)
+}
+
+/// Retrieves text from the primary selection (Linux) or falls back to system clipboard.
+pub fn get_primary_text() -> ClipResult<String> {
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try Wayland primary selection (wl-paste --primary)
+        if is_wayland() || has_command("wl-paste") {
+            if let Ok(out) = std::process::Command::new("wl-paste")
+                .arg("--primary")
+                .output()
+            {
+                if out.status.success() {
+                    let s = String::from_utf8_lossy(&out.stdout).to_string();
+                    if !s.is_empty() {
+                        return Ok(s);
+                    }
+                }
+            }
+        }
+
+        // 2. Try xclip primary selection
+        if has_command("xclip") {
+            if let Ok(out) = std::process::Command::new("xclip")
+                .args(["-selection", "primary", "-o"])
+                .output()
+            {
+                if out.status.success() {
+                    let s = String::from_utf8_lossy(&out.stdout).to_string();
+                    if !s.is_empty() {
+                        return Ok(s);
+                    }
+                }
+            }
+        }
+
+        // 3. Try xsel primary selection
+        if has_command("xsel") {
+            if let Ok(out) = std::process::Command::new("xsel")
+                .args(["--primary", "--output"])
+                .output()
+            {
+                if out.status.success() {
+                    let s = String::from_utf8_lossy(&out.stdout).to_string();
+                    if !s.is_empty() {
+                        return Ok(s);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to regular clipboard
+    get_text()
+}
+
 /// Retrieves text from the system clipboard across Linux (Wayland/X11), macOS, and Windows.
 pub fn get_text() -> ClipResult<String> {
     #[cfg(target_os = "linux")]
@@ -564,5 +682,15 @@ mod tests {
         assert!(cmds[1].submit);
         assert_eq!(cmds[2].text, "interface Gi0/2");
         assert!(cmds[2].submit);
+    }
+
+    #[test]
+    fn test_format_text_for_system_clipboard() {
+        let input = "line 1\r\nline 2\rline 3\n";
+        let formatted = format_text_for_system_clipboard(input);
+        #[cfg(target_os = "windows")]
+        assert_eq!(formatted, "line 1\r\nline 2\r\nline 3\r\n");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(formatted, "line 1\nline 2\nline 3\n");
     }
 }

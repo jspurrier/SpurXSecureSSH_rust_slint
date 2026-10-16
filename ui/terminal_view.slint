@@ -57,8 +57,8 @@ export component TerminalView inherits Rectangle {
     in property <string> ai-autocomplete-context: "Auto-Detected Context";
     in property <[AiAutocompleteItemModel]> ai-autocomplete-suggestions: [];
     in-out property <bool> is-selecting: false;
-    in property <int> selection-anchor-offset: -1;
-    in property <int> selection-cursor-offset: -1;
+    in-out property <int> selection-anchor-offset: -1;
+    in-out property <int> selection-cursor-offset: -1;
     in-out property <bool> selection-active: false;
     in-out property <bool> auto-scroll-active: false;
     in-out property <length> auto-scroll-delta: 0px;
@@ -74,6 +74,8 @@ export component TerminalView inherits Rectangle {
     callback request-copy-selected-range(int, int);
     callback terminal-selection-changed(int, int);
     callback request-select-word(int);
+    callback request-extend-selection(int);
+    callback request-middle-click-paste();
     callback request-clipboard-copy();
     callback request-clipboard-paste();
     callback request-clear-terminal();
@@ -482,10 +484,29 @@ export component TerminalView inherits Rectangle {
                             root.term-context-menu-open = true;
                             root.tab-context-menu-open = false;
                         }
+                        if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down {
+                            term-input.focus();
+                            root.request-middle-click-paste();
+                        }
                         if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
                             term-input.focus();
+                            if !event.modifiers.shift {
+                                root.selection-active = false;
+                                root.selection-anchor-offset = -1;
+                                root.selection-cursor-offset = -1;
+                                term-input.set-selection-offsets(term-input.cursor-position-byte-offset, term-input.cursor-position-byte-offset);
+                                root.cursor-clicked(term-input.cursor-position-byte-offset);
+                            } else {
+                                root.request-extend-selection(term-input.cursor-position-byte-offset);
+                            }
                         }
-                        if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                            root.auto-scroll-active = false;
+                            if root.selection-active || term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
+                                root.copy-selection-or-all();
+                            }
+                        }
+                        if event.kind == PointerEventKind.cancel {
                             root.auto-scroll-active = false;
                         }
                     }
@@ -509,7 +530,7 @@ export component TerminalView inherits Rectangle {
                             event.delta-y,
                             term-input.anchor-position-byte-offset,
                             term-input.cursor-position-byte-offset,
-                            self.pressed
+                            root.selection-active || self.pressed
                         );
                         accept
                     }
@@ -518,7 +539,7 @@ export component TerminalView inherits Rectangle {
                         root.term-context-menu-open = false;
                         root.auto-scroll-active = false;
                         term-input.focus();
-                        if term-input.anchor-position-byte-offset == term-input.cursor-position-byte-offset {
+                        if !root.selection-active {
                             root.cursor-clicked(term-input.cursor-position-byte-offset);
                         }
                     }
@@ -556,9 +577,11 @@ export component TerminalView inherits Rectangle {
 
                             cursor-position-changed(pos) => {
                                 let has-sel = self.anchor-position-byte-offset != self.cursor-position-byte-offset;
-                                if has-sel {
-                                    root.selection-active = true;
-                                    root.terminal-selection-changed(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
+                                if term-touch.pressed && !root.auto-scroll-active {
+                                    root.selection-active = has-sel;
+                                    if has-sel {
+                                        root.terminal-selection-changed(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
+                                    }
                                 }
                             }
 

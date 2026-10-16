@@ -93,7 +93,7 @@ export component AppWindow inherits Window {
     in-out property <string> ai-settings-gemini-model: "gemini-3.6-flash";
     in-out property <string> ai-settings-grok-key: "";
     in-out property <string> ai-settings-grok-model: "grok-4.5";
-    in-out property <string> about-app-version: "Version 3.0.11 (Slint Native Edition)";
+    in-out property <string> about-app-version: "Version 3.0.12 (Slint Native Edition)";
     in-out property <string> about-update-status: "";
     in-out property <bool> about-is-checking-update: false;
     in-out property <bool> about-update-available: false;
@@ -302,6 +302,8 @@ export component AppWindow inherits Window {
     callback request-scrollbar-dragged(float, int, int);
     callback request-terminal-selection-changed(int, int);
     callback request-select-word(int);
+    callback request-extend-selection(int);
+    callback request-middle-click-paste();
     callback request-sidebar-filter(string);
     callback request-check-for-updates();
     callback request-open-url(string);
@@ -444,9 +446,9 @@ export component AppWindow inherits Window {
                 scrollback-visible: root.terminal-scroll-visible;
                 terminal-font-family: root.settings-font-family;
                 terminal-font-size: (root.settings-font-size.to-float() > 0.0 ? root.settings-font-size.to-float() : 14.0) * 1px;
-                selection-anchor-offset: root.terminal-selection-anchor-offset;
-                selection-cursor-offset: root.terminal-selection-cursor-offset;
-                selection-active: root.terminal-selection-active;
+                selection-anchor-offset <=> root.terminal-selection-anchor-offset;
+                selection-cursor-offset <=> root.terminal-selection-cursor-offset;
+                selection-active <=> root.terminal-selection-active;
                 tab-selected(idx) => { root.request-tab-selected(idx); }
                 tab-closed(idx) => { root.request-tab-closed(idx); }
                 tab-added => { root.request-tab-added(); }
@@ -481,6 +483,8 @@ export component AppWindow inherits Window {
                 scrollbar-dragged(ratio, anchor, cursor) => { root.request-scrollbar-dragged(ratio, anchor, cursor); }
                 terminal-selection-changed(anchor, cursor) => { root.request-terminal-selection-changed(anchor, cursor); }
                 request-select-word(offset) => { root.request-select-word(offset); }
+                request-extend-selection(offset) => { root.request-extend-selection(offset); }
+                request-middle-click-paste => { root.request-middle-click-paste(); }
                 copy-selection(sel) => { root.request-copy-selection(sel); }
                 request-copy-selected-range(start, end) => { root.request-copy-selected-range(start, end); }
                 request-clipboard-copy => { root.request-clipboard-copy(); }
