@@ -14,6 +14,7 @@ pub struct TerminalBuffer {
     pub scroll_offset: usize,
     pub show_cursor: bool,
     pub in_alternate_screen: bool,
+    pub scroll_region: (usize, usize),
     saved_primary_screen: Vec<String>,
     saved_primary_cursor: (usize, usize),
     parser: Parser,
@@ -73,6 +74,7 @@ impl TerminalBuffer {
             scroll_offset: 0,
             show_cursor: true,
             in_alternate_screen: false,
+            scroll_region: (0, actual_rows.saturating_sub(1)),
             saved_primary_screen: Vec::new(),
             saved_primary_cursor: (0, 0),
             parser: Parser::new(),
@@ -85,6 +87,7 @@ impl TerminalBuffer {
             self.saved_primary_screen = self.screen.clone();
             self.saved_primary_cursor = (self.cursor_row, self.cursor_col);
             self.scroll_offset = 0;
+            self.scroll_region = (0, self.visible_rows.saturating_sub(1));
             if clear_and_save {
                 for line in self.screen.iter_mut() {
                     line.clear();
@@ -109,12 +112,14 @@ impl TerminalBuffer {
                 self.cursor_col = self.saved_primary_cursor.1.min(self.cols.saturating_sub(1));
             }
             self.scroll_offset = 0;
+            self.scroll_region = (0, self.visible_rows.saturating_sub(1));
         }
     }
 
     pub fn set_size(&mut self, cols: usize, rows: usize) {
         self.cols = cols.max(20);
         let new_rows = rows.clamp(2, 300);
+        self.scroll_region = (0, new_rows.saturating_sub(1));
 
         if new_rows > self.screen.len() {
             let diff = new_rows - self.screen.len();
@@ -226,6 +231,38 @@ impl TerminalBuffer {
 
     pub fn scroll_to_bottom(&mut self) {
         self.scroll_offset = 0;
+    }
+
+    pub fn scroll_up_in_region(&mut self, count: usize) {
+        let (top, bottom) = self.scroll_region;
+        let count = count.min(bottom.saturating_sub(top) + 1);
+        for _ in 0..count {
+            if top == 0 && bottom + 1 >= self.screen.len() && !self.in_alternate_screen {
+                if !self.screen.is_empty() {
+                    let old_top = self.screen.remove(0);
+                    self.scrollback.push_back(old_top);
+                    self.trim_scrollback();
+                    self.screen.push(String::with_capacity(128));
+                }
+            } else {
+                if top < self.screen.len() {
+                    self.screen.remove(top);
+                    let insert_at = bottom.min(self.screen.len());
+                    self.screen.insert(insert_at, String::with_capacity(128));
+                }
+            }
+        }
+    }
+
+    pub fn scroll_down_in_region(&mut self, count: usize) {
+        let (top, bottom) = self.scroll_region;
+        let count = count.min(bottom.saturating_sub(top) + 1);
+        for _ in 0..count {
+            if bottom < self.screen.len() {
+                self.screen.remove(bottom);
+                self.screen.insert(top, String::with_capacity(128));
+            }
+        }
     }
 
     pub fn visible_line_range(&self) -> (usize, usize) {
@@ -501,17 +538,19 @@ impl<'a> Perform for BufferPerformer<'a> {
     fn execute(&mut self, byte: u8) {
         match byte {
             b'\n' | 0x0b | 0x0c => {
-                if self.buffer.cursor_row + 1 < self.buffer.visible_rows {
-                    self.buffer.cursor_row += 1;
-                } else {
-                    // Scroll up: remove top line of active screen and push into scrollback
-                    if !self.buffer.screen.is_empty() {
-                        let old_top = self.buffer.screen.remove(0);
-                        self.buffer.scrollback.push_back(old_top);
-                        self.buffer.trim_scrollback();
-                        self.buffer.screen.push(String::with_capacity(128));
+                let (_top_margin, bottom_margin) = self.buffer.scroll_region;
+                if self.buffer.cursor_row < bottom_margin {
+                    if self.buffer.cursor_row + 1 < self.buffer.visible_rows {
+                        self.buffer.cursor_row += 1;
                     }
-                    self.buffer.cursor_row = self.buffer.visible_rows.saturating_sub(1);
+                } else if self.buffer.cursor_row == bottom_margin {
+                    // Reached the bottom margin of scrolling region! Scroll lines within region up
+                    self.buffer.scroll_up_in_region(1);
+                } else {
+                    // Below bottom margin (e.g. status bar): advance cursor if space permits
+                    if self.buffer.cursor_row + 1 < self.buffer.visible_rows {
+                        self.buffer.cursor_row += 1;
+                    }
                 }
             }
             b'\r' => {
@@ -728,22 +767,60 @@ impl<'a> Perform for BufferPerformer<'a> {
             }
             'L' => {
                 // Insert lines
+                let (top, bottom) = self.buffer.scroll_region;
                 let row = self.buffer.cursor_row;
-                for _ in 0..count {
-                    if row < self.buffer.screen.len() {
-                        self.buffer.screen.insert(row, String::with_capacity(128));
-                        self.buffer.screen.pop();
+                if row >= top && row <= bottom {
+                    for _ in 0..count {
+                        if bottom < self.buffer.screen.len() {
+                            self.buffer.screen.remove(bottom);
+                            self.buffer.screen.insert(row, String::with_capacity(128));
+                        }
                     }
                 }
             }
             'M' => {
                 // Delete lines
+                let (top, bottom) = self.buffer.scroll_region;
                 let row = self.buffer.cursor_row;
-                for _ in 0..count {
-                    if row < self.buffer.screen.len() {
-                        self.buffer.screen.remove(row);
-                        self.buffer.screen.push(String::with_capacity(128));
+                if row >= top && row <= bottom {
+                    for _ in 0..count {
+                        if row < self.buffer.screen.len() {
+                            self.buffer.screen.remove(row);
+                            let ins = bottom.min(self.buffer.screen.len());
+                            self.buffer.screen.insert(ins, String::with_capacity(128));
+                        }
                     }
+                }
+            }
+            'S' => {
+                // Scroll Up
+                self.buffer.scroll_up_in_region(count);
+            }
+            'T' => {
+                // Scroll Down
+                self.buffer.scroll_down_in_region(count);
+            }
+            'r' => {
+                // DECSTBM: Set Top and Bottom Margins (Scrolling Region)
+                if _intermediates.is_empty() {
+                    let mut iter = params.iter();
+                    let top = iter
+                        .next()
+                        .and_then(|p| p.first().copied())
+                        .unwrap_or(1) as usize;
+                    let bottom = iter
+                        .next()
+                        .and_then(|p| p.first().copied())
+                        .unwrap_or(self.buffer.visible_rows as u16) as usize;
+                    let top_idx = top.max(1).saturating_sub(1);
+                    let bottom_idx = bottom.max(top).min(self.buffer.visible_rows).saturating_sub(1);
+                    if top_idx < bottom_idx {
+                        self.buffer.scroll_region = (top_idx, bottom_idx);
+                    } else {
+                        self.buffer.scroll_region = (0, self.buffer.visible_rows.saturating_sub(1));
+                    }
+                    self.buffer.cursor_row = self.buffer.scroll_region.0;
+                    self.buffer.cursor_col = 0;
                 }
             }
             'P' => {
@@ -833,12 +910,14 @@ impl<'a> Perform for BufferPerformer<'a> {
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
         match byte {
             b'M' => {
-                // Reverse Index (scroll down if at top, else cursor up)
-                if self.buffer.cursor_row > 0 {
+                // Reverse Index
+                let (top_margin, _bottom_margin) = self.buffer.scroll_region;
+                if self.buffer.cursor_row > top_margin {
                     self.buffer.cursor_row -= 1;
-                } else if !self.buffer.screen.is_empty() {
-                    self.buffer.screen.pop();
-                    self.buffer.screen.insert(0, String::with_capacity(128));
+                } else if self.buffer.cursor_row == top_margin {
+                    self.buffer.scroll_down_in_region(1);
+                } else if self.buffer.cursor_row > 0 {
+                    self.buffer.cursor_row -= 1;
                 }
             }
             b'E' => {
@@ -1075,6 +1154,42 @@ mod tests {
         assert!(!buf.in_alternate_screen);
         // Primary screen text restored!
         assert_eq!(buf.screen[0], "user@host:~$ ls");
+    }
+
+    #[test]
+    fn test_scrolling_region_decstbm() {
+        let mut buf = TerminalBuffer::new(80, 24, 1000);
+        // Fill exactly 24 lines without extra newline
+        let mut text = String::new();
+        for i in 0..24 {
+            if i > 0 {
+                text.push_str("\r\n");
+            }
+            text.push_str(&format!("Line {:02}", i));
+        }
+        buf.process_bytes(text.as_bytes());
+        assert_eq!(buf.screen[0], "Line 00");
+        assert_eq!(buf.screen[1], "Line 01");
+        assert_eq!(buf.screen[21], "Line 21");
+        assert_eq!(buf.screen[22], "Line 22");
+        assert_eq!(buf.screen[23], "Line 23");
+
+        // Nano sets scrolling region from line 2 to 22 (1-based: \x1b[2;22r)
+        buf.process_bytes(b"\x1b[2;22r");
+        assert_eq!(buf.scroll_region, (1, 21));
+
+        // Move cursor to row 22 (1-based: \x1b[22d) and send \n
+        buf.process_bytes(b"\x1b[22d\n");
+
+        // Top line (header) should stay frozen!
+        assert_eq!(buf.screen[0], "Line 00");
+        // Line 1 should have scrolled up and now be Line 02!
+        assert_eq!(buf.screen[1], "Line 02");
+        // Line 21 should be empty (ready for new text)
+        assert_eq!(buf.screen[21], "");
+        // Bottom lines 22 and 23 (shortcut bars) should stay frozen!
+        assert_eq!(buf.screen[22], "Line 22");
+        assert_eq!(buf.screen[23], "Line 23");
     }
 }
 

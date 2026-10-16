@@ -599,12 +599,11 @@ export component TerminalView inherits Rectangle {
                                     accept
                                 } else {
                                     // Clear selection immediately upon typing any terminal keystroke
-                                    if root.selection-active || root.selection-anchor-offset >= 0 || self.anchor-position-byte-offset != self.cursor-position-byte-offset {
+                                    if root.selection-active || root.selection-anchor-offset >= 0 {
                                         root.selection-active = false;
                                         root.selection-anchor-offset = -1;
                                         root.selection-cursor-offset = -1;
                                         self.set-selection-offsets(self.cursor-position-byte-offset, self.cursor-position-byte-offset);
-                                        root.cursor-clicked(self.cursor-position-byte-offset);
                                     }
 
                                     if root.ai-autocomplete-visible && event.text == Key.Escape {

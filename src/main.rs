@@ -1773,11 +1773,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
-                    state_clone.terminal_selections.write().remove(&sid);
-                    app.set_terminal_selection_active(false);
-                    app.set_terminal_selection_anchor_offset(-1);
-                    app.set_terminal_selection_cursor_offset(-1);
-                    app.invoke_set_terminal_selection_offsets(0, 0);
+                    if state_clone.terminal_selections.read().contains_key(&sid) {
+                        state_clone.terminal_selections.write().remove(&sid);
+                        app.set_terminal_selection_active(false);
+                        app.set_terminal_selection_anchor_offset(-1);
+                        app.set_terminal_selection_cursor_offset(-1);
+                        app.invoke_set_terminal_selection_offsets(0, 0);
+                    }
 
                     let senders = state_clone.input_senders.read();
                     if let Some(tx) = senders.get(&sid) {
@@ -1785,14 +1787,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if let Some(buf) = state_clone.terminal_buffers.read().get(&sid) {
                         let mut b = buf.lock();
-                        b.scroll_to_bottom();
-                        let (text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
-                        drop(b);
-                        app.set_terminal_scroll_total(total as i32);
-                        app.set_terminal_scroll_offset(scroll_off as i32);
-                        app.set_terminal_scroll_visible(vis_rows as i32);
-                        app.set_terminal_full_text(text.into());
-                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                        if b.scroll_offset > 0 {
+                            b.scroll_to_bottom();
+                            let (text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
+                            drop(b);
+                            app.set_terminal_scroll_total(total as i32);
+                            app.set_terminal_scroll_offset(scroll_off as i32);
+                            app.set_terminal_scroll_visible(vis_rows as i32);
+                            app.set_terminal_full_text(text.into());
+                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                        }
                     }
                 }
             }
@@ -1847,8 +1851,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mut b = buf.lock();
 
                         // In alternate screen mode (e.g. nano, vim, less, htop),
-                        // scrollback is not used; mouse wheel and edge drag send Up/Down arrows.
-                        if b.in_alternate_screen {
+                        // or at the bottom of the screen (b.scroll_offset == 0 && delta_y < 0.0),
+                        // scroll up/down sends arrow keys to scroll documents/editors cleanly.
+                        if b.in_alternate_screen || (b.scroll_offset == 0 && delta_y < 0.0 && !is_pressed) {
                             drop(b);
                             let senders = state_clone.input_senders.read();
                             if let Some(tx) = senders.get(&sid) {
