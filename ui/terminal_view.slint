@@ -548,7 +548,7 @@ export component TerminalView inherits Rectangle {
                         root.selection-cursor-offset = -1;
                         term-input.set-selection-offsets(term-input.cursor-position-byte-offset, term-input.cursor-position-byte-offset);
                         term-input.focus();
-                        root.cursor-clicked(term-input.cursor-position-byte-offset);
+                        root.terminal-selection-changed(-1, -1);
                     }
                     double-clicked => {
                         term-input.focus();

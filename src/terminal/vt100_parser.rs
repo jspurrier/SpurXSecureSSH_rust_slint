@@ -14,6 +14,8 @@ pub struct TerminalBuffer {
     pub scroll_offset: usize,
     pub show_cursor: bool,
     pub in_alternate_screen: bool,
+    pub application_cursor_keys: bool,
+    pub application_keypad: bool,
     pub scroll_region: (usize, usize),
     saved_primary_screen: Vec<String>,
     saved_primary_cursor: (usize, usize),
@@ -74,6 +76,8 @@ impl TerminalBuffer {
             scroll_offset: 0,
             show_cursor: true,
             in_alternate_screen: false,
+            application_cursor_keys: false,
+            application_keypad: false,
             scroll_region: (0, actual_rows.saturating_sub(1)),
             saved_primary_screen: Vec::new(),
             saved_primary_cursor: (0, 0),
@@ -101,6 +105,8 @@ impl TerminalBuffer {
     pub fn exit_alternate_screen(&mut self, restore_cursor: bool) {
         if self.in_alternate_screen {
             self.in_alternate_screen = false;
+            self.application_cursor_keys = false;
+            self.application_keypad = false;
             if !self.saved_primary_screen.is_empty() {
                 self.screen = std::mem::take(&mut self.saved_primary_screen);
             }
@@ -874,6 +880,9 @@ impl<'a> Perform for BufferPerformer<'a> {
                     for param_slice in params.iter() {
                         if let Some(&p) = param_slice.first() {
                             match p {
+                                1 => {
+                                    self.buffer.application_cursor_keys = true;
+                                }
                                 1049 | 47 | 1047 => {
                                     self.buffer.enter_alternate_screen(p == 1049);
                                 }
@@ -891,6 +900,9 @@ impl<'a> Perform for BufferPerformer<'a> {
                     for param_slice in params.iter() {
                         if let Some(&p) = param_slice.first() {
                             match p {
+                                1 => {
+                                    self.buffer.application_cursor_keys = false;
+                                }
                                 1049 | 47 | 1047 => {
                                     self.buffer.exit_alternate_screen(p == 1049);
                                 }
@@ -920,10 +932,22 @@ impl<'a> Perform for BufferPerformer<'a> {
                     self.buffer.cursor_row -= 1;
                 }
             }
+            b'D' => {
+                // Index (IND) - advance line, scrolling region if at bottom margin
+                self.execute(b'\n');
+            }
             b'E' => {
                 // Next Line
                 self.buffer.cursor_col = 0;
                 self.execute(b'\n');
+            }
+            b'=' => {
+                // Application Keypad (DECKPAM)
+                self.buffer.application_keypad = true;
+            }
+            b'>' => {
+                // Normal Numeric Keypad (DECKPNM)
+                self.buffer.application_keypad = false;
             }
             b'7' => {
                 // DECSC - Save cursor
@@ -1190,6 +1214,52 @@ mod tests {
         // Bottom lines 22 and 23 (shortcut bars) should stay frozen!
         assert_eq!(buf.screen[22], "Line 22");
         assert_eq!(buf.screen[23], "Line 23");
+    }
+
+    #[test]
+    fn test_nano_raw_stream() {
+        if let Ok(bytes) = std::fs::read("target/nano_raw.bin") {
+            let mut buf = TerminalBuffer::new(80, 24, 1000);
+            buf.process_bytes(&bytes);
+            for i in 0..24 {
+                println!("Line {:02}: {:?}", i, buf.screen[i]);
+            }
+            assert!(buf.in_alternate_screen);
+        }
+    }
+
+    #[test]
+    fn test_decckm_and_keypad_modes() {
+        let mut buf = TerminalBuffer::new(80, 24, 1000);
+        assert!(!buf.application_cursor_keys);
+        assert!(!buf.application_keypad);
+
+        // Enable DECCKM: \x1b[?1h
+        buf.process_bytes(b"\x1b[?1h");
+        assert!(buf.application_cursor_keys);
+
+        // Enable DECKPAM: \x1b=
+        buf.process_bytes(b"\x1b=");
+        assert!(buf.application_keypad);
+
+        // Disable DECKPAM: \x1b>
+        buf.process_bytes(b"\x1b>");
+        assert!(!buf.application_keypad);
+
+        // Disable DECCKM: \x1b[?1l
+        buf.process_bytes(b"\x1b[?1l");
+        assert!(!buf.application_cursor_keys);
+
+        // Alternate screen exit should reset both
+        buf.process_bytes(b"\x1b[?1h\x1b=\x1b[?1049h");
+        assert!(buf.application_cursor_keys);
+        assert!(buf.application_keypad);
+        assert!(buf.in_alternate_screen);
+
+        buf.process_bytes(b"\x1b[?1049l");
+        assert!(!buf.in_alternate_screen);
+        assert!(!buf.application_cursor_keys);
+        assert!(!buf.application_keypad);
     }
 }
 

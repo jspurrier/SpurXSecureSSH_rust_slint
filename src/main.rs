@@ -287,9 +287,8 @@ fn update_terminal_geometry(
         80
     };
     let calculated_rows = if term_h_px > 30.0 {
-        // Reserve 14px padding clearance and subtract 1 row safety buffer so prompt line is always fully visible
-        let usable_h = (term_h_px - 14.0).max(row_height_px);
-        ((usable_h / row_height_px).floor().max(4.0) as usize).saturating_sub(1).max(4)
+        let usable_h = (term_h_px - 8.0).max(row_height_px);
+        ((usable_h / row_height_px).floor().max(4.0) as usize).max(4)
     } else {
         24
     };
@@ -1515,12 +1514,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
+                    let s = anchor.max(0) as usize;
+                    let e = cursor.max(0) as usize;
+                    if s == e || anchor < 0 || cursor < 0 {
+                        state_clone.terminal_selections.write().remove(&sid);
+                        app.set_terminal_selection_active(false);
+                        app.set_terminal_selection_anchor_offset(-1);
+                        app.set_terminal_selection_cursor_offset(-1);
+                        return;
+                    }
                     let buffers = state_clone.terminal_buffers.read();
                     if let Some(buf) = buffers.get(&sid) {
                         let b = buf.lock();
                         let (text, _, _, _, _) = b.get_visible_text();
-                        let s = (anchor.max(0) as usize).min(text.len());
-                        let e = (cursor.max(0) as usize).min(text.len());
+                        let s = s.min(text.len());
+                        let e = e.min(text.len());
                         if s != e {
                             let (start_idx, end_idx) = b.visible_line_range();
                             let p1 = b.screen_offset_to_buffer_pos(&text, s);
@@ -1539,6 +1547,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     sels.insert(sid, BufferSelection { start: p1, end: p2 });
                                 }
                             }
+                        } else {
+                            state_clone.terminal_selections.write().remove(&sid);
+                            app.set_terminal_selection_active(false);
+                            app.set_terminal_selection_anchor_offset(-1);
+                            app.set_terminal_selection_cursor_offset(-1);
                         }
                     }
                 }
@@ -1763,22 +1776,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     app.on_request_terminal_key(move |evt| {
-        let bytes = translate_slint_key(&evt.text, evt.modifiers.control, evt.modifiers.alt);
-        if bytes.is_empty() {
-            return;
-        }
         if let Some(app) = app_weak.upgrade() {
             let active_idx = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
             if active_idx < tabs.row_count() {
                 if let Some(tab) = tabs.row_data(active_idx) {
                     let sid = tab.id.to_string();
+                    let app_cursor = state_clone
+                        .terminal_buffers
+                        .read()
+                        .get(&sid)
+                        .map(|b| {
+                            let buf = b.lock();
+                            buf.application_cursor_keys || buf.in_alternate_screen
+                        })
+                        .unwrap_or(false);
+
+                    let bytes = translate_slint_key(&evt.text, evt.modifiers.control, evt.modifiers.alt, app_cursor);
+                    if bytes.is_empty() {
+                        return;
+                    }
+
                     if state_clone.terminal_selections.read().contains_key(&sid) {
                         state_clone.terminal_selections.write().remove(&sid);
                         app.set_terminal_selection_active(false);
                         app.set_terminal_selection_anchor_offset(-1);
                         app.set_terminal_selection_cursor_offset(-1);
-                        app.invoke_set_terminal_selection_offsets(0, 0);
                     }
 
                     let senders = state_clone.input_senders.read();
@@ -1806,7 +1829,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup Cursor Clicked callback for single mouse clicks
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_cursor_clicked(move |offset| {
+    app.on_request_cursor_clicked(move |_offset| {
         if let Some(app) = app_weak.upgrade() {
             let active_idx = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
@@ -1817,20 +1840,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_terminal_selection_active(false);
                     app.set_terminal_selection_anchor_offset(-1);
                     app.set_terminal_selection_cursor_offset(-1);
-                    app.invoke_set_terminal_selection_offsets(0, 0);
-                    let senders = state_clone.input_senders.read();
-                    let buffers = state_clone.terminal_buffers.read();
-                    if let (Some(tx), Some(buf)) = (senders.get(&sid), buffers.get(&sid)) {
-                        sync_remote_cursor(tx, buf, offset.max(0) as usize);
-                        let b = buf.lock();
-                        let (text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
-                        drop(b);
-                        app.set_terminal_scroll_total(total as i32);
-                        app.set_terminal_scroll_offset(scroll_off as i32);
-                        app.set_terminal_scroll_visible(vis_rows as i32);
-                        app.set_terminal_full_text(text.into());
-                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
-                    }
                 }
             }
         }
@@ -1854,15 +1863,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // or at the bottom of the screen (b.scroll_offset == 0 && delta_y < 0.0),
                         // scroll up/down sends arrow keys to scroll documents/editors cleanly.
                         if b.in_alternate_screen || (b.scroll_offset == 0 && delta_y < 0.0 && !is_pressed) {
+                            let use_app_cursor = b.application_cursor_keys || b.in_alternate_screen;
                             drop(b);
                             let senders = state_clone.input_senders.read();
                             if let Some(tx) = senders.get(&sid) {
-                                let key_seq: &[u8] = if is_pressed {
-                                    if delta_y > 0.0 { b"\x1b[A" } else { b"\x1b[B" }
+                                let arrow_up: &[u8] = if use_app_cursor { b"\x1bOA" } else { b"\x1b[A" };
+                                let arrow_down: &[u8] = if use_app_cursor { b"\x1bOB" } else { b"\x1b[B" };
+                                let key_seq: Vec<u8> = if is_pressed {
+                                    if delta_y > 0.0 { arrow_up.to_vec() } else { arrow_down.to_vec() }
                                 } else {
-                                    if delta_y > 0.0 { b"\x1b[A\x1b[A\x1b[A" } else { b"\x1b[B\x1b[B\x1b[B" }
+                                    if delta_y > 0.0 {
+                                        [arrow_up, arrow_up, arrow_up].concat()
+                                    } else {
+                                        [arrow_down, arrow_down, arrow_down].concat()
+                                    }
                                 };
-                                let _ = tx.send(ssh::SshInput::Data(key_seq.to_vec()));
+                                let _ = tx.send(ssh::SshInput::Data(key_seq));
                             }
                             return;
                         }
@@ -4550,7 +4566,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn translate_slint_key(text_str: &str, is_ctrl: bool, is_alt: bool) -> Vec<u8> {
+fn translate_slint_key(text_str: &str, is_ctrl: bool, is_alt: bool, app_cursor_keys: bool) -> Vec<u8> {
     use slint::platform::Key;
 
     if text_str.is_empty() {
@@ -4602,22 +4618,22 @@ fn translate_slint_key(text_str: &str, is_ctrl: bool, is_alt: bool) -> Vec<u8> {
 
     // 3. Special Keys & Navigation (VT100 / Xterm standard escape sequences)
     if first_ch == char::from(Key::UpArrow) {
-        return b"\x1b[A".to_vec();
+        return if app_cursor_keys { b"\x1bOA".to_vec() } else { b"\x1b[A".to_vec() };
     }
     if first_ch == char::from(Key::DownArrow) {
-        return b"\x1b[B".to_vec();
+        return if app_cursor_keys { b"\x1bOB".to_vec() } else { b"\x1b[B".to_vec() };
     }
     if first_ch == char::from(Key::RightArrow) {
-        return b"\x1b[C".to_vec();
+        return if app_cursor_keys { b"\x1bOC".to_vec() } else { b"\x1b[C".to_vec() };
     }
     if first_ch == char::from(Key::LeftArrow) {
-        return b"\x1b[D".to_vec();
+        return if app_cursor_keys { b"\x1bOD".to_vec() } else { b"\x1b[D".to_vec() };
     }
     if first_ch == char::from(Key::Home) {
-        return b"\x1b[H".to_vec();
+        return if app_cursor_keys { b"\x1bOH".to_vec() } else { b"\x1b[H".to_vec() };
     }
     if first_ch == char::from(Key::End) {
-        return b"\x1b[F".to_vec();
+        return if app_cursor_keys { b"\x1bOF".to_vec() } else { b"\x1b[F".to_vec() };
     }
     if first_ch == char::from(Key::PageUp) {
         return b"\x1b[5~".to_vec();
@@ -4629,7 +4645,7 @@ fn translate_slint_key(text_str: &str, is_ctrl: bool, is_alt: bool) -> Vec<u8> {
         return b"\x1b[2~".to_vec();
     }
     if first_ch == char::from(Key::Delete) {
-        return vec![0x04];
+        return b"\x1b[3~".to_vec();
     }
     if first_ch == char::from(Key::Backspace) || first_ch == '\x08' || first_ch == '\x7f' {
         return vec![0x7f];
@@ -4714,6 +4730,7 @@ fn safe_byte_slice(s: &str, mut start: usize, mut end: usize) -> &str {
     }
 }
 
+#[allow(dead_code)]
 fn sync_remote_cursor(
     tx: &tokio::sync::mpsc::UnboundedSender<ssh::SshInput>,
     buffer: &Arc<parking_lot::Mutex<TerminalBuffer>>,
@@ -5332,14 +5349,61 @@ async fn connect_ssh_session(
         )));
         let last_rend_clone = last_rendered.clone();
 
-        let render_term =
-            move |app_weak: &slint::Weak<AppWindow>,
-                  sid: &str,
-                  buf: &Arc<parking_lot::Mutex<TerminalBuffer>>| {
+        let render_term = {
+            let app_weak = app_weak_out.clone();
+            let sid_chk = sid_out.clone();
+            let buf_clone = buf_for_out.clone();
+            let last_rend = last_rend_clone.clone();
+
+            move || {
+                // Compute visible text, scroll dimensions, and cursor offset on the tokio background thread!
+                let (full_text, offset, total, scroll_off, vis_rows) = {
+                    let b = buf_clone.lock();
+                    b.get_visible_text()
+                };
+
+                let total_i32 = total as i32;
+                let scroll_off_i32 = scroll_off as i32;
+                let vis_rows_i32 = vis_rows as i32;
+                let offset_i32 = offset as i32;
+
+                // Check if anything actually changed before scheduling UI thread invocation
+                let mut state = last_rend.lock();
+                let text_changed = full_text != state.0;
+                let total_changed = total_i32 != state.1;
+                let scroll_changed = scroll_off_i32 != state.2;
+                let vis_changed = vis_rows_i32 != state.3;
+                let offset_changed = offset_i32 != state.4;
+                let needs_init = !state.5;
+
+                if !text_changed && !total_changed && !scroll_changed && !vis_changed && !offset_changed && !needs_init {
+                    return;
+                }
+
+                if text_changed {
+                    state.0 = full_text.clone();
+                }
+                if total_changed {
+                    state.1 = total_i32;
+                }
+                if scroll_changed {
+                    state.2 = scroll_off_i32;
+                }
+                if vis_changed {
+                    state.3 = vis_rows_i32;
+                }
+                if offset_changed {
+                    state.4 = offset_i32;
+                }
+                if needs_init {
+                    state.5 = true;
+                }
+                drop(state);
+
+                let shared_text: slint::SharedString = full_text.into();
                 let app_weak = app_weak.clone();
-                let sid_chk = sid.to_string();
-                let buf_clone = buf.clone();
-                let last_rend = last_rend_clone.clone();
+                let sid_chk = sid_chk.clone();
+
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(app) = app_weak.upgrade() {
                         let active_idx = app.get_active_tab_index() as usize;
@@ -5347,49 +5411,22 @@ async fn connect_ssh_session(
                         if active_idx < tabs.row_count() {
                             if let Some(t) = tabs.row_data(active_idx) {
                                 if t.id == sid_chk {
-                                    let needs_init = {
-                                        let mut state = last_rend.lock();
-                                        if !state.5 {
-                                            state.5 = true;
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    };
-
                                     if needs_init {
                                         app.invoke_focus_terminal();
                                     }
-
-                                    let (full_text, offset, total, scroll_off, vis_rows) = {
-                                        let b = buf_clone.lock();
-                                        b.get_visible_text()
-                                    };
-
-                                    let total_i32 = total as i32;
-                                    let scroll_off_i32 = scroll_off as i32;
-                                    let vis_rows_i32 = vis_rows as i32;
-                                    let offset_i32 = offset as i32;
-
-                                    let mut state = last_rend.lock();
-                                    if total_i32 != state.1 {
-                                        state.1 = total_i32;
+                                    if total_changed {
                                         app.set_terminal_scroll_total(total_i32);
                                     }
-                                    if scroll_off_i32 != state.2 {
-                                        state.2 = scroll_off_i32;
+                                    if scroll_changed {
                                         app.set_terminal_scroll_offset(scroll_off_i32);
                                     }
-                                    if vis_rows_i32 != state.3 {
-                                        state.3 = vis_rows_i32;
+                                    if vis_changed {
                                         app.set_terminal_scroll_visible(vis_rows_i32);
                                     }
-                                    if full_text != state.0 {
-                                        state.0 = full_text.clone();
-                                        app.set_terminal_full_text(full_text.into());
+                                    if text_changed {
+                                        app.set_terminal_full_text(shared_text);
                                     }
-                                    if offset_i32 != state.4 {
-                                        state.4 = offset_i32;
+                                    if offset_changed {
                                         app.invoke_set_terminal_cursor_pos(offset_i32);
                                     }
                                 }
@@ -5397,9 +5434,10 @@ async fn connect_ssh_session(
                         }
                     }
                 });
-            };
+            }
+        };
 
-        let mut ticker = tokio::time::interval(tokio::time::Duration::from_millis(12));
+        let mut ticker = tokio::time::interval(tokio::time::Duration::from_millis(16));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -5408,7 +5446,7 @@ async fn connect_ssh_session(
                     match maybe_data {
                         Some(data) => {
                             let mut all_data = data;
-                            // Batch up to 64KB per parse chunk to avoid lock monopolization
+                            // Batch up to 64KB per parse chunk to avoid lock monopolization during massive floods
                             while all_data.len() < 65536 {
                                 if let Ok(more) = output_rx.try_recv() {
                                     all_data.extend_from_slice(&more);
@@ -5419,9 +5457,11 @@ async fn connect_ssh_session(
                             buf_for_out.lock().process_bytes(&all_data);
 
                             if !in_burst {
-                                in_burst = true;
-                                buffer_dirty = false;
-                                render_term(&app_weak_out, &sid_out, &buf_for_out);
+                                // Interactive keystrokes and small responses render immediately with 0ms latency!
+                                render_term();
+                                if all_data.len() > 2048 {
+                                    in_burst = true;
+                                }
                             } else {
                                 buffer_dirty = true;
                             }
@@ -5432,8 +5472,9 @@ async fn connect_ssh_session(
                 _ = ticker.tick() => {
                     if buffer_dirty {
                         buffer_dirty = false;
-                        render_term(&app_weak_out, &sid_out, &buf_for_out);
-                    } else {
+                        render_term();
+                    }
+                    if output_rx.is_empty() {
                         in_burst = false;
                     }
                 }
