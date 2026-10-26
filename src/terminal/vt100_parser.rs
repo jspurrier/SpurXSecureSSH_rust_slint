@@ -22,34 +22,28 @@ pub struct TerminalBuffer {
     parser: Parser,
 }
 
-fn row_col_to_screen_offset(visible_text: &str, target_row: usize, target_col: usize) -> usize {
-    let mut cur_row = 0;
-    let mut line_start = 0;
-    for (idx, b) in visible_text.bytes().enumerate() {
-        if cur_row == target_row {
-            let line_len = visible_text[line_start..]
-                .find('\n')
-                .unwrap_or(visible_text.len() - line_start);
-            let col = target_col.min(line_len);
-            let mut offset = line_start + col;
-            while offset > line_start && !visible_text.is_char_boundary(offset) {
-                offset -= 1;
-            }
-            return offset;
+fn row_col_to_screen_offset(visible_text: &str, target_row: usize, target_column: usize) -> usize {
+    let mut current_row = 0;
+    let mut line_start_byte = 0;
+    for (byte_index, byte_value) in visible_text.bytes().enumerate() {
+        if current_row == target_row {
+            break;
         }
-        if b == b'\n' {
-            cur_row += 1;
-            line_start = idx + 1;
+        if byte_value == b'\n' {
+            current_row += 1;
+            line_start_byte = byte_index + 1;
         }
     }
-    if cur_row == target_row {
-        let line_len = visible_text.len() - line_start;
-        let col = target_col.min(line_len);
-        let mut offset = line_start + col;
-        while offset > line_start && !visible_text.is_char_boundary(offset) {
-            offset -= 1;
-        }
-        return offset;
+    if current_row == target_row && line_start_byte <= visible_text.len() {
+        let remaining_text = &visible_text[line_start_byte..];
+        let line_byte_length = remaining_text.find('\n').unwrap_or(remaining_text.len());
+        let line_slice = &remaining_text[..line_byte_length];
+        let column_byte_offset = line_slice
+            .char_indices()
+            .nth(target_column)
+            .map(|(char_byte_offset, _)| char_byte_offset)
+            .unwrap_or(line_byte_length);
+        return line_start_byte + column_byte_offset;
     }
     visible_text.len()
 }
@@ -170,51 +164,58 @@ impl TerminalBuffer {
     }
 
     pub fn get_lines(&self) -> Vec<String> {
-        let mut out = Vec::with_capacity(self.scrollback.len() + self.screen.len());
-        out.extend(self.scrollback.iter().cloned());
-        out.extend(self.screen.iter().cloned());
-        out
+        let mut all_lines = Vec::with_capacity(self.scrollback.len() + self.screen.len());
+        all_lines.extend(self.scrollback.iter().cloned());
+        all_lines.extend(self.screen.iter().cloned());
+        all_lines
     }
 
     pub fn get_visible_text(&self) -> (String, usize, usize, usize, usize) {
-        let total = if self.in_alternate_screen {
+        let total_line_count = if self.in_alternate_screen {
             self.screen.len()
         } else {
             self.scrollback.len() + self.screen.len()
         };
-        let rows = self.visible_rows.max(2).min(300);
+        let visible_row_count = self.visible_rows.max(2).min(300);
 
         if self.scroll_offset == 0 || self.in_alternate_screen {
-            // Viewing active screen directly
-            let text = self.screen.join("\n");
+            let visible_text = self.screen.join("\n");
             let cursor_line = self.cursor_row.min(self.screen.len().saturating_sub(1));
             let mut cursor_offset = 0;
-            for i in 0..cursor_line {
-                cursor_offset += self.screen[i].len() + 1;
+            for row_index in 0..cursor_line {
+                cursor_offset += self.screen[row_index].len() + 1;
             }
-            if let Some(line) = self.screen.get(cursor_line) {
-                cursor_offset += self.cursor_col.min(line.len());
+            if let Some(line_text) = self.screen.get(cursor_line) {
+                cursor_offset += self.cursor_col.min(line_text.len());
             }
-            (text, cursor_offset, total, 0, rows)
+            (visible_text, cursor_offset, total_line_count, 0, visible_row_count)
         } else {
-            // Viewing scrollback history
-            let end_idx = total.saturating_sub(self.scroll_offset).min(total).max(1);
-            let start_idx = end_idx.saturating_sub(rows);
+            let end_line_index = total_line_count
+                .saturating_sub(self.scroll_offset)
+                .min(total_line_count)
+                .max(1);
+            let start_line_index = end_line_index.saturating_sub(visible_row_count);
 
-            let mut parts = Vec::with_capacity(end_idx - start_idx);
-            for i in start_idx..end_idx {
-                if i < self.scrollback.len() {
-                    parts.push(self.scrollback[i].as_str());
+            let mut visible_lines = Vec::with_capacity(end_line_index - start_line_index);
+            for line_index in start_line_index..end_line_index {
+                if line_index < self.scrollback.len() {
+                    visible_lines.push(self.scrollback[line_index].as_str());
                 } else {
-                    let screen_idx = i - self.scrollback.len();
-                    if screen_idx < self.screen.len() {
-                        parts.push(self.screen[screen_idx].as_str());
+                    let screen_row_index = line_index - self.scrollback.len();
+                    if screen_row_index < self.screen.len() {
+                        visible_lines.push(self.screen[screen_row_index].as_str());
                     }
                 }
             }
-            let text = parts.join("\n");
-            let cursor_offset = text.len();
-            (text, cursor_offset, total, self.scroll_offset, rows)
+            let visible_text = visible_lines.join("\n");
+            let cursor_offset = visible_text.len();
+            (
+                visible_text,
+                cursor_offset,
+                total_line_count,
+                self.scroll_offset,
+                visible_row_count,
+            )
         }
     }
 
@@ -249,6 +250,9 @@ impl TerminalBuffer {
                     self.scrollback.push_back(old_top);
                     self.trim_scrollback();
                     self.screen.push(String::with_capacity(128));
+                    if self.scroll_offset > 0 {
+                        self.scroll_offset = (self.scroll_offset + 1).min(self.scrollback.len());
+                    }
                 }
             } else {
                 if top < self.screen.len() {
@@ -272,74 +276,116 @@ impl TerminalBuffer {
     }
 
     pub fn visible_line_range(&self) -> (usize, usize) {
-        let total = self.scrollback.len() + self.screen.len();
-        let rows = self.visible_rows.max(2).min(300);
-        let end_idx = total.saturating_sub(self.scroll_offset).min(total).max(1);
-        let start_idx = end_idx.saturating_sub(rows);
-        (start_idx, end_idx)
+        let total_line_count = self.scrollback.len() + self.screen.len();
+        let visible_row_count = self.visible_rows.max(2).min(300);
+        let end_line_index = total_line_count
+            .saturating_sub(self.scroll_offset)
+            .min(total_line_count)
+            .max(1);
+        let start_line_index = end_line_index.saturating_sub(visible_row_count);
+        (start_line_index, end_line_index)
     }
 
     pub fn screen_offset_to_buffer_pos(&self, visible_text: &str, byte_offset: usize) -> (usize, usize) {
-        let (start_idx, _) = self.visible_line_range();
+        let (start_line_index, _) = self.visible_line_range();
         let clamped_offset = byte_offset.min(visible_text.len());
-        let mut safe_offset = clamped_offset;
-        while safe_offset > 0 && !visible_text.is_char_boundary(safe_offset) {
-            safe_offset -= 1;
+        let mut char_boundary_offset = clamped_offset;
+        while char_boundary_offset > 0 && !visible_text.is_char_boundary(char_boundary_offset) {
+            char_boundary_offset -= 1;
         }
-        let prefix = &visible_text[..safe_offset];
-        let row = prefix.bytes().filter(|&b| b == b'\n').count();
-        let col = prefix.rfind('\n').map(|last_nl| safe_offset - (last_nl + 1)).unwrap_or(safe_offset);
-        (start_idx + row, col)
+        let text_before_offset = &visible_text[..char_boundary_offset];
+        let relative_row = text_before_offset
+            .bytes()
+            .filter(|&byte_value| byte_value == b'\n')
+            .count();
+        let line_start_byte = text_before_offset
+            .rfind('\n')
+            .map(|last_newline_index| last_newline_index + 1)
+            .unwrap_or(0);
+        let character_column = text_before_offset[line_start_byte..].chars().count();
+        (start_line_index + relative_row, character_column)
+    }
+
+    pub fn viewport_cell_to_buffer_pos(&self, viewport_row: i32, viewport_column: i32) -> (usize, usize) {
+        let (start_line_index, end_line_index) = self.visible_line_range();
+        let visible_row_count = end_line_index.saturating_sub(start_line_index).max(1);
+        if viewport_row < 0 {
+            (start_line_index, 0)
+        } else if (viewport_row as usize) >= visible_row_count {
+            let bottom_row = end_line_index.saturating_sub(1);
+            let line_char_count = self
+                .line_at(bottom_row)
+                .map(|line_text| line_text.chars().count())
+                .unwrap_or(0);
+            (bottom_row, line_char_count)
+        } else {
+            let global_row = start_line_index + (viewport_row as usize);
+            let line_char_count = self
+                .line_at(global_row)
+                .map(|line_text| line_text.chars().count())
+                .unwrap_or(0);
+            let clamped_column = (viewport_column.max(0) as usize).min(line_char_count);
+            (global_row, clamped_column)
+        }
     }
 
     pub fn buffer_range_to_screen_offsets(
         &self,
         visible_text: &str,
-        sel_start: (usize, usize),
-        sel_end: (usize, usize),
+        selection_start: (usize, usize),
+        selection_end: (usize, usize),
     ) -> (usize, usize) {
-        let is_forward = sel_start <= sel_end;
-        let (s, e) = if is_forward {
-            (sel_start, sel_end)
+        let is_forward_selection = selection_start <= selection_end;
+        let (ordered_start, ordered_end) = if is_forward_selection {
+            (selection_start, selection_end)
         } else {
-            (sel_end, sel_start)
+            (selection_end, selection_start)
         };
 
-        let (start_idx, end_idx) = self.visible_line_range();
-        if e.0 < start_idx {
+        let (start_line_index, end_line_index) = self.visible_line_range();
+        if ordered_end.0 < start_line_index {
             return (0, 0);
         }
-        if s.0 >= end_idx {
-            let len = visible_text.len();
-            return (len, len);
+        if ordered_start.0 >= end_line_index {
+            let text_byte_length = visible_text.len();
+            return (text_byte_length, text_byte_length);
         }
 
-        let start_byte = if s.0 < start_idx {
+        let start_byte_offset = if ordered_start.0 < start_line_index {
             0
         } else {
-            row_col_to_screen_offset(visible_text, s.0 - start_idx, s.1)
+            row_col_to_screen_offset(
+                visible_text,
+                ordered_start.0 - start_line_index,
+                ordered_start.1,
+            )
         };
 
-        let end_byte = if e.0 >= end_idx {
+        let end_byte_offset = if ordered_end.0 >= end_line_index {
             visible_text.len()
         } else {
-            row_col_to_screen_offset(visible_text, e.0 - start_idx, e.1)
+            row_col_to_screen_offset(
+                visible_text,
+                ordered_end.0 - start_line_index,
+                ordered_end.1,
+            )
         };
 
-        if is_forward {
-            (start_byte, end_byte)
+        if is_forward_selection {
+            (start_byte_offset, end_byte_offset)
         } else {
-            (end_byte, start_byte)
+            (end_byte_offset, start_byte_offset)
         }
     }
 
-    /// Returns the text of a global buffer line (scrollback + screen), or None if out of range.
     pub fn line_at(&self, global_row: usize) -> Option<&str> {
-        let sb_len = self.scrollback.len();
-        if global_row < sb_len {
-            self.scrollback.get(global_row).map(|s| s.as_str())
+        let scrollback_length = self.scrollback.len();
+        if global_row < scrollback_length {
+            self.scrollback.get(global_row).map(|line_text| line_text.as_str())
         } else {
-            self.screen.get(global_row - sb_len).map(|s| s.as_str())
+            self.screen
+                .get(global_row - scrollback_length)
+                .map(|line_text| line_text.as_str())
         }
     }
 
@@ -347,118 +393,134 @@ impl TerminalBuffer {
         self.scrollback.len() + self.screen.len()
     }
 
-    /// Extracts text between two cell positions (global row, character column).
-    /// Columns are character cells (not bytes), so multi-byte glyphs such as
-    /// box-drawing characters are handled correctly. Trailing whitespace on each
-    /// line is trimmed, matching the copy behaviour of standard terminals.
-    pub fn get_text_in_cell_range(&self, a: (usize, usize), b: (usize, usize)) -> String {
-        let (s, e) = if a <= b { (a, b) } else { (b, a) };
-        if s == e {
+    pub fn get_text_in_cell_range(
+        &self,
+        first_cell: (usize, usize),
+        second_cell: (usize, usize),
+    ) -> String {
+        let (start_cell, end_cell) = if first_cell <= second_cell {
+            (first_cell, second_cell)
+        } else {
+            (second_cell, first_cell)
+        };
+        if start_cell == end_cell {
             return String::new();
         }
-        let total = self.total_lines();
-        if total == 0 || s.0 >= total {
+        let total_line_count = self.total_lines();
+        if total_line_count == 0 || start_cell.0 >= total_line_count {
             return String::new();
         }
-        let (end_row, end_col) = if e.0 >= total {
-            (total - 1, usize::MAX)
+        let (end_row, end_column) = if end_cell.0 >= total_line_count {
+            (total_line_count - 1, usize::MAX)
         } else {
-            e
+            end_cell
         };
 
-        let slice_chars = |line: &str, from: usize, to: usize| -> String {
-            line.chars().skip(from).take(to.saturating_sub(from)).collect()
+        let slice_chars = |line_text: &str, start_column: usize, end_column: usize| -> String {
+            line_text
+                .chars()
+                .skip(start_column)
+                .take(end_column.saturating_sub(start_column))
+                .collect()
         };
 
-        let mut out: Vec<String> = Vec::with_capacity(end_row - s.0 + 1);
-        for row in s.0..=end_row {
-            let line = self.line_at(row).unwrap_or("");
-            let from = if row == s.0 { s.1 } else { 0 };
-            let to = if row == end_row { end_col } else { usize::MAX };
-            out.push(slice_chars(line, from, to).trim_end().to_string());
+        let mut extracted_lines: Vec<String> = Vec::with_capacity(end_row - start_cell.0 + 1);
+        for row_index in start_cell.0..=end_row {
+            let line_text = self.line_at(row_index).unwrap_or("");
+            let start_column = if row_index == start_cell.0 { start_cell.1 } else { 0 };
+            let finish_column = if row_index == end_row { end_column } else { usize::MAX };
+            extracted_lines.push(
+                slice_chars(line_text, start_column, finish_column)
+                    .trim_end()
+                    .to_string(),
+            );
         }
-        out.join("\n")
+        extracted_lines.join("\n")
     }
 
-    /// Finds the word under a cell for double-click selection. Returns the
-    /// [start, end) character columns, or None when the cell is whitespace.
-    /// Word characters include the punctuation common in network output so
-    /// IPs, interface names, paths and MACs select as a single unit.
-    pub fn word_bounds_at(&self, global_row: usize, col: usize) -> Option<(usize, usize)> {
-        let line = self.line_at(global_row)?;
-        let chars: Vec<char> = line.chars().collect();
-        if col >= chars.len() {
+    pub fn word_bounds_at(&self, global_row: usize, character_column: usize) -> Option<(usize, usize)> {
+        let line_text = self.line_at(global_row)?;
+        let line_characters: Vec<char> = line_text.chars().collect();
+        if character_column >= line_characters.len() {
             return None;
         }
-        let is_word = |c: char| c.is_alphanumeric() || "._-/:@~%+".contains(c);
-        if !is_word(chars[col]) {
+        let is_word_character = |character: char| {
+            character.is_alphanumeric() || "._-/:@~%+".contains(character)
+        };
+        if !is_word_character(line_characters[character_column]) {
             return None;
         }
-        let mut start = col;
-        while start > 0 && is_word(chars[start - 1]) {
-            start -= 1;
+        let mut word_start_column = character_column;
+        while word_start_column > 0 && is_word_character(line_characters[word_start_column - 1]) {
+            word_start_column -= 1;
         }
-        let mut end = col + 1;
-        while end < chars.len() && is_word(chars[end]) {
-            end += 1;
+        let mut word_end_column = character_column + 1;
+        while word_end_column < line_characters.len()
+            && is_word_character(line_characters[word_end_column])
+        {
+            word_end_column += 1;
         }
-        Some((start, end))
+        Some((word_start_column, word_end_column))
     }
 
-    pub fn get_selected_text(&self, sel_start: (usize, usize), sel_end: (usize, usize)) -> String {
-        let (s, e) = if sel_start <= sel_end {
-            (sel_start, sel_end)
+    pub fn get_selected_text(
+        &self,
+        selection_start: (usize, usize),
+        selection_end: (usize, usize),
+    ) -> String {
+        let (ordered_start, ordered_end) = if selection_start <= selection_end {
+            (selection_start, selection_end)
         } else {
-            (sel_end, sel_start)
+            (selection_end, selection_start)
         };
-        if s == e {
+        if ordered_start == ordered_end {
             return String::new();
         }
         let lines = self.get_lines();
-        if lines.is_empty() || s.0 >= lines.len() {
+        if lines.is_empty() || ordered_start.0 >= lines.len() {
             return String::new();
         }
-        let end_line = e.0.min(lines.len() - 1);
+        let end_line_index = ordered_end.0.min(lines.len() - 1);
 
-        if s.0 == end_line {
-            let line = &lines[s.0];
-            let start_col = s.1.min(line.len());
-            let end_col = e.1.min(line.len());
-            if start_col < end_col {
-                let mut sc = start_col;
-                while sc > 0 && !line.is_char_boundary(sc) {
-                    sc -= 1;
+        if ordered_start.0 == end_line_index {
+            let line_text = &lines[ordered_start.0];
+            let start_column = ordered_start.1.min(line_text.len());
+            let end_column = ordered_end.1.min(line_text.len());
+            if start_column < end_column {
+                let mut start_byte_index = start_column;
+                while start_byte_index > 0 && !line_text.is_char_boundary(start_byte_index) {
+                    start_byte_index -= 1;
                 }
-                let mut ec = end_col;
-                while ec < line.len() && !line.is_char_boundary(ec) {
-                    ec += 1;
+                let mut end_byte_index = end_column;
+                while end_byte_index < line_text.len() && !line_text.is_char_boundary(end_byte_index) {
+                    end_byte_index += 1;
                 }
-                return line[sc..ec].to_string();
+                return line_text[start_byte_index..end_byte_index].to_string();
             } else {
                 return String::new();
             }
         }
 
-        let mut result = Vec::with_capacity(end_line - s.0 + 1);
-        for line_idx in s.0..=end_line {
-            let line = &lines[line_idx];
-            if line_idx == s.0 {
-                let mut sc = s.1.min(line.len());
-                while sc > 0 && !line.is_char_boundary(sc) {
-                    sc -= 1;
+        let mut selected_lines = Vec::with_capacity(end_line_index - ordered_start.0 + 1);
+        for line_index in ordered_start.0..=end_line_index {
+            let line_text = &lines[line_index];
+            if line_index == ordered_start.0 {
+                let mut start_byte_index = ordered_start.1.min(line_text.len());
+                while start_byte_index > 0 && !line_text.is_char_boundary(start_byte_index) {
+                    start_byte_index -= 1;
                 }
-                result.push(line[sc..].to_string());
-            } else if line_idx == end_line {
-                let mut ec = e.1.min(line.len());
-                while ec < line.len() && !line.is_char_boundary(ec) {
-                    ec += 1;
+                selected_lines.push(line_text[start_byte_index..].to_string());
+            } else if line_index == end_line_index {
+                let mut end_byte_index = ordered_end.1.min(line_text.len());
+                while end_byte_index < line_text.len() && !line_text.is_char_boundary(end_byte_index) {
+                    end_byte_index += 1;
                 }
-                result.push(line[..ec].to_string());
+                selected_lines.push(line_text[..end_byte_index].to_string());
             } else {
-                result.push(line.clone());
+                selected_lines.push(line_text.clone());
             }
         }
-        result.join("\n")
+        selected_lines.join("\n")
     }
 
     pub fn clear(&mut self) {
@@ -485,58 +547,54 @@ struct BufferPerformer<'a> {
 }
 
 impl<'a> Perform for BufferPerformer<'a> {
-    fn print(&mut self, c: char) {
+    fn print(&mut self, character: char) {
         if self.buffer.screen.is_empty() {
             for _ in 0..self.buffer.visible_rows {
                 self.buffer.screen.push(String::with_capacity(128));
             }
         }
 
-        // Wrap to next line if cursor exceeds line width
         if self.buffer.cursor_col >= self.buffer.cols {
             self.execute(b'\n');
             self.buffer.cursor_col = 0;
         }
 
-        let row = self
+        let target_row = self
             .buffer
             .cursor_row
             .min(self.buffer.screen.len().saturating_sub(1));
-        let col = self.buffer.cursor_col;
-        let line = &mut self.buffer.screen[row];
+        let target_column = self.buffer.cursor_col;
+        let line_text = &mut self.buffer.screen[target_row];
 
-        let char_count = line.chars().count();
-        if col >= char_count {
-            let pad = (col - char_count).min(512);
-            for _ in 0..pad {
-                line.push(' ');
+        let char_count = line_text.chars().count();
+        if target_column >= char_count {
+            let padding_count = (target_column - char_count).min(512);
+            for _ in 0..padding_count {
+                line_text.push(' ');
             }
-            line.push(c);
+            line_text.push(character);
+        } else if character.is_ascii() && line_text.is_ascii() {
+            let line_bytes = unsafe { line_text.as_bytes_mut() };
+            if target_column < line_bytes.len() {
+                line_bytes[target_column] = character as u8;
+            }
         } else {
-            // Overwrite in the middle of a line
-            if c.is_ascii() && line.is_ascii() {
-                let bytes = unsafe { line.as_bytes_mut() };
-                if col < bytes.len() {
-                    bytes[col] = c as u8;
+            let mut updated_line = String::with_capacity(line_text.len() + 4);
+            let mut char_index = 0;
+            let mut replaced = false;
+            for existing_char in line_text.chars() {
+                if char_index == target_column {
+                    updated_line.push(character);
+                    replaced = true;
+                } else {
+                    updated_line.push(existing_char);
                 }
-            } else {
-                let mut new_line = String::with_capacity(line.len() + 4);
-                let mut char_idx = 0;
-                let mut replaced = false;
-                for existing in line.chars() {
-                    if char_idx == col {
-                        new_line.push(c);
-                        replaced = true;
-                    } else {
-                        new_line.push(existing);
-                    }
-                    char_idx += 1;
-                }
-                if !replaced {
-                    new_line.push(c);
-                }
-                *line = new_line;
+                char_index += 1;
             }
+            if !replaced {
+                updated_line.push(character);
+            }
+            *line_text = updated_line;
         }
         self.buffer.cursor_col += 1;
     }
@@ -550,13 +608,9 @@ impl<'a> Perform for BufferPerformer<'a> {
                         self.buffer.cursor_row += 1;
                     }
                 } else if self.buffer.cursor_row == bottom_margin {
-                    // Reached the bottom margin of scrolling region! Scroll lines within region up
                     self.buffer.scroll_up_in_region(1);
-                } else {
-                    // Below bottom margin (e.g. status bar): advance cursor if space permits
-                    if self.buffer.cursor_row + 1 < self.buffer.visible_rows {
-                        self.buffer.cursor_row += 1;
-                    }
+                } else if self.buffer.cursor_row + 1 < self.buffer.visible_rows {
+                    self.buffer.cursor_row += 1;
                 }
             }
             b'\r' => {
@@ -568,28 +622,30 @@ impl<'a> Perform for BufferPerformer<'a> {
             0x7f => {
                 if self.buffer.cursor_col > 0 {
                     self.buffer.cursor_col -= 1;
-                    let row = self
+                    let target_row = self
                         .buffer
                         .cursor_row
                         .min(self.buffer.screen.len().saturating_sub(1));
-                    if let Some(line) = self.buffer.screen.get_mut(row) {
-                        let col = self.buffer.cursor_col;
-                        let chars: Vec<char> = line.chars().collect();
-                        if col < chars.len() {
-                            let mut new_s = String::with_capacity(line.len());
-                            for (i, ch) in chars.into_iter().enumerate() {
-                                if i != col {
-                                    new_s.push(ch);
+                    if let Some(line_text) = self.buffer.screen.get_mut(target_row) {
+                        let target_column = self.buffer.cursor_col;
+                        let line_characters: Vec<char> = line_text.chars().collect();
+                        if target_column < line_characters.len() {
+                            let mut updated_line = String::with_capacity(line_text.len());
+                            for (char_index, existing_char) in
+                                line_characters.into_iter().enumerate()
+                            {
+                                if char_index != target_column {
+                                    updated_line.push(existing_char);
                                 }
                             }
-                            *line = new_s;
+                            *line_text = updated_line;
                         }
                     }
                 }
             }
             b'\t' => {
-                let next_tab = ((self.buffer.cursor_col / 8) + 1) * 8;
-                self.buffer.cursor_col = next_tab.min(self.buffer.cols.saturating_sub(1));
+                let next_tab_stop = ((self.buffer.cursor_col / 8) + 1) * 8;
+                self.buffer.cursor_col = next_tab_stop.min(self.buffer.cols.saturating_sub(1));
             }
             _ => {}
         }
@@ -610,260 +666,242 @@ impl<'a> Perform for BufferPerformer<'a> {
         let first_param = params
             .iter()
             .next()
-            .and_then(|p| p.first().copied())
+            .and_then(|param_group| param_group.first().copied())
             .unwrap_or(1) as usize;
         let count = if first_param == 0 { 1 } else { first_param };
 
         match action {
             'A' => {
-                // Cursor Up
                 self.buffer.cursor_row = self.buffer.cursor_row.saturating_sub(count);
             }
             'B' | 'e' => {
-                // Cursor Down
                 let max_row = self.buffer.visible_rows.saturating_sub(1);
                 self.buffer.cursor_row = (self.buffer.cursor_row + count).min(max_row);
             }
             'C' | 'a' => {
-                // Cursor Forward
                 let max_col = self.buffer.cols.saturating_sub(1);
                 self.buffer.cursor_col = (self.buffer.cursor_col + count).min(max_col);
             }
             'D' => {
-                // Cursor Backward
                 self.buffer.cursor_col = self.buffer.cursor_col.saturating_sub(count);
             }
             'H' | 'f' => {
-                // Cursor Position (row, col) - 1-based, relative to active screen
-                let mut iter = params.iter();
-                let r = iter
+                let mut param_iter = params.iter();
+                let target_row = param_iter
                     .next()
-                    .and_then(|p| p.first().copied())
+                    .and_then(|param_group| param_group.first().copied())
                     .unwrap_or(1)
                     .max(1) as usize
                     - 1;
-                let c = iter
+                let target_column = param_iter
                     .next()
-                    .and_then(|p| p.first().copied())
+                    .and_then(|param_group| param_group.first().copied())
                     .unwrap_or(1)
                     .max(1) as usize
                     - 1;
 
-                self.buffer.cursor_row = r.min(self.buffer.visible_rows.saturating_sub(1));
-                self.buffer.cursor_col = c.min(self.buffer.cols.saturating_sub(1));
+                self.buffer.cursor_row = target_row.min(self.buffer.visible_rows.saturating_sub(1));
+                self.buffer.cursor_col = target_column.min(self.buffer.cols.saturating_sub(1));
             }
             'G' | '`' => {
-                // Cursor Horizontal Absolute
-                let c = count.max(1) - 1;
-                self.buffer.cursor_col = c.min(self.buffer.cols.saturating_sub(1));
+                let target_column = count.max(1) - 1;
+                self.buffer.cursor_col = target_column.min(self.buffer.cols.saturating_sub(1));
             }
             'd' => {
-                // Line Position Absolute
-                let r = count.max(1) - 1;
-                self.buffer.cursor_row = r.min(self.buffer.visible_rows.saturating_sub(1));
+                let target_row = count.max(1) - 1;
+                self.buffer.cursor_row = target_row.min(self.buffer.visible_rows.saturating_sub(1));
             }
             'E' => {
-                // Cursor Next Line
                 self.buffer.cursor_col = 0;
                 let max_row = self.buffer.visible_rows.saturating_sub(1);
                 self.buffer.cursor_row = (self.buffer.cursor_row + count).min(max_row);
             }
             'F' => {
-                // Cursor Previous Line
                 self.buffer.cursor_col = 0;
                 self.buffer.cursor_row = self.buffer.cursor_row.saturating_sub(count);
             }
             'K' => {
-                // Erase in Line
-                let row = self
+                let target_row = self
                     .buffer
                     .cursor_row
                     .min(self.buffer.screen.len().saturating_sub(1));
-                if let Some(line) = self.buffer.screen.get_mut(row) {
-                    let mode = params
+                if let Some(line_text) = self.buffer.screen.get_mut(target_row) {
+                    let erase_mode = params
                         .iter()
                         .next()
-                        .and_then(|p| p.first().copied())
+                        .and_then(|param_group| param_group.first().copied())
                         .unwrap_or(0);
-                    let col = self.buffer.cursor_col;
-                    let chars: Vec<char> = line.chars().collect();
-                    match mode {
+                    let cursor_column = self.buffer.cursor_col;
+                    let line_characters: Vec<char> = line_text.chars().collect();
+                    match erase_mode {
                         0 => {
-                            // Erase from cursor to end of line
-                            if col < chars.len() {
-                                *line = chars[..col].iter().collect();
+                            if cursor_column < line_characters.len() {
+                                *line_text = line_characters[..cursor_column].iter().collect();
                             }
                         }
                         1 => {
-                            // Erase from start of line to cursor
-                            let spaces = " ".repeat(col.min(chars.len()));
-                            let mut new_s = spaces;
-                            if col < chars.len() {
-                                new_s.extend(chars[col..].iter());
+                            let mut updated_line =
+                                " ".repeat(cursor_column.min(line_characters.len()));
+                            if cursor_column < line_characters.len() {
+                                updated_line.extend(line_characters[cursor_column..].iter());
                             }
-                            *line = new_s;
+                            *line_text = updated_line;
                         }
                         2 => {
-                            // Erase entire line
-                            line.clear();
+                            line_text.clear();
                         }
                         _ => {}
                     }
                 }
             }
             'J' => {
-                // Erase in Display
-                let mode = params
+                let erase_mode = params
                     .iter()
                     .next()
-                    .and_then(|p| p.first().copied())
+                    .and_then(|param_group| param_group.first().copied())
                     .unwrap_or(0);
-                match mode {
+                match erase_mode {
                     0 => {
-                        // Erase from cursor to end of screen
-                        let row = self
+                        let cursor_row = self
                             .buffer
                             .cursor_row
                             .min(self.buffer.screen.len().saturating_sub(1));
-                        let col = self.buffer.cursor_col;
-                        if let Some(line) = self.buffer.screen.get_mut(row) {
-                            let chars: Vec<char> = line.chars().collect();
-                            if col < chars.len() {
-                                *line = chars[..col].iter().collect();
+                        let cursor_column = self.buffer.cursor_col;
+                        if let Some(line_text) = self.buffer.screen.get_mut(cursor_row) {
+                            let line_characters: Vec<char> = line_text.chars().collect();
+                            if cursor_column < line_characters.len() {
+                                *line_text = line_characters[..cursor_column].iter().collect();
                             }
                         }
-                        for r in (row + 1)..self.buffer.screen.len() {
-                            self.buffer.screen[r].clear();
+                        for row_index in (cursor_row + 1)..self.buffer.screen.len() {
+                            self.buffer.screen[row_index].clear();
                         }
                     }
                     1 => {
-                        // Erase from start of screen to cursor
-                        let row = self
+                        let cursor_row = self
                             .buffer
                             .cursor_row
                             .min(self.buffer.screen.len().saturating_sub(1));
-                        for r in 0..row {
-                            if r < self.buffer.screen.len() {
-                                self.buffer.screen[r].clear();
+                        for row_index in 0..cursor_row {
+                            if row_index < self.buffer.screen.len() {
+                                self.buffer.screen[row_index].clear();
                             }
                         }
-                        let col = self.buffer.cursor_col;
-                        if let Some(line) = self.buffer.screen.get_mut(row) {
-                            let chars: Vec<char> = line.chars().collect();
-                            let spaces = " ".repeat(col.min(chars.len()));
-                            let mut new_s = spaces;
-                            if col < chars.len() {
-                                new_s.extend(chars[col..].iter());
+                        let cursor_column = self.buffer.cursor_col;
+                        if let Some(line_text) = self.buffer.screen.get_mut(cursor_row) {
+                            let line_characters: Vec<char> = line_text.chars().collect();
+                            let mut updated_line =
+                                " ".repeat(cursor_column.min(line_characters.len()));
+                            if cursor_column < line_characters.len() {
+                                updated_line.extend(line_characters[cursor_column..].iter());
                             }
-                            *line = new_s;
+                            *line_text = updated_line;
                         }
                     }
                     2 => {
-                        // Erase entire visible screen (scrollback preserved)
-                        for line in self.buffer.screen.iter_mut() {
-                            line.clear();
+                        for line_text in self.buffer.screen.iter_mut() {
+                            line_text.clear();
                         }
                     }
                     3 => {
-                        // Erase scrollback
                         self.buffer.scrollback.clear();
                     }
                     _ => {}
                 }
             }
             'L' => {
-                // Insert lines
-                let (top, bottom) = self.buffer.scroll_region;
-                let row = self.buffer.cursor_row;
-                if row >= top && row <= bottom {
+                let (top_margin, bottom_margin) = self.buffer.scroll_region;
+                let cursor_row = self.buffer.cursor_row;
+                if cursor_row >= top_margin && cursor_row <= bottom_margin {
                     for _ in 0..count {
-                        if bottom < self.buffer.screen.len() {
-                            self.buffer.screen.remove(bottom);
-                            self.buffer.screen.insert(row, String::with_capacity(128));
+                        if bottom_margin < self.buffer.screen.len() {
+                            self.buffer.screen.remove(bottom_margin);
+                            self.buffer
+                                .screen
+                                .insert(cursor_row, String::with_capacity(128));
                         }
                     }
                 }
             }
             'M' => {
-                // Delete lines
-                let (top, bottom) = self.buffer.scroll_region;
-                let row = self.buffer.cursor_row;
-                if row >= top && row <= bottom {
+                let (top_margin, bottom_margin) = self.buffer.scroll_region;
+                let cursor_row = self.buffer.cursor_row;
+                if cursor_row >= top_margin && cursor_row <= bottom_margin {
                     for _ in 0..count {
-                        if row < self.buffer.screen.len() {
-                            self.buffer.screen.remove(row);
-                            let ins = bottom.min(self.buffer.screen.len());
-                            self.buffer.screen.insert(ins, String::with_capacity(128));
+                        if cursor_row < self.buffer.screen.len() {
+                            self.buffer.screen.remove(cursor_row);
+                            let insert_row = bottom_margin.min(self.buffer.screen.len());
+                            self.buffer
+                                .screen
+                                .insert(insert_row, String::with_capacity(128));
                         }
                     }
                 }
             }
             'S' => {
-                // Scroll Up
                 self.buffer.scroll_up_in_region(count);
             }
             'T' => {
-                // Scroll Down
                 self.buffer.scroll_down_in_region(count);
             }
             'r' => {
-                // DECSTBM: Set Top and Bottom Margins (Scrolling Region)
                 if _intermediates.is_empty() {
-                    let mut iter = params.iter();
-                    let top = iter
+                    let mut param_iter = params.iter();
+                    let top_param = param_iter
                         .next()
-                        .and_then(|p| p.first().copied())
+                        .and_then(|param_group| param_group.first().copied())
                         .unwrap_or(1) as usize;
-                    let bottom = iter
+                    let bottom_param = param_iter
                         .next()
-                        .and_then(|p| p.first().copied())
+                        .and_then(|param_group| param_group.first().copied())
                         .unwrap_or(self.buffer.visible_rows as u16) as usize;
-                    let top_idx = top.max(1).saturating_sub(1);
-                    let bottom_idx = bottom.max(top).min(self.buffer.visible_rows).saturating_sub(1);
-                    if top_idx < bottom_idx {
-                        self.buffer.scroll_region = (top_idx, bottom_idx);
+                    let top_index = top_param.max(1).saturating_sub(1);
+                    let bottom_index = bottom_param
+                        .max(top_param)
+                        .min(self.buffer.visible_rows)
+                        .saturating_sub(1);
+                    if top_index < bottom_index {
+                        self.buffer.scroll_region = (top_index, bottom_index);
                     } else {
-                        self.buffer.scroll_region = (0, self.buffer.visible_rows.saturating_sub(1));
+                        self.buffer.scroll_region =
+                            (0, self.buffer.visible_rows.saturating_sub(1));
                     }
                     self.buffer.cursor_row = self.buffer.scroll_region.0;
                     self.buffer.cursor_col = 0;
                 }
             }
             'P' => {
-                // Delete characters
-                let row = self
+                let target_row = self
                     .buffer
                     .cursor_row
                     .min(self.buffer.screen.len().saturating_sub(1));
-                if let Some(line) = self.buffer.screen.get_mut(row) {
-                    let col = self.buffer.cursor_col;
-                    let mut chars: Vec<char> = line.chars().collect();
-                    if col < chars.len() {
-                        chars.drain(col..usize::min(col + count, chars.len()));
-                        *line = chars.into_iter().collect();
+                if let Some(line_text) = self.buffer.screen.get_mut(target_row) {
+                    let cursor_column = self.buffer.cursor_col;
+                    let mut line_characters: Vec<char> = line_text.chars().collect();
+                    if cursor_column < line_characters.len() {
+                        line_characters
+                            .drain(cursor_column..usize::min(cursor_column + count, line_characters.len()));
+                        *line_text = line_characters.into_iter().collect();
                     }
                 }
             }
             '@' => {
-                // Insert characters (spaces)
-                let row = self
+                let target_row = self
                     .buffer
                     .cursor_row
                     .min(self.buffer.screen.len().saturating_sub(1));
-                if let Some(line) = self.buffer.screen.get_mut(row) {
-                    let col = self.buffer.cursor_col.min(line.chars().count());
-                    let mut chars: Vec<char> = line.chars().collect();
+                if let Some(line_text) = self.buffer.screen.get_mut(target_row) {
+                    let cursor_column = self.buffer.cursor_col.min(line_text.chars().count());
+                    let mut line_characters: Vec<char> = line_text.chars().collect();
                     let spaces = vec![' '; count];
-                    chars.splice(col..col, spaces);
-                    *line = chars.into_iter().collect();
+                    line_characters.splice(cursor_column..cursor_column, spaces);
+                    *line_text = line_characters.into_iter().collect();
                 }
             }
             's' => {
-                // Save Cursor
                 self.buffer.saved_cursor = (self.buffer.cursor_row, self.buffer.cursor_col);
             }
             'u' => {
-                // Restore Cursor
                 self.buffer.cursor_row = self
                     .buffer
                     .saved_cursor
@@ -878,13 +916,13 @@ impl<'a> Perform for BufferPerformer<'a> {
             'h' => {
                 if _intermediates.contains(&b'?') {
                     for param_slice in params.iter() {
-                        if let Some(&p) = param_slice.first() {
-                            match p {
+                        if let Some(&mode_number) = param_slice.first() {
+                            match mode_number {
                                 1 => {
                                     self.buffer.application_cursor_keys = true;
                                 }
                                 1049 | 47 | 1047 => {
-                                    self.buffer.enter_alternate_screen(p == 1049);
+                                    self.buffer.enter_alternate_screen(mode_number == 1049);
                                 }
                                 25 => {
                                     self.buffer.show_cursor = true;
@@ -898,13 +936,13 @@ impl<'a> Perform for BufferPerformer<'a> {
             'l' => {
                 if _intermediates.contains(&b'?') {
                     for param_slice in params.iter() {
-                        if let Some(&p) = param_slice.first() {
-                            match p {
+                        if let Some(&mode_number) = param_slice.first() {
+                            match mode_number {
                                 1 => {
                                     self.buffer.application_cursor_keys = false;
                                 }
                                 1049 | 47 | 1047 => {
-                                    self.buffer.exit_alternate_screen(p == 1049);
+                                    self.buffer.exit_alternate_screen(mode_number == 1049);
                                 }
                                 25 => {
                                     self.buffer.show_cursor = false;
@@ -922,7 +960,6 @@ impl<'a> Perform for BufferPerformer<'a> {
     fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
         match byte {
             b'M' => {
-                // Reverse Index
                 let (top_margin, _bottom_margin) = self.buffer.scroll_region;
                 if self.buffer.cursor_row > top_margin {
                     self.buffer.cursor_row -= 1;
@@ -933,28 +970,22 @@ impl<'a> Perform for BufferPerformer<'a> {
                 }
             }
             b'D' => {
-                // Index (IND) - advance line, scrolling region if at bottom margin
                 self.execute(b'\n');
             }
             b'E' => {
-                // Next Line
                 self.buffer.cursor_col = 0;
                 self.execute(b'\n');
             }
             b'=' => {
-                // Application Keypad (DECKPAM)
                 self.buffer.application_keypad = true;
             }
             b'>' => {
-                // Normal Numeric Keypad (DECKPNM)
                 self.buffer.application_keypad = false;
             }
             b'7' => {
-                // DECSC - Save cursor
                 self.buffer.saved_cursor = (self.buffer.cursor_row, self.buffer.cursor_col);
             }
             b'8' => {
-                // DECRC - Restore cursor
                 self.buffer.cursor_row = self
                     .buffer
                     .saved_cursor
@@ -967,7 +998,6 @@ impl<'a> Perform for BufferPerformer<'a> {
                     .min(self.buffer.cols.saturating_sub(1));
             }
             b'c' => {
-                // RIS - Full Reset
                 self.buffer.screen.clear();
                 for _ in 0..self.buffer.visible_rows {
                     self.buffer.screen.push(String::with_capacity(128));
@@ -986,280 +1016,296 @@ mod tests {
 
     #[test]
     fn test_basic_output_and_newline() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        buf.process_bytes(b"Hello world\r\nLine 2");
-        assert_eq!(buf.cursor_row, 1);
-        assert_eq!(buf.cursor_col, 6);
-        assert_eq!(buf.screen[0], "Hello world");
-        assert_eq!(buf.screen[1], "Line 2");
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        terminal_buffer.process_bytes(b"Hello world\r\nLine 2");
+        assert_eq!(terminal_buffer.cursor_row, 1);
+        assert_eq!(terminal_buffer.cursor_col, 6);
+        assert_eq!(terminal_buffer.screen[0], "Hello world");
+        assert_eq!(terminal_buffer.screen[1], "Line 2");
     }
 
     #[test]
     fn test_carriage_return_overwrite_and_line_clear() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        buf.process_bytes(b"--more--(31%)--(lines 48-70/239)--\r\x1b[KPort Id    Description");
-        assert_eq!(buf.screen[0], "Port Id    Description");
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        terminal_buffer
+            .process_bytes(b"--more--(31%)--(lines 48-70/239)--\r\x1b[KPort Id    Description");
+        assert_eq!(terminal_buffer.screen[0], "Port Id    Description");
     }
 
     #[test]
     fn test_nokia_cursor_repositioning_pagination() {
-        let mut buf = TerminalBuffer::new(80, 5, 1000);
-        // Page 1
-        buf.process_bytes(b"Line 1\r\nLine 2\r\nLine 3\r\nLine 4\r\n--more--");
-        assert_eq!(buf.screen[4], "--more--");
+        let mut terminal_buffer = TerminalBuffer::new(80, 5, 1000);
+        terminal_buffer.process_bytes(b"Line 1\r\nLine 2\r\nLine 3\r\nLine 4\r\n--more--");
+        assert_eq!(terminal_buffer.screen[4], "--more--");
 
-        // Nokia sends cursor home / clear to redraw page 2
-        buf.process_bytes(b"\x1b[1;1H\x1b[2JPage 2 Line 1\r\nPage 2 Line 2\r\nPage 2 Line 3\r\nPage 2 Line 4\r\nPage 2 Line 5");
-        assert_eq!(buf.screen[0], "Page 2 Line 1");
-        assert_eq!(buf.screen[4], "Page 2 Line 5");
+        terminal_buffer.process_bytes(b"\x1b[1;1H\x1b[2JPage 2 Line 1\r\nPage 2 Line 2\r\nPage 2 Line 3\r\nPage 2 Line 4\r\nPage 2 Line 5");
+        assert_eq!(terminal_buffer.screen[0], "Page 2 Line 1");
+        assert_eq!(terminal_buffer.screen[4], "Page 2 Line 5");
     }
 
     #[test]
     fn test_screen_scrolling_into_scrollback() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes(b"Row 1\r\nRow 2\r\nRow 3\r\nRow 4\r\nRow 5");
-        assert_eq!(buf.scrollback.len(), 2);
-        assert_eq!(buf.scrollback[0], "Row 1");
-        assert_eq!(buf.scrollback[1], "Row 2");
-        assert_eq!(buf.screen[0], "Row 3");
-        assert_eq!(buf.screen[1], "Row 4");
-        assert_eq!(buf.screen[2], "Row 5");
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Row 1\r\nRow 2\r\nRow 3\r\nRow 4\r\nRow 5");
+        assert_eq!(terminal_buffer.scrollback.len(), 2);
+        assert_eq!(terminal_buffer.scrollback[0], "Row 1");
+        assert_eq!(terminal_buffer.scrollback[1], "Row 2");
+        assert_eq!(terminal_buffer.screen[0], "Row 3");
+        assert_eq!(terminal_buffer.screen[1], "Row 4");
+        assert_eq!(terminal_buffer.screen[2], "Row 5");
     }
 
     #[test]
     fn test_dynamic_resizing() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        buf.process_bytes(b"Line 1\r\nLine 2\r\nLine 3");
-        buf.set_size(120, 40);
-        assert_eq!(buf.cols, 120);
-        assert_eq!(buf.visible_rows, 40);
-        assert_eq!(buf.screen.len(), 40);
-        assert_eq!(buf.screen[0], "Line 1");
-        assert_eq!(buf.screen[1], "Line 2");
-        assert_eq!(buf.screen[2], "Line 3");
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        terminal_buffer.process_bytes(b"Line 1\r\nLine 2\r\nLine 3");
+        terminal_buffer.set_size(120, 40);
+        assert_eq!(terminal_buffer.cols, 120);
+        assert_eq!(terminal_buffer.visible_rows, 40);
+        assert_eq!(terminal_buffer.screen.len(), 40);
+        assert_eq!(terminal_buffer.screen[0], "Line 1");
+        assert_eq!(terminal_buffer.screen[1], "Line 2");
+        assert_eq!(terminal_buffer.screen[2], "Line 3");
     }
 
     #[test]
     fn test_screen_offset_to_buffer_pos() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        // Scrollback: Row 1, Row 2. Screen: Row 3, Row 4, Row 5
-        buf.process_bytes(b"Row 1\r\nRow 2\r\nRow 3\r\nRow 4\r\nRow 5");
-        let (vis_text, _, _, _, _) = buf.get_visible_text();
-        assert_eq!(vis_text, "Row 3\nRow 4\nRow 5");
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Row 1\r\nRow 2\r\nRow 3\r\nRow 4\r\nRow 5");
+        let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+        assert_eq!(visible_text, "Row 3\nRow 4\nRow 5");
 
-        // Offset 0 is Row 3, col 0 -> line index 2, col 0
-        let pos0 = buf.screen_offset_to_buffer_pos(&vis_text, 0);
-        assert_eq!(pos0, (2, 0));
+        let first_pos = terminal_buffer.screen_offset_to_buffer_pos(&visible_text, 0);
+        assert_eq!(first_pos, (2, 0));
 
-        // Offset 2 is "w" in Row 3 -> line index 2, col 2
-        let pos1 = buf.screen_offset_to_buffer_pos(&vis_text, 2);
-        assert_eq!(pos1, (2, 2));
+        let second_pos = terminal_buffer.screen_offset_to_buffer_pos(&visible_text, 2);
+        assert_eq!(second_pos, (2, 2));
 
-        // Offset 6 is "R" in Row 4 -> line index 3, col 0
-        let pos2 = buf.screen_offset_to_buffer_pos(&vis_text, 6);
-        assert_eq!(pos2, (3, 0));
+        let third_pos = terminal_buffer.screen_offset_to_buffer_pos(&visible_text, 6);
+        assert_eq!(third_pos, (3, 0));
 
-        // Now scroll back into history by 2 lines
-        buf.scroll_by(2);
-        let (hist_text, _, _, _, _) = buf.get_visible_text();
-        // Visible: Row 1, Row 2, Row 3
-        let pos_hist = buf.screen_offset_to_buffer_pos(&hist_text, 0);
-        assert_eq!(pos_hist, (0, 0));
+        terminal_buffer.scroll_by(2);
+        let (history_text, _, _, _, _) = terminal_buffer.get_visible_text();
+        let history_pos = terminal_buffer.screen_offset_to_buffer_pos(&history_text, 0);
+        assert_eq!(history_pos, (0, 0));
     }
 
     #[test]
     fn test_buffer_range_to_screen_offsets() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
-        // Total = 5 lines. Visible: Line 2, Line 3, Line 4 (indices 2, 3, 4)
-        let (vis_text, _, _, _, _) = buf.get_visible_text();
-        assert_eq!(vis_text, "Line 2\nLine 3\nLine 4");
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
+        let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+        assert_eq!(visible_text, "Line 2\nLine 3\nLine 4");
 
-        // 1. Selection within visible screen (Line 2 col 2 to Line 3 col 4)
-        let (s, e) = buf.buffer_range_to_screen_offsets(&vis_text, (2, 2), (3, 4));
-        assert_eq!(s, 2);
-        assert_eq!(e, 7 + 4); // "Line 2\n" is 7 bytes + 4 = 11
+        let (start_offset, end_offset) =
+            terminal_buffer.buffer_range_to_screen_offsets(&visible_text, (2, 2), (3, 4));
+        assert_eq!(start_offset, 2);
+        assert_eq!(end_offset, 7 + 4);
 
-        // 2. Selection starts above screen (Line 0 col 0 to Line 3 col 4)
-        let (s2, e2) = buf.buffer_range_to_screen_offsets(&vis_text, (0, 0), (3, 4));
-        assert_eq!(s2, 0);
-        assert_eq!(e2, 11);
+        let (above_start_offset, above_end_offset) =
+            terminal_buffer.buffer_range_to_screen_offsets(&visible_text, (0, 0), (3, 4));
+        assert_eq!(above_start_offset, 0);
+        assert_eq!(above_end_offset, 11);
 
-        // 3. Selection extends below screen when scrolled into history
-        buf.scroll_by(2);
-        let (hist_text, _, _, _, _) = buf.get_visible_text();
-        // Visible: Line 0, Line 1, Line 2 (indices 0, 1, 2)
-        let (s3, e3) = buf.buffer_range_to_screen_offsets(&hist_text, (1, 2), (4, 3));
-        assert_eq!(s3, 7 + 2); // Line 1 col 2
-        assert_eq!(e3, hist_text.len()); // Clamped to end
+        terminal_buffer.scroll_by(2);
+        let (history_text, _, _, _, _) = terminal_buffer.get_visible_text();
+        let (below_start_offset, below_end_offset) =
+            terminal_buffer.buffer_range_to_screen_offsets(&history_text, (1, 2), (4, 3));
+        assert_eq!(below_start_offset, 7 + 2);
+        assert_eq!(below_end_offset, history_text.len());
     }
 
     #[test]
     fn test_get_selected_text_multi_screen() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes(b"Config Alpha\r\nInterface GigabitEthernet0/1\r\n ip address 10.0.0.1\r\n no shutdown\r\nexit");
-        let all_lines = buf.get_lines();
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Config Alpha\r\nInterface GigabitEthernet0/1\r\n ip address 10.0.0.1\r\n no shutdown\r\nexit");
+        let all_lines = terminal_buffer.get_lines();
         assert_eq!(all_lines.len(), 5);
 
-        // Select from Line 1 (Interface...) to Line 3 (no shutdown)
-        let selected = buf.get_selected_text((1, 0), (3, 12));
+        let selected_text = terminal_buffer.get_selected_text((1, 0), (3, 12));
         assert_eq!(
-            selected,
+            selected_text,
             "Interface GigabitEthernet0/1\n ip address 10.0.0.1\n no shutdown"
         );
 
-        // Partial columns
-        let partial = buf.get_selected_text((1, 10), (1, 25));
-        assert_eq!(partial, "GigabitEthernet");
+        let partial_text = terminal_buffer.get_selected_text((1, 10), (1, 25));
+        assert_eq!(partial_text, "GigabitEthernet");
     }
 
     #[test]
     fn test_cell_range_copy_is_independent_of_scroll() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
-        // Selection is in global buffer coordinates, so scrolling must not change it.
-        let expected = "ne 1\nLine 2\nLine 3\nLi";
-        assert_eq!(buf.get_text_in_cell_range((1, 2), (4, 2)), expected);
-        buf.scroll_by(2);
-        assert_eq!(buf.get_text_in_cell_range((1, 2), (4, 2)), expected);
-        // Reversed (dragging upwards) gives the same text.
-        assert_eq!(buf.get_text_in_cell_range((4, 2), (1, 2)), expected);
-        // End column past the line end selects to end of line; rows past the end clamp.
-        assert_eq!(buf.get_text_in_cell_range((3, 0), (99, 9999)), "Line 3\nLine 4");
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Line 0\r\nLine 1\r\nLine 2\r\nLine 3\r\nLine 4");
+        let expected_text = "ne 1\nLine 2\nLine 3\nLi";
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((1, 2), (4, 2)),
+            expected_text
+        );
+        terminal_buffer.scroll_by(2);
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((1, 2), (4, 2)),
+            expected_text
+        );
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((4, 2), (1, 2)),
+            expected_text
+        );
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((3, 0), (99, 9999)),
+            "Line 3\nLine 4"
+        );
     }
 
     #[test]
     fn test_cell_range_copy_utf8_and_trailing_space() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes("├── eth0   \r\n└── eth1".as_bytes());
-        // Columns are characters, not bytes; trailing spaces are trimmed.
-        assert_eq!(buf.get_text_in_cell_range((0, 4), (0, 100)), "eth0");
-        assert_eq!(buf.get_text_in_cell_range((0, 0), (1, 3)), "├── eth0\n└──");
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes("├── eth0   \r\n└── eth1".as_bytes());
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((0, 4), (0, 100)),
+            "eth0"
+        );
+        assert_eq!(
+            terminal_buffer.get_text_in_cell_range((0, 0), (1, 3)),
+            "├── eth0\n└──"
+        );
     }
 
     #[test]
     fn test_word_bounds_at() {
-        let mut buf = TerminalBuffer::new(80, 3, 1000);
-        buf.process_bytes(b"Router# ping 10.0.0.1 via Gi0/1");
-        let line = buf.line_at(0).unwrap().to_string();
-        let ip_col = line.find("10.0").unwrap() + 3;
-        let (s, e) = buf.word_bounds_at(0, ip_col).unwrap();
-        assert_eq!(&line[s..e], "10.0.0.1");
-        let gi_col = line.find("Gi0").unwrap();
-        let (s, e) = buf.word_bounds_at(0, gi_col).unwrap();
-        assert_eq!(&line[s..e], "Gi0/1");
-        // Prompt '#' is not glued onto the hostname
-        let (s, e) = buf.word_bounds_at(0, 1).unwrap();
-        assert_eq!(&line[s..e], "Router");
-        // Whitespace selects nothing
-        assert!(buf.word_bounds_at(0, line.find(' ').unwrap()).is_none());
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(b"Router# ping 10.0.0.1 via Gi0/1");
+        let line_text = terminal_buffer.line_at(0).unwrap().to_string();
+        let ip_column = line_text.find("10.0").unwrap() + 3;
+        let (word_start, word_end) = terminal_buffer.word_bounds_at(0, ip_column).unwrap();
+        assert_eq!(&line_text[word_start..word_end], "10.0.0.1");
+        let interface_column = line_text.find("Gi0").unwrap();
+        let (word_start, word_end) = terminal_buffer.word_bounds_at(0, interface_column).unwrap();
+        assert_eq!(&line_text[word_start..word_end], "Gi0/1");
+        let (word_start, word_end) = terminal_buffer.word_bounds_at(0, 1).unwrap();
+        assert_eq!(&line_text[word_start..word_end], "Router");
+        assert!(terminal_buffer
+            .word_bounds_at(0, line_text.find(' ').unwrap())
+            .is_none());
     }
 
     #[test]
     fn test_alternate_screen_enter_and_exit() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        buf.process_bytes(b"user@host:~$ ls\r\nfile1.txt\r\n");
-        assert!(!buf.in_alternate_screen);
-        assert_eq!(buf.screen[0], "user@host:~$ ls");
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        terminal_buffer.process_bytes(b"user@host:~$ ls\r\nfile1.txt\r\n");
+        assert!(!terminal_buffer.in_alternate_screen);
+        assert_eq!(terminal_buffer.screen[0], "user@host:~$ ls");
 
-        // Entering alternate screen via \x1b[?1049h
-        buf.process_bytes(b"\x1b[?1049h");
-        assert!(buf.in_alternate_screen);
-        // Alternate screen should be cleared
-        assert_eq!(buf.screen[0], "");
+        terminal_buffer.process_bytes(b"\x1b[?1049h");
+        assert!(terminal_buffer.in_alternate_screen);
+        assert_eq!(terminal_buffer.screen[0], "");
 
-        // Render something in nano
-        buf.process_bytes(b"GNU nano 7.2\r\nFile: test.txt");
-        assert_eq!(buf.screen[0], "GNU nano 7.2");
-        assert_eq!(buf.screen[1], "File: test.txt");
+        terminal_buffer.process_bytes(b"GNU nano 7.2\r\nFile: test.txt");
+        assert_eq!(terminal_buffer.screen[0], "GNU nano 7.2");
+        assert_eq!(terminal_buffer.screen[1], "File: test.txt");
 
-        // Exit alternate screen via \x1b[?1049l
-        buf.process_bytes(b"\x1b[?1049l");
-        assert!(!buf.in_alternate_screen);
-        // Primary screen text restored!
-        assert_eq!(buf.screen[0], "user@host:~$ ls");
+        terminal_buffer.process_bytes(b"\x1b[?1049l");
+        assert!(!terminal_buffer.in_alternate_screen);
+        assert_eq!(terminal_buffer.screen[0], "user@host:~$ ls");
     }
 
     #[test]
     fn test_scrolling_region_decstbm() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        // Fill exactly 24 lines without extra newline
-        let mut text = String::new();
-        for i in 0..24 {
-            if i > 0 {
-                text.push_str("\r\n");
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        let mut initial_text = String::new();
+        for line_number in 0..24 {
+            if line_number > 0 {
+                initial_text.push_str("\r\n");
             }
-            text.push_str(&format!("Line {:02}", i));
+            initial_text.push_str(&format!("Line {:02}", line_number));
         }
-        buf.process_bytes(text.as_bytes());
-        assert_eq!(buf.screen[0], "Line 00");
-        assert_eq!(buf.screen[1], "Line 01");
-        assert_eq!(buf.screen[21], "Line 21");
-        assert_eq!(buf.screen[22], "Line 22");
-        assert_eq!(buf.screen[23], "Line 23");
+        terminal_buffer.process_bytes(initial_text.as_bytes());
+        assert_eq!(terminal_buffer.screen[0], "Line 00");
+        assert_eq!(terminal_buffer.screen[1], "Line 01");
+        assert_eq!(terminal_buffer.screen[21], "Line 21");
+        assert_eq!(terminal_buffer.screen[22], "Line 22");
+        assert_eq!(terminal_buffer.screen[23], "Line 23");
 
-        // Nano sets scrolling region from line 2 to 22 (1-based: \x1b[2;22r)
-        buf.process_bytes(b"\x1b[2;22r");
-        assert_eq!(buf.scroll_region, (1, 21));
+        terminal_buffer.process_bytes(b"\x1b[2;22r");
+        assert_eq!(terminal_buffer.scroll_region, (1, 21));
 
-        // Move cursor to row 22 (1-based: \x1b[22d) and send \n
-        buf.process_bytes(b"\x1b[22d\n");
+        terminal_buffer.process_bytes(b"\x1b[22d\n");
 
-        // Top line (header) should stay frozen!
-        assert_eq!(buf.screen[0], "Line 00");
-        // Line 1 should have scrolled up and now be Line 02!
-        assert_eq!(buf.screen[1], "Line 02");
-        // Line 21 should be empty (ready for new text)
-        assert_eq!(buf.screen[21], "");
-        // Bottom lines 22 and 23 (shortcut bars) should stay frozen!
-        assert_eq!(buf.screen[22], "Line 22");
-        assert_eq!(buf.screen[23], "Line 23");
+        assert_eq!(terminal_buffer.screen[0], "Line 00");
+        assert_eq!(terminal_buffer.screen[1], "Line 02");
+        assert_eq!(terminal_buffer.screen[21], "");
+        assert_eq!(terminal_buffer.screen[22], "Line 22");
+        assert_eq!(terminal_buffer.screen[23], "Line 23");
     }
 
     #[test]
     fn test_nano_raw_stream() {
         if let Ok(bytes) = std::fs::read("target/nano_raw.bin") {
-            let mut buf = TerminalBuffer::new(80, 24, 1000);
-            buf.process_bytes(&bytes);
-            for i in 0..24 {
-                println!("Line {:02}: {:?}", i, buf.screen[i]);
+            let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+            terminal_buffer.process_bytes(&bytes);
+            for row_index in 0..24 {
+                println!("Line {:02}: {:?}", row_index, terminal_buffer.screen[row_index]);
             }
-            assert!(buf.in_alternate_screen);
+            assert!(terminal_buffer.in_alternate_screen);
         }
     }
 
     #[test]
     fn test_decckm_and_keypad_modes() {
-        let mut buf = TerminalBuffer::new(80, 24, 1000);
-        assert!(!buf.application_cursor_keys);
-        assert!(!buf.application_keypad);
+        let mut terminal_buffer = TerminalBuffer::new(80, 24, 1000);
+        assert!(!terminal_buffer.application_cursor_keys);
+        assert!(!terminal_buffer.application_keypad);
 
-        // Enable DECCKM: \x1b[?1h
-        buf.process_bytes(b"\x1b[?1h");
-        assert!(buf.application_cursor_keys);
+        terminal_buffer.process_bytes(b"\x1b[?1h");
+        assert!(terminal_buffer.application_cursor_keys);
 
-        // Enable DECKPAM: \x1b=
-        buf.process_bytes(b"\x1b=");
-        assert!(buf.application_keypad);
+        terminal_buffer.process_bytes(b"\x1b=");
+        assert!(terminal_buffer.application_keypad);
 
-        // Disable DECKPAM: \x1b>
-        buf.process_bytes(b"\x1b>");
-        assert!(!buf.application_keypad);
+        terminal_buffer.process_bytes(b"\x1b>");
+        assert!(!terminal_buffer.application_keypad);
 
-        // Disable DECCKM: \x1b[?1l
-        buf.process_bytes(b"\x1b[?1l");
-        assert!(!buf.application_cursor_keys);
+        terminal_buffer.process_bytes(b"\x1b[?1l");
+        assert!(!terminal_buffer.application_cursor_keys);
 
-        // Alternate screen exit should reset both
-        buf.process_bytes(b"\x1b[?1h\x1b=\x1b[?1049h");
-        assert!(buf.application_cursor_keys);
-        assert!(buf.application_keypad);
-        assert!(buf.in_alternate_screen);
+        terminal_buffer.process_bytes(b"\x1b[?1h\x1b=\x1b[?1049h");
+        assert!(terminal_buffer.application_cursor_keys);
+        assert!(terminal_buffer.application_keypad);
+        assert!(terminal_buffer.in_alternate_screen);
 
-        buf.process_bytes(b"\x1b[?1049l");
-        assert!(!buf.in_alternate_screen);
-        assert!(!buf.application_cursor_keys);
-        assert!(!buf.application_keypad);
+        terminal_buffer.process_bytes(b"\x1b[?1049l");
+        assert!(!terminal_buffer.application_cursor_keys);
+        assert!(!terminal_buffer.application_keypad);
+    }
+
+    #[test]
+    fn test_viewport_cell_to_buffer_pos_and_multi_screen_scroll_select() {
+        let mut terminal_buffer = TerminalBuffer::new(80, 3, 1000);
+        terminal_buffer.process_bytes(
+            b"Line 00 Alpha\r\nLine 01 Beta\r\nLine 02 Gamma\r\nLine 03 Delta\r\nLine 04 Epsilon\r\nLine 05 Zeta\r\nLine 06 Eta\r\nLine 07 Theta\r\nLine 08 Iota",
+        );
+
+        let anchor_cell = terminal_buffer.viewport_cell_to_buffer_pos(2, 7);
+        assert_eq!(anchor_cell, (8, 7));
+
+        let top_clamped_cell = terminal_buffer.viewport_cell_to_buffer_pos(-3, -5);
+        assert_eq!(top_clamped_cell, (6, 0));
+
+        terminal_buffer.scroll_by(3);
+        let middle_cell = terminal_buffer.viewport_cell_to_buffer_pos(-2, 0);
+        assert_eq!(middle_cell, (3, 0));
+
+        terminal_buffer.scroll_by(3);
+        let final_cell = terminal_buffer.viewport_cell_to_buffer_pos(1, 8);
+        assert_eq!(final_cell, (1, 8));
+
+        let copied_text = terminal_buffer.get_text_in_cell_range(anchor_cell, final_cell);
+        assert_eq!(
+            copied_text,
+            "Beta\nLine 02 Gamma\nLine 03 Delta\nLine 04 Epsilon\nLine 05 Zeta\nLine 06 Eta\nLine 07 Theta\nLine 08"
+        );
+
+        let bottom_clamped_cell = terminal_buffer.viewport_cell_to_buffer_pos(10, 50);
+        assert_eq!(bottom_clamped_cell, (2, "Line 02 Gamma".len()));
     }
 }
 

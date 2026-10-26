@@ -47,7 +47,11 @@ impl SessionFolderNode {
     }
 
     fn total_items(&self) -> usize {
-        let sub_items: usize = self.subfolders.values().map(|c| c.total_items()).sum();
+        let sub_items: usize = self
+            .subfolders
+            .values()
+            .map(|child_node| child_node.total_items())
+            .sum();
         self.sessions.len() + sub_items
     }
 
@@ -58,23 +62,23 @@ impl SessionFolderNode {
         depth: usize,
         out: &mut Vec<SessionItemModel>,
     ) {
-        for (name, folder_node) in &self.subfolders {
+        for (folder_name, folder_node) in &self.subfolders {
             let is_expanded = match search_collapsed {
                 Some(collapsed) => !collapsed.contains(&folder_node.full_path),
                 None => expanded_set.contains(&folder_node.full_path),
             };
-            let count = folder_node.total_items();
+            let item_count = folder_node.total_items();
 
             out.push(SessionItemModel {
                 id: format!("folder:{}", folder_node.full_path).into(),
-                name: name.clone().into(),
+                name: folder_name.clone().into(),
                 host: "".into(),
                 port: 0,
                 folder: folder_node.full_path.clone().into(),
                 username: "".into(),
                 is_folder: true,
                 expanded: is_expanded,
-                count: count as i32,
+                count: item_count as i32,
                 depth: depth as i32,
             });
 
@@ -83,14 +87,14 @@ impl SessionFolderNode {
             }
         }
 
-        for s in &self.sessions {
+        for session in &self.sessions {
             out.push(SessionItemModel {
-                id: s.id.clone().into(),
-                name: s.name.clone().into(),
-                host: s.host.clone().into(),
-                port: s.port as i32,
+                id: session.id.clone().into(),
+                name: session.name.clone().into(),
+                host: session.host.clone().into(),
+                port: session.port as i32,
                 folder: self.full_path.clone().into(),
-                username: s.username.clone().unwrap_or_default().into(),
+                username: session.username.clone().unwrap_or_default().into(),
                 is_folder: false,
                 expanded: false,
                 count: 0,
@@ -131,7 +135,11 @@ impl CommandFolderNode {
     }
 
     fn total_items(&self) -> usize {
-        let sub_items: usize = self.subfolders.values().map(|c| c.total_items()).sum();
+        let sub_items: usize = self
+            .subfolders
+            .values()
+            .map(|child_node| child_node.total_items())
+            .sum();
         self.commands.len() + sub_items
     }
 
@@ -142,23 +150,23 @@ impl CommandFolderNode {
         depth: usize,
         out: &mut Vec<CommandItemModel>,
     ) {
-        for (name, folder_node) in &self.subfolders {
+        for (folder_name, folder_node) in &self.subfolders {
             let is_expanded = match search_collapsed {
                 Some(collapsed) => !collapsed.contains(&folder_node.full_path),
                 None => expanded_set.contains(&folder_node.full_path),
             };
-            let count = folder_node.total_items();
+            let item_count = folder_node.total_items();
 
             out.push(CommandItemModel {
                 id: format!("cmd_folder:{}", folder_node.full_path).into(),
-                name: name.clone().into(),
+                name: folder_name.clone().into(),
                 command: "".into(),
                 folder: folder_node.full_path.clone().into(),
                 color: "cyan".into(),
                 description: "".into(),
                 is_folder: true,
                 expanded: is_expanded,
-                count: count as i32,
+                count: item_count as i32,
                 depth: depth as i32,
             });
 
@@ -167,14 +175,18 @@ impl CommandFolderNode {
             }
         }
 
-        for c in &self.commands {
+        for command in &self.commands {
             out.push(CommandItemModel {
-                id: c.id.clone().into(),
-                name: c.name.clone().into(),
-                command: c.command.clone().into(),
+                id: command.id.clone().into(),
+                name: command.name.clone().into(),
+                command: command.command.clone().into(),
                 folder: self.full_path.clone().into(),
-                color: c.icon.clone().unwrap_or_else(|| "cyan".to_string()).into(),
-                description: c.description.clone().unwrap_or_default().into(),
+                color: command
+                    .icon
+                    .clone()
+                    .unwrap_or_else(|| "cyan".to_string())
+                    .into(),
+                description: command.description.clone().unwrap_or_default().into(),
                 is_folder: false,
                 expanded: false,
                 count: 0,
@@ -193,13 +205,13 @@ const TAB_GROUP_COLORS: [&str; 6] = [
     "#ec4899", // Pink
 ];
 
-fn parse_hex_color(hex: &str) -> slint::Color {
-    let hex = hex.trim_start_matches('#');
-    if hex.len() == 6 {
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
-        slint::Color::from_rgb_u8(r, g, b)
+fn parse_hex_color(hex_code: &str) -> slint::Color {
+    let hex_digits = hex_code.trim_start_matches('#');
+    if hex_digits.len() == 6 {
+        let red = u8::from_str_radix(&hex_digits[0..2], 16).unwrap_or(0);
+        let green = u8::from_str_radix(&hex_digits[2..4], 16).unwrap_or(0);
+        let blue = u8::from_str_radix(&hex_digits[4..6], 16).unwrap_or(0);
+        slint::Color::from_rgb_u8(red, green, blue)
     } else {
         slint::Color::from_rgb_u8(0, 212, 255)
     }
@@ -209,86 +221,147 @@ fn sync_tab_groups_ui(app: &AppWindow, state: &Arc<AppState>) {
     let groups_map = state.tab_groups.read();
     let mut ui_groups: Vec<TabGroupModel> = Vec::new();
 
-    for g in groups_map.values() {
-        let color_hex = TAB_GROUP_COLORS[g.color_index % TAB_GROUP_COLORS.len()];
-        let col = parse_hex_color(color_hex);
+    for group in groups_map.values() {
+        let color_hex = TAB_GROUP_COLORS[group.color_index % TAB_GROUP_COLORS.len()];
+        let group_color = parse_hex_color(color_hex);
         ui_groups.push(TabGroupModel {
-            id: g.id.clone().into(),
-            name: g.name.clone().into(),
-            color: col,
-            color_index: g.color_index as i32,
-            collapsed: g.collapsed,
-            tab_count: g.tab_ids.len() as i32,
+            id: group.id.clone().into(),
+            name: group.name.clone().into(),
+            color: group_color,
+            color_index: group.color_index as i32,
+            collapsed: group.collapsed,
+            tab_count: group.tab_ids.len() as i32,
         });
     }
-    ui_groups.sort_by(|a, b| a.name.to_string().cmp(&b.name.to_string()));
+    ui_groups.sort_by(|first_group, second_group| {
+        first_group.name.to_string().cmp(&second_group.name.to_string())
+    });
     app.set_tab_groups(ModelRc::new(VecModel::from(ui_groups)));
 
-    // Update existing tabs with their group metadata
     let tabs = app.get_tabs();
     let mut updated_tabs: Vec<TabModel> = Vec::new();
-    for i in 0..tabs.row_count() {
-        if let Some(mut t) = tabs.row_data(i) {
-            let tab_id = t.id.to_string();
-            let mut found_group = None;
-            for g in groups_map.values() {
-                if g.tab_ids.contains(&tab_id) {
-                    found_group = Some(g.clone());
+    for tab_index in 0..tabs.row_count() {
+        if let Some(mut tab_item) = tabs.row_data(tab_index) {
+            let tab_id = tab_item.id.to_string();
+            let mut matching_group = None;
+            for group in groups_map.values() {
+                if group.tab_ids.contains(&tab_id) {
+                    matching_group = Some(group.clone());
                     break;
                 }
             }
-            if let Some(g) = found_group {
-                let color_hex = TAB_GROUP_COLORS[g.color_index % TAB_GROUP_COLORS.len()];
-                t.group_id = g.id.into();
-                t.group_name = g.name.into();
-                t.group_color = parse_hex_color(color_hex);
-                t.is_grouped = true;
+            if let Some(group) = matching_group {
+                let color_hex = TAB_GROUP_COLORS[group.color_index % TAB_GROUP_COLORS.len()];
+                tab_item.group_id = group.id.into();
+                tab_item.group_name = group.name.into();
+                tab_item.group_color = parse_hex_color(color_hex);
+                tab_item.is_grouped = true;
             } else {
-                t.group_id = "".into();
-                t.group_name = "".into();
-                t.group_color = slint::Color::from_rgb_u8(0, 0, 0);
-                t.is_grouped = false;
+                tab_item.group_id = "".into();
+                tab_item.group_name = "".into();
+                tab_item.group_color = slint::Color::from_rgb_u8(0, 0, 0);
+                tab_item.is_grouped = false;
             }
-            updated_tabs.push(t);
+            updated_tabs.push(tab_item);
         }
     }
     app.set_tabs(ModelRc::new(VecModel::from(updated_tabs)));
 }
 
+fn render_session_buffer(
+    app: &AppWindow,
+    app_state: &Arc<AppState>,
+    session_id: &str,
+    terminal_buffer_mutex: &parking_lot::Mutex<TerminalBuffer>,
+    reset_inactive_selection: bool,
+) {
+    let terminal_buffer = terminal_buffer_mutex.lock();
+    let (visible_text, cursor_offset, total_lines, scroll_offset, visible_rows) =
+        terminal_buffer.get_visible_text();
+    let active_selection = app_state
+        .terminal_selections
+        .read()
+        .get(session_id)
+        .cloned()
+        .filter(|selection| selection.start != selection.end);
+    if let Some(selection) = active_selection {
+        let (visible_start_offset, visible_end_offset) = terminal_buffer
+            .buffer_range_to_screen_offsets(&visible_text, selection.start, selection.end);
+        drop(terminal_buffer);
+        let has_visible_selection = visible_start_offset != visible_end_offset;
+        app.set_terminal_scroll_total(total_lines as i32);
+        app.set_terminal_scroll_offset(scroll_offset as i32);
+        app.set_terminal_scroll_visible(visible_rows as i32);
+        app.set_terminal_selection_anchor_offset(if has_visible_selection {
+            visible_start_offset as i32
+        } else {
+            -1
+        });
+        app.set_terminal_selection_cursor_offset(if has_visible_selection {
+            visible_end_offset as i32
+        } else {
+            -1
+        });
+        app.set_terminal_selection_active(true);
+        app.set_terminal_full_text(visible_text.into());
+        if has_visible_selection {
+            app.invoke_set_terminal_selection_offsets(
+                visible_start_offset as i32,
+                visible_end_offset as i32,
+            );
+        } else {
+            app.invoke_set_terminal_selection_offsets(0, 0);
+        }
+    } else {
+        drop(terminal_buffer);
+        if reset_inactive_selection {
+            app.set_terminal_selection_anchor_offset(-1);
+            app.set_terminal_selection_cursor_offset(-1);
+            app.set_terminal_selection_active(false);
+            app.invoke_set_terminal_selection_offsets(0, 0);
+        }
+        app.set_terminal_scroll_total(total_lines as i32);
+        app.set_terminal_scroll_offset(scroll_offset as i32);
+        app.set_terminal_scroll_visible(visible_rows as i32);
+        app.set_terminal_full_text(visible_text.into());
+        app.invoke_set_terminal_cursor_pos(cursor_offset as i32);
+    }
+}
+
 fn update_terminal_geometry(
     app: &AppWindow,
     app_state: &Arc<AppState>,
-    term_h_px: f32,
-    term_w_px: f32,
+    viewport_height_px: f32,
+    viewport_width_px: f32,
 ) {
-    let font_sz = app_state
+    let font_size_px = app_state
         .current_terminal_font_size
         .load(std::sync::atomic::Ordering::Relaxed)
         .max(8) as f32;
-    // Font-aware monospace line height in Slint TextInput.
-    // Measured font metrics (UPEM, ascent, descent, win metrics):
-    // JetBrains Mono: ~1.34-1.35x
-    // Cascadia Code / Fira Code: ~1.34-1.36x
-    // Source Code Pro / Ubuntu Mono: ~1.40-1.42x
-    let font_fam_lower = app_state.current_terminal_font_family.read().to_lowercase();
-    let line_height_factor = if font_fam_lower.contains("source code") || font_fam_lower.contains("ubuntu") {
+    let font_family_lowercase = app_state.current_terminal_font_family.read().to_lowercase();
+    let line_height_factor = if font_family_lowercase.contains("source code")
+        || font_family_lowercase.contains("ubuntu")
+    {
         1.42
-    } else if font_fam_lower.contains("fira") || font_fam_lower.contains("cascadia") || font_fam_lower.contains("inconsolata") {
+    } else if font_family_lowercase.contains("fira")
+        || font_family_lowercase.contains("cascadia")
+        || font_family_lowercase.contains("inconsolata")
+    {
         1.36
     } else {
         1.34
     };
-    let row_height_px = (font_sz * line_height_factor + 0.5).max(11.0);
-    let char_width_px = (font_sz * 0.60).max(5.0);
+    let row_height_px = (font_size_px * line_height_factor + 0.5).max(11.0);
+    let char_width_px = (font_size_px * 0.60).max(5.0);
 
-    let calculated_cols = if term_w_px > 40.0 {
-        ((term_w_px - 24.0) / char_width_px).floor().max(20.0) as usize
+    let calculated_cols = if viewport_width_px > 40.0 {
+        ((viewport_width_px - 24.0) / char_width_px).floor().max(20.0) as usize
     } else {
         80
     };
-    let calculated_rows = if term_h_px > 30.0 {
-        let usable_h = (term_h_px - 8.0).max(row_height_px);
-        ((usable_h / row_height_px).floor().max(4.0) as usize).max(4)
+    let calculated_rows = if viewport_height_px > 30.0 {
+        let usable_height_px = (viewport_height_px - 8.0).max(row_height_px);
+        ((usable_height_px / row_height_px).floor().max(4.0) as usize).max(4)
     } else {
         24
     };
@@ -302,15 +375,13 @@ fn update_terminal_geometry(
 
     app.set_status_dimensions(format!("{}x{}", calculated_cols, calculated_rows).into());
 
-    // Update ALL buffers so switching tabs post-resize is correct
     {
         let buffers = app_state.terminal_buffers.read();
-        for buf in buffers.values() {
-            buf.lock().set_size(calculated_cols, calculated_rows);
+        for terminal_buffer in buffers.values() {
+            terminal_buffer.lock().set_size(calculated_cols, calculated_rows);
         }
     }
 
-    // Send dynamic SSH NAWS window resize to all active sessions
     {
         let senders = app_state.input_senders.read();
         for sender in senders.values() {
@@ -321,21 +392,14 @@ fn update_terminal_geometry(
         }
     }
 
-    // Re-render the active tab immediately
-    let active_idx = app.get_active_tab_index() as usize;
+    let active_tab_index = app.get_active_tab_index() as usize;
     let tabs = app.get_tabs();
-    if active_idx < tabs.row_count() {
-        if let Some(tab) = tabs.row_data(active_idx) {
-            let sid = tab.id.to_string();
+    if active_tab_index < tabs.row_count() {
+        if let Some(tab) = tabs.row_data(active_tab_index) {
+            let session_id = tab.id.to_string();
             let buffers = app_state.terminal_buffers.read();
-            if let Some(buf) = buffers.get(&sid) {
-                let (text, offset, total, scroll_off, vis_rows) =
-                    buf.lock().get_visible_text();
-                app.set_terminal_scroll_total(total as i32);
-                app.set_terminal_scroll_offset(scroll_off as i32);
-                app.set_terminal_scroll_visible(vis_rows as i32);
-                app.set_terminal_full_text(text.into());
-                app.invoke_set_terminal_cursor_pos(offset as i32);
+            if let Some(terminal_buffer) = buffers.get(&session_id) {
+                render_session_buffer(app, app_state, &session_id, terminal_buffer, false);
             }
         }
     }
@@ -356,11 +420,11 @@ fn make_tab_model(
 
     if let Some(state) = state {
         let groups = state.tab_groups.read();
-        for g in groups.values() {
-            if g.tab_ids.iter().any(|tid| tid == id) {
-                group_id = g.id.clone();
-                group_name = g.name.clone();
-                let color_hex = TAB_GROUP_COLORS[g.color_index % TAB_GROUP_COLORS.len()];
+        for group in groups.values() {
+            if group.tab_ids.iter().any(|member_tab_id| member_tab_id == id) {
+                group_id = group.id.clone();
+                group_name = group.name.clone();
+                let color_hex = TAB_GROUP_COLORS[group.color_index % TAB_GROUP_COLORS.len()];
                 group_color = parse_hex_color(color_hex);
                 is_grouped = true;
                 break;
@@ -1198,103 +1262,113 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exp_sess_save = expanded_session_folders.clone();
     let state_save = app_state.clone();
     app.on_request_save_settings(
-        move |u,
-              pwd,
-              port_str,
-              timeout_str,
-              keepalive_str,
-              log_en,
-              log_d,
-              log_fmt,
-              log_ts,
-              font_fam,
-              font_sz,
-              scroll_l,
-              cur_bl,
-              conf_cl,
-              rest_sess,
-              rem_f,
-              single_cl,
-              th_m,
-              col_sch,
-              acc_col| {
+        move |global_username,
+              global_password,
+              default_port_text,
+              timeout_text,
+              keepalive_text,
+              logging_enabled,
+              log_directory,
+              log_format,
+              log_timestamps,
+              font_family,
+              font_size_text,
+              scrollback_text,
+              cursor_blink,
+              confirm_on_close,
+              restore_sessions,
+              remember_expanded_folders,
+              single_click_launch,
+              theme_mode,
+              color_scheme,
+              accent_color| {
             let mut app_cfg = settings::load_settings();
-            app_cfg.global_username = if u.trim().is_empty() {
+            app_cfg.global_username = if global_username.trim().is_empty() {
                 None
             } else {
-                Some(u.to_string())
+                Some(global_username.to_string())
             };
-            if let Ok(p) = port_str.parse::<u16>() {
-                app_cfg.default_port = p;
+            if let Ok(default_port) = default_port_text.parse::<u16>() {
+                app_cfg.default_port = default_port;
             }
-            if let Ok(t) = timeout_str.parse::<u32>() {
-                app_cfg.connection_timeout = t;
+            if let Ok(connection_timeout) = timeout_text.parse::<u32>() {
+                app_cfg.connection_timeout = connection_timeout;
             }
-            if let Ok(k) = keepalive_str.parse::<u32>() {
-                app_cfg.keepalive_interval = k;
+            if let Ok(keepalive_interval) = keepalive_text.parse::<u32>() {
+                app_cfg.keepalive_interval = keepalive_interval;
             }
-            app_cfg.logging_enabled = log_en;
-            app_cfg.log_directory = if log_d.trim().is_empty() {
+            app_cfg.logging_enabled = logging_enabled;
+            app_cfg.log_directory = if log_directory.trim().is_empty() {
                 None
             } else {
-                Some(log_d.to_string())
+                Some(log_directory.to_string())
             };
-            app_cfg.log_format = log_fmt.to_string();
-            app_cfg.log_timestamps = log_ts;
-            let clean_font_fam = font_fam.split(',').next().unwrap_or("JetBrains Mono").trim().to_string();
-            let clean_font_fam = if clean_font_fam.is_empty() { "JetBrains Mono".to_string() } else { clean_font_fam };
-            app_cfg.font_family = clean_font_fam.clone();
-            let fs_val = font_sz.parse::<u32>().unwrap_or(14);
-            app_cfg.font_size = fs_val;
+            app_cfg.log_format = log_format.to_string();
+            app_cfg.log_timestamps = log_timestamps;
+            let primary_font_family = font_family
+                .split(',')
+                .next()
+                .unwrap_or("JetBrains Mono")
+                .trim()
+                .to_string();
+            let clean_font_family = if primary_font_family.is_empty() {
+                "JetBrains Mono".to_string()
+            } else {
+                primary_font_family
+            };
+            app_cfg.font_family = clean_font_family.clone();
+            let font_size_value = font_size_text.parse::<u32>().unwrap_or(14);
+            app_cfg.font_size = font_size_value;
             state_save
                 .current_terminal_font_size
-                .store(fs_val, std::sync::atomic::Ordering::Relaxed);
-            *state_save.current_terminal_font_family.write() = clean_font_fam.clone();
+                .store(font_size_value, std::sync::atomic::Ordering::Relaxed);
+            *state_save.current_terminal_font_family.write() = clean_font_family.clone();
 
-            if let Ok(sl) = scroll_l.parse::<u32>() {
-                app_cfg.scrollback_lines = sl;
+            if let Ok(scrollback_lines) = scrollback_text.parse::<u32>() {
+                app_cfg.scrollback_lines = scrollback_lines;
             }
-            app_cfg.cursor_blink = cur_bl;
-            app_cfg.confirm_on_close = conf_cl;
-            app_cfg.restore_sessions = rest_sess;
-            app_cfg.remember_expanded_folders = rem_f;
-            app_cfg.single_click_launch = single_cl;
-            app_cfg.theme = th_m.to_string();
-            app_cfg.color_scheme = col_sch.to_string();
-            app_cfg.accent_color = acc_col.to_string();
-            if rem_f {
-                let exp = exp_sess_save.lock();
-                app_cfg.expanded_folders = exp.expanded.iter().cloned().collect();
+            app_cfg.cursor_blink = cursor_blink;
+            app_cfg.confirm_on_close = confirm_on_close;
+            app_cfg.restore_sessions = restore_sessions;
+            app_cfg.remember_expanded_folders = remember_expanded_folders;
+            app_cfg.single_click_launch = single_click_launch;
+            app_cfg.theme = theme_mode.to_string();
+            app_cfg.color_scheme = color_scheme.to_string();
+            app_cfg.accent_color = accent_color.to_string();
+            if remember_expanded_folders {
+                let expansion_state = exp_sess_save.lock();
+                app_cfg.expanded_folders = expansion_state.expanded.iter().cloned().collect();
             } else {
                 app_cfg.expanded_folders.clear();
             }
 
-            let is_dark_mode = theme::ThemeMode::from_str(&th_m) == theme::ThemeMode::Dark
-                || (theme::ThemeMode::from_str(&th_m) == theme::ThemeMode::System
+            let is_dark_mode = theme::ThemeMode::from_str(&theme_mode) == theme::ThemeMode::Dark
+                || (theme::ThemeMode::from_str(&theme_mode) == theme::ThemeMode::System
                     && theme::detect_system_is_dark());
-            let effective_scheme = theme::get_effective_scheme(&col_sch, is_dark_mode);
+            let effective_scheme = theme::get_effective_scheme(&color_scheme, is_dark_mode);
             app_cfg.color_scheme = effective_scheme.clone();
 
             let _ = settings::save_settings(&app_cfg);
-            let pwd_trimmed = pwd.trim();
-            if !pwd_trimmed.is_empty() {
-                let _ = session::save_password("__global__", pwd_trimmed);
+            let trimmed_password = global_password.trim();
+            if !trimmed_password.is_empty() {
+                let _ = session::save_password("__global__", trimmed_password);
             } else {
                 let _ = session::delete_password("__global__");
             }
             if let Some(app) = app_weak.upgrade() {
                 let theme_global = app.global::<Theme>();
-                let (eff, is_dark) = theme::apply_theme(&theme_global, &th_m, &col_sch, &acc_col);
-                app.set_settings_font_family(clean_font_fam.into());
-                app.set_settings_font_size(font_sz.clone());
-                app.set_settings_theme_mode(th_m.clone());
-                app.set_settings_color_scheme(eff.into());
-                app.set_settings_accent_color(acc_col.clone());
-                app.set_settings_single_click_launch(single_cl);
-                app.set_settings_global_password(pwd_trimmed.into());
-                let h = app.invoke_get_terminal_viewport_height();
-                let w = app.invoke_get_terminal_viewport_width();
-                update_terminal_geometry(&app, &state_save, h, w);
+                let (applied_scheme, is_dark) =
+                    theme::apply_theme(&theme_global, &theme_mode, &color_scheme, &accent_color);
+                app.set_settings_font_family(clean_font_family.into());
+                app.set_settings_font_size(font_size_text.clone());
+                app.set_settings_theme_mode(theme_mode.clone());
+                app.set_settings_color_scheme(applied_scheme.into());
+                app.set_settings_accent_color(accent_color.clone());
+                app.set_settings_single_click_launch(single_click_launch);
+                app.set_settings_global_password(trimmed_password.into());
+                let viewport_height = app.invoke_get_terminal_viewport_height();
+                let viewport_width = app.invoke_get_terminal_viewport_width();
+                update_terminal_geometry(&app, &state_save, viewport_height, viewport_width);
                 sync_window_theme(&app, is_dark);
                 app.set_status_text("Settings saved successfully".into());
             }
@@ -1389,77 +1463,92 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak = app.as_weak();
     app.on_request_open_log_dir(move || {
         if let Some(app) = app_weak.upgrade() {
-            let dir_str = app.get_settings_log_dir().to_string();
-            let p =
-                if !dir_str.trim().is_empty() && settings::is_valid_path_for_current_os(&dir_str) {
-                    std::path::PathBuf::from(dir_str)
-                } else {
-                    settings::get_default_log_dir()
-                };
-            let _ = std::fs::create_dir_all(&p);
-            let _ = open::that(&p);
+            let directory_text = app.get_settings_log_dir().to_string();
+            let log_path = if !directory_text.trim().is_empty()
+                && settings::is_valid_path_for_current_os(&directory_text)
+            {
+                std::path::PathBuf::from(directory_text)
+            } else {
+                settings::get_default_log_dir()
+            };
+            let _ = std::fs::create_dir_all(&log_path);
+            let _ = open::that(&log_path);
         }
     });
 
-    // Setup Copy Selection callback
     let app_weak = app.as_weak();
-    app.on_request_copy_selection(move |sel| {
-        let text = sel.to_string();
+    app.on_request_copy_selection(move |selected_text| {
+        let text = selected_text.to_string();
         if !text.is_empty() {
             let formatted = clipboard::format_text_for_system_clipboard(&text);
             let _ = clipboard::set_text(&formatted);
             if let Some(app) = app_weak.upgrade() {
+                app.invoke_copy_to_native_clipboard(formatted.into());
                 app.set_status_text("Copied selection to clipboard".into());
             }
         }
     });
 
-    // Setup Copy Buffer Range callback.
-    // The UI owns the selection in global buffer coordinates (row = absolute line in
-    // scrollback+screen, col = character cell), so copying works across any number of
-    // screens regardless of the current scroll position.
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_copy_selected_range(move |start, end| {
+    app.on_request_copy_selected_range(move |start_offset, end_offset| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let saved_sel = state_clone.terminal_selections.read().get(&sid).cloned();
-                        let copied_text = match saved_sel {
-                            Some(sel) if sel.start != sel.end => {
-                                b.get_text_in_cell_range(sel.start, sel.end)
+                    let copied_text = if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let saved_selection = state_clone
+                            .terminal_selections
+                            .read()
+                            .get(&session_id)
+                            .cloned();
+                        match saved_selection {
+                            Some(selection) if selection.start != selection.end => {
+                                terminal_buffer.get_text_in_cell_range(selection.start, selection.end)
                             }
                             _ => {
-                                let (text, _, _, _, _) = b.get_visible_text();
-                                let s = (start.max(0) as usize).min(text.len());
-                                let e = (end.max(0) as usize).min(text.len());
-                                if s != e {
-                                    let p1 = b.screen_offset_to_buffer_pos(&text, s);
-                                    let p2 = b.screen_offset_to_buffer_pos(&text, e);
-                                    b.get_text_in_cell_range(p1, p2)
+                                let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+                                let start_byte_offset =
+                                    (start_offset.max(0) as usize).min(visible_text.len());
+                                let end_byte_offset =
+                                    (end_offset.max(0) as usize).min(visible_text.len());
+                                if start_byte_offset != end_byte_offset {
+                                    let start_cell = terminal_buffer
+                                        .screen_offset_to_buffer_pos(&visible_text, start_byte_offset);
+                                    let end_cell = terminal_buffer
+                                        .screen_offset_to_buffer_pos(&visible_text, end_byte_offset);
+                                    terminal_buffer.get_text_in_cell_range(start_cell, end_cell)
                                 } else {
                                     String::new()
                                 }
                             }
-                        };
-                        drop(b);
-                        if !copied_text.is_empty() {
-                            let formatted = clipboard::format_text_for_system_clipboard(&copied_text);
-                            if let Ok(()) = clipboard::set_primary_text(&formatted) {
-                                let line_count = formatted.lines().count();
-                                if line_count > 1 {
-                                    app.set_status_text(
-                                        format!("Copied selection to clipboard ({} lines)", line_count).into(),
-                                    );
-                                } else {
-                                    app.set_status_text("Copied selection to clipboard".into());
-                                }
+                        }
+                    } else {
+                        let visible_text = app.get_terminal_full_text().to_string();
+                        safe_byte_slice(
+                            &visible_text,
+                            start_offset.max(0) as usize,
+                            end_offset.max(0) as usize,
+                        )
+                        .to_string()
+                    };
+                    drop(buffers);
+                    if !copied_text.is_empty() {
+                        let formatted = clipboard::format_text_for_system_clipboard(&copied_text);
+                        app.invoke_copy_to_native_clipboard(formatted.clone().into());
+                        if let Ok(()) = clipboard::set_primary_text(&formatted) {
+                            let line_count = formatted.lines().count();
+                            if line_count > 1 {
+                                app.set_status_text(
+                                    format!("Copied selection to clipboard ({} lines)", line_count)
+                                        .into(),
+                                );
+                            } else {
+                                app.set_status_text("Copied selection to clipboard".into());
                             }
                         }
                     }
@@ -1468,33 +1557,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Double-Click Word Selection callback
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_select_word(move |offset| {
+    app.on_request_select_word(move |viewport_row, viewport_column| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let (text, _, _, _, _) = b.get_visible_text();
-                        let (row, col) = b.screen_offset_to_buffer_pos(&text, offset.max(0) as usize);
-                        if let Some((s_col, e_col)) = b.word_bounds_at(row, col) {
-                            let sel = BufferSelection { start: (row, s_col), end: (row, e_col) };
-                            state_clone.terminal_selections.write().insert(sid.clone(), sel);
-                            let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&text, (row, s_col), (row, e_col));
-                            let copied_word = b.get_text_in_cell_range((row, s_col), (row, e_col));
-                            drop(b);
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+                        let (global_row, character_column) = terminal_buffer
+                            .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
+                        if let Some((word_start_column, word_end_column)) =
+                            terminal_buffer.word_bounds_at(global_row, character_column)
+                        {
+                            let selection = BufferSelection {
+                                start: (global_row, word_start_column),
+                                end: (global_row, word_end_column),
+                            };
+                            state_clone
+                                .terminal_selections
+                                .write()
+                                .insert(session_id.clone(), selection);
+                            let (visible_start_offset, visible_end_offset) = terminal_buffer
+                                .buffer_range_to_screen_offsets(
+                                    &visible_text,
+                                    (global_row, word_start_column),
+                                    (global_row, word_end_column),
+                                );
+                            let copied_word = terminal_buffer.get_text_in_cell_range(
+                                (global_row, word_start_column),
+                                (global_row, word_end_column),
+                            );
+                            drop(terminal_buffer);
                             app.set_terminal_selection_active(true);
-                            app.set_terminal_selection_anchor_offset(vis_start as i32);
-                            app.set_terminal_selection_cursor_offset(vis_end as i32);
-                            app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
+                            app.set_terminal_selection_anchor_offset(visible_start_offset as i32);
+                            app.set_terminal_selection_cursor_offset(visible_end_offset as i32);
+                            app.invoke_set_terminal_selection_offsets(
+                                visible_start_offset as i32,
+                                visible_end_offset as i32,
+                            );
                             if !copied_word.is_empty() {
-                                let formatted = clipboard::format_text_for_system_clipboard(&copied_word);
+                                let formatted =
+                                    clipboard::format_text_for_system_clipboard(&copied_word);
+                                app.invoke_copy_to_native_clipboard(formatted.clone().into());
                                 let _ = clipboard::set_primary_text(&formatted);
                             }
                         }
@@ -1504,54 +1614,77 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Terminal Selection Changed callback (updates global buffer selection as user drags)
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_terminal_selection_changed(move |anchor, cursor| {
+    app.on_request_terminal_selection_changed(move |viewport_row, viewport_column| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
-                    let s = anchor.max(0) as usize;
-                    let e = cursor.max(0) as usize;
-                    if s == e || anchor < 0 || cursor < 0 {
-                        state_clone.terminal_selections.write().remove(&sid);
-                        app.set_terminal_selection_active(false);
-                        app.set_terminal_selection_anchor_offset(-1);
-                        app.set_terminal_selection_cursor_offset(-1);
-                        return;
-                    }
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let (text, _, _, _, _) = b.get_visible_text();
-                        let s = s.min(text.len());
-                        let e = e.min(text.len());
-                        if s != e {
-                            let (start_idx, end_idx) = b.visible_line_range();
-                            let p1 = b.screen_offset_to_buffer_pos(&text, s);
-                            let p2 = b.screen_offset_to_buffer_pos(&text, e);
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+                        let end_cell = terminal_buffer
+                            .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
 
-                            let mut sels = state_clone.terminal_selections.write();
-                            let existing = sels.get(&sid).cloned();
-                            match existing {
-                                Some(existing_sel)
-                                    if existing_sel.start.0 < start_idx || existing_sel.start.0 >= end_idx =>
-                                {
-                                    // Anchor is in off-screen scrollback; preserve anchor, only update cursor end position
-                                    sels.insert(sid, BufferSelection { start: existing_sel.start, end: p2 });
-                                }
-                                _ => {
-                                    sels.insert(sid, BufferSelection { start: p1, end: p2 });
-                                }
+                        let mut selections = state_clone.terminal_selections.write();
+                        let start_cell = selections
+                            .get(&session_id)
+                            .map(|existing| existing.start)
+                            .unwrap_or(end_cell);
+                        let selection = BufferSelection {
+                            start: start_cell,
+                            end: end_cell,
+                        };
+                        selections.insert(session_id.clone(), selection);
+                        drop(selections);
+
+                        if selection.start != selection.end {
+                            let (visible_start_offset, visible_end_offset) = terminal_buffer
+                                .buffer_range_to_screen_offsets(
+                                    &visible_text,
+                                    selection.start,
+                                    selection.end,
+                                );
+                            drop(terminal_buffer);
+                            let has_visible_selection = visible_start_offset != visible_end_offset;
+                            app.set_terminal_selection_anchor_offset(if has_visible_selection {
+                                visible_start_offset as i32
+                            } else {
+                                -1
+                            });
+                            app.set_terminal_selection_cursor_offset(if has_visible_selection {
+                                visible_end_offset as i32
+                            } else {
+                                -1
+                            });
+                            app.set_terminal_selection_active(true);
+                            if has_visible_selection {
+                                app.invoke_set_terminal_selection_offsets(
+                                    visible_start_offset as i32,
+                                    visible_end_offset as i32,
+                                );
+                            } else {
+                                app.invoke_set_terminal_selection_offsets(0, 0);
                             }
                         } else {
-                            state_clone.terminal_selections.write().remove(&sid);
+                            let (visible_cursor_offset, _) = terminal_buffer
+                                .buffer_range_to_screen_offsets(
+                                    &visible_text,
+                                    selection.start,
+                                    selection.end,
+                                );
+                            drop(terminal_buffer);
                             app.set_terminal_selection_active(false);
                             app.set_terminal_selection_anchor_offset(-1);
                             app.set_terminal_selection_cursor_offset(-1);
+                            app.invoke_set_terminal_selection_offsets(
+                                visible_cursor_offset as i32,
+                                visible_cursor_offset as i32,
+                            );
                         }
                     }
                 }
@@ -1559,45 +1692,74 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Extend Selection callback (Shift+Click)
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_extend_selection(move |offset| {
+    app.on_request_extend_selection(move |viewport_row, viewport_column| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let (text, cur_off, _, _, _) = b.get_visible_text();
-                        let target_pos = b.screen_offset_to_buffer_pos(&text, offset.max(0) as usize);
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let (visible_text, cursor_offset, _, _, _) =
+                            terminal_buffer.get_visible_text();
+                        let target_cell = terminal_buffer
+                            .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
 
-                        let mut sels = state_clone.terminal_selections.write();
-                        let anchor = match sels.get(&sid) {
-                            Some(sel) => sel.start,
-                            None => b.screen_offset_to_buffer_pos(&text, cur_off),
+                        let mut selections = state_clone.terminal_selections.write();
+                        let anchor_cell = match selections.get(&session_id) {
+                            Some(selection) => selection.start,
+                            None => terminal_buffer
+                                .screen_offset_to_buffer_pos(&visible_text, cursor_offset),
                         };
 
-                        let new_sel = BufferSelection { start: anchor, end: target_pos };
-                        sels.insert(sid.clone(), new_sel);
+                        let updated_selection = BufferSelection {
+                            start: anchor_cell,
+                            end: target_cell,
+                        };
+                        selections.insert(session_id.clone(), updated_selection);
+                        drop(selections);
 
-                        let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&text, new_sel.start, new_sel.end);
-                        let copied_text = b.get_text_in_cell_range(new_sel.start, new_sel.end);
-                        drop(b);
+                        let (visible_start_offset, visible_end_offset) = terminal_buffer
+                            .buffer_range_to_screen_offsets(
+                                &visible_text,
+                                updated_selection.start,
+                                updated_selection.end,
+                            );
+                        let copied_text = terminal_buffer
+                            .get_text_in_cell_range(updated_selection.start, updated_selection.end);
+                        drop(terminal_buffer);
 
-                        let has_visible_sel = vis_start != vis_end;
-                        app.set_terminal_selection_anchor_offset(if has_visible_sel { vis_start as i32 } else { -1 });
-                        app.set_terminal_selection_cursor_offset(if has_visible_sel { vis_end as i32 } else { -1 });
-                        app.set_terminal_selection_active(true);
-                        if has_visible_sel {
-                            app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
+                        let has_visible_selection = visible_start_offset != visible_end_offset;
+                        app.set_terminal_selection_anchor_offset(if has_visible_selection {
+                            visible_start_offset as i32
+                        } else {
+                            -1
+                        });
+                        app.set_terminal_selection_cursor_offset(if has_visible_selection {
+                            visible_end_offset as i32
+                        } else {
+                            -1
+                        });
+                        app.set_terminal_selection_active(
+                            updated_selection.start != updated_selection.end,
+                        );
+                        if has_visible_selection {
+                            app.invoke_set_terminal_selection_offsets(
+                                visible_start_offset as i32,
+                                visible_end_offset as i32,
+                            );
+                        } else {
+                            app.invoke_set_terminal_selection_offsets(0, 0);
                         }
 
                         if !copied_text.is_empty() {
-                            let formatted = clipboard::format_text_for_system_clipboard(&copied_text);
+                            let formatted =
+                                clipboard::format_text_for_system_clipboard(&copied_text);
+                            app.invoke_copy_to_native_clipboard(formatted.clone().into());
                             let _ = clipboard::set_primary_text(&formatted);
                         }
                     }
@@ -1606,44 +1768,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Middle-Click Paste callback (Linux primary selection / wheel click)
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     let rt_handle_middle = rt.handle().clone();
     app.on_request_middle_click_paste(move || {
-        let text_res = clipboard::get_primary_text().or_else(|_| clipboard::get_text());
-        if let Ok(raw_text) = text_res {
+        let clipboard_result = clipboard::get_primary_text().or_else(|_| clipboard::get_text());
+        if let Ok(raw_text) = clipboard_result {
             if raw_text.is_empty() {
                 return;
             }
             if let Some(app) = app_weak.upgrade() {
-                let active_idx = app.get_active_tab_index() as usize;
+                let active_tab_index = app.get_active_tab_index() as usize;
                 let tabs = app.get_tabs();
-                if active_idx < tabs.row_count() {
-                    if let Some(tab) = tabs.row_data(active_idx) {
-                        let sid = tab.id.to_string();
+                if active_tab_index < tabs.row_count() {
+                    if let Some(tab) = tabs.row_data(active_tab_index) {
+                        let session_id = tab.id.to_string();
                         let senders = state_clone.input_senders.read();
-                        if let Some(tx) = senders.get(&sid).cloned() {
+                        if let Some(input_sender) = senders.get(&session_id).cloned() {
                             let commands = clipboard::prepare_paste_commands(&raw_text);
-                            let count = commands.len();
-                            if count > 0 {
+                            let command_count = commands.len();
+                            if command_count > 0 {
                                 rt_handle_middle.spawn(async move {
-                                    for (i, cmd) in commands.into_iter().enumerate() {
-                                        if i > 0 {
-                                            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+                                    for (command_index, command) in commands.into_iter().enumerate() {
+                                        if command_index > 0 {
+                                            tokio::time::sleep(
+                                                tokio::time::Duration::from_millis(25),
+                                            )
+                                            .await;
                                         }
-                                        let mut bytes = cmd.text.into_bytes();
-                                        if cmd.submit {
-                                            bytes.push(b'\r');
+                                        let mut command_bytes = command.text.into_bytes();
+                                        if command.submit {
+                                            command_bytes.push(b'\r');
                                         }
-                                        if tx.send(ssh::SshInput::Data(bytes)).is_err() {
+                                        if input_sender
+                                            .send(ssh::SshInput::Data(command_bytes))
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
                                 });
 
-                                if count > 1 {
-                                    app.set_status_text(format!("Pasted {} lines from primary selection", count).into());
+                                if command_count > 1 {
+                                    app.set_status_text(
+                                        format!(
+                                            "Pasted {} lines from primary selection",
+                                            command_count
+                                        )
+                                        .into(),
+                                    );
                                 } else {
                                     app.set_status_text("Pasted from primary selection".into());
                                 }
@@ -1655,34 +1828,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Clipboard Copy callback
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     app.on_request_clipboard_copy(move || {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let text = b.get_lines().join("\n");
-                        let (_, cur_off, _, _, _) = b.get_visible_text();
-                        drop(b);
-                        let formatted = clipboard::format_text_for_system_clipboard(&text);
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let full_buffer_text = terminal_buffer.get_lines().join("\n");
+                        let (_, cursor_offset, _, _, _) = terminal_buffer.get_visible_text();
+                        drop(terminal_buffer);
+                        let formatted =
+                            clipboard::format_text_for_system_clipboard(&full_buffer_text);
+                        app.invoke_copy_to_native_clipboard(formatted.clone().into());
                         if let Ok(()) = clipboard::set_primary_text(&formatted) {
                             app.set_status_text("Copied terminal lines to clipboard".into());
                         }
-                        app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                        app.invoke_set_terminal_cursor_pos(cursor_offset as i32);
                     }
                 }
             }
         }
     });
 
-    // Setup Clipboard Paste callback
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     let rt_handle_paste = rt.handle().clone();
@@ -1692,45 +1865,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
             if let Some(app) = app_weak.upgrade() {
-                let active_idx = app.get_active_tab_index() as usize;
+                let active_tab_index = app.get_active_tab_index() as usize;
                 let tabs = app.get_tabs();
-                if active_idx < tabs.row_count() {
-                    if let Some(tab) = tabs.row_data(active_idx) {
-                        let sid = tab.id.to_string();
+                if active_tab_index < tabs.row_count() {
+                    if let Some(tab) = tabs.row_data(active_tab_index) {
+                        let session_id = tab.id.to_string();
                         let senders = state_clone.input_senders.read();
-                        if let Some(tx) = senders.get(&sid).cloned() {
+                        if let Some(input_sender) = senders.get(&session_id).cloned() {
                             let commands = clipboard::prepare_paste_commands(&raw_text);
-                            let count = commands.len();
-                            if count > 0 {
+                            let command_count = commands.len();
+                            if command_count > 0 {
                                 rt_handle_paste.spawn(async move {
-                                    for (i, cmd) in commands.into_iter().enumerate() {
-                                        if i > 0 {
-                                            // 25ms delay between consecutive lines to prevent buffer overflow on Cisco / Adtran CLI
-                                            tokio::time::sleep(tokio::time::Duration::from_millis(25)).await;
+                                    for (command_index, command) in commands.into_iter().enumerate() {
+                                        if command_index > 0 {
+                                            tokio::time::sleep(
+                                                tokio::time::Duration::from_millis(25),
+                                            )
+                                            .await;
                                         }
-                                        let mut bytes = cmd.text.into_bytes();
-                                        if cmd.submit {
-                                            bytes.push(b'\r');
+                                        let mut command_bytes = command.text.into_bytes();
+                                        if command.submit {
+                                            command_bytes.push(b'\r');
                                         }
-                                        if tx.send(ssh::SshInput::Data(bytes)).is_err() {
+                                        if input_sender
+                                            .send(ssh::SshInput::Data(command_bytes))
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
                                 });
 
-                                if count > 1 {
-                                    app.set_status_text(format!("Pasted {} lines into terminal", count).into());
+                                if command_count > 1 {
+                                    app.set_status_text(
+                                        format!("Pasted {} lines into terminal", command_count)
+                                            .into(),
+                                    );
                                 } else {
-                                    app.set_status_text("Pasted clipboard text into terminal".into());
+                                    app.set_status_text(
+                                        "Pasted clipboard text into terminal".into(),
+                                    );
                                 }
                             }
                         }
                         let buffers = state_clone.terminal_buffers.read();
-                        if let Some(buf) = buffers.get(&sid) {
-                            let b = buf.lock();
-                            let (_, cur_off, _, _, _) = b.get_visible_text();
-                            drop(b);
-                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                        if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                            let terminal_buffer = terminal_buffer_mutex.lock();
+                            let (_, cursor_offset, _, _, _) = terminal_buffer.get_visible_text();
+                            drop(terminal_buffer);
+                            app.invoke_set_terminal_cursor_pos(cursor_offset as i32);
                         }
                     }
                 }
@@ -1738,87 +1921,98 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Clear Terminal callback
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
     app.on_request_clear_terminal(move || {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        buf.lock().clear();
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        terminal_buffer_mutex.lock().clear();
                         let empty_lines = encounter_empty();
                         let empty_text = empty_lines
                             .iter()
-                            .map(|s| s.as_str())
+                            .map(|line_text| line_text.as_str())
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let len = empty_text.len() as i32;
+                        let text_length = empty_text.len() as i32;
                         app.set_terminal_lines(ModelRc::new(VecModel::from(empty_lines)));
                         app.set_terminal_full_text(empty_text.into());
-                        app.invoke_set_terminal_cursor_pos(len);
+                        app.invoke_set_terminal_cursor_pos(text_length);
                     }
                 }
             }
         }
     });
 
-    // Setup Exit callback
     app.on_request_exit(move || {
         std::process::exit(0);
     });
 
-    // Setup Terminal Key Event forwarding
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_terminal_key(move |evt| {
+    app.on_request_terminal_key(move |key_event| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
-                    let app_cursor = state_clone
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
+                    let use_application_cursor = state_clone
                         .terminal_buffers
                         .read()
-                        .get(&sid)
-                        .map(|b| {
-                            let buf = b.lock();
-                            buf.application_cursor_keys || buf.in_alternate_screen
+                        .get(&session_id)
+                        .map(|terminal_buffer_mutex| {
+                            let terminal_buffer = terminal_buffer_mutex.lock();
+                            terminal_buffer.application_cursor_keys
+                                || terminal_buffer.in_alternate_screen
                         })
                         .unwrap_or(false);
 
-                    let bytes = translate_slint_key(&evt.text, evt.modifiers.control, evt.modifiers.alt, app_cursor);
-                    if bytes.is_empty() {
+                    let key_bytes = translate_slint_key(
+                        &key_event.text,
+                        key_event.modifiers.control,
+                        key_event.modifiers.alt,
+                        use_application_cursor,
+                    );
+                    if key_bytes.is_empty() {
                         return;
                     }
 
-                    if state_clone.terminal_selections.read().contains_key(&sid) {
-                        state_clone.terminal_selections.write().remove(&sid);
+                    if state_clone.terminal_selections.read().contains_key(&session_id) {
+                        state_clone.terminal_selections.write().remove(&session_id);
                         app.set_terminal_selection_active(false);
                         app.set_terminal_selection_anchor_offset(-1);
                         app.set_terminal_selection_cursor_offset(-1);
                     }
 
                     let senders = state_clone.input_senders.read();
-                    if let Some(tx) = senders.get(&sid) {
-                        let _ = tx.send(ssh::SshInput::Data(bytes));
+                    if let Some(input_sender) = senders.get(&session_id) {
+                        let _ = input_sender.send(ssh::SshInput::Data(key_bytes));
                     }
-                    if let Some(buf) = state_clone.terminal_buffers.read().get(&sid) {
-                        let mut b = buf.lock();
-                        if b.scroll_offset > 0 {
-                            b.scroll_to_bottom();
-                            let (text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
-                            drop(b);
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_full_text(text.into());
-                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
+                    if let Some(terminal_buffer_mutex) =
+                        state_clone.terminal_buffers.read().get(&session_id)
+                    {
+                        let mut terminal_buffer = terminal_buffer_mutex.lock();
+                        if terminal_buffer.scroll_offset > 0 {
+                            terminal_buffer.scroll_to_bottom();
+                            let (
+                                visible_text,
+                                cursor_offset,
+                                total_lines,
+                                scroll_offset,
+                                visible_rows,
+                            ) = terminal_buffer.get_visible_text();
+                            drop(terminal_buffer);
+                            app.set_terminal_scroll_total(total_lines as i32);
+                            app.set_terminal_scroll_offset(scroll_offset as i32);
+                            app.set_terminal_scroll_visible(visible_rows as i32);
+                            app.set_terminal_full_text(visible_text.into());
+                            app.invoke_set_terminal_cursor_pos(cursor_offset as i32);
                         }
                     }
                 }
@@ -1826,278 +2020,304 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Setup Cursor Clicked callback for single mouse clicks
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_cursor_clicked(move |_offset| {
+    app.on_request_cursor_clicked(move |viewport_row, viewport_column| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
-                    state_clone.terminal_selections.write().remove(&sid);
-                    app.set_terminal_selection_active(false);
-                    app.set_terminal_selection_anchor_offset(-1);
-                    app.set_terminal_selection_cursor_offset(-1);
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
+                    let buffers = state_clone.terminal_buffers.read();
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        let terminal_buffer = terminal_buffer_mutex.lock();
+                        let (visible_text, _, _, _, _) = terminal_buffer.get_visible_text();
+                        let anchor_cell = terminal_buffer
+                            .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
+                        let (visible_cursor_offset, _) = terminal_buffer
+                            .buffer_range_to_screen_offsets(&visible_text, anchor_cell, anchor_cell);
+                        drop(terminal_buffer);
+                        state_clone.terminal_selections.write().insert(
+                            session_id,
+                            BufferSelection {
+                                start: anchor_cell,
+                                end: anchor_cell,
+                            },
+                        );
+                        app.set_terminal_selection_active(false);
+                        app.set_terminal_selection_anchor_offset(-1);
+                        app.set_terminal_selection_cursor_offset(-1);
+                        app.invoke_set_terminal_selection_offsets(
+                            visible_cursor_offset as i32,
+                            visible_cursor_offset as i32,
+                        );
+                    } else {
+                        state_clone.terminal_selections.write().remove(&session_id);
+                        app.set_terminal_selection_active(false);
+                        app.set_terminal_selection_anchor_offset(-1);
+                        app.set_terminal_selection_cursor_offset(-1);
+                        app.invoke_set_terminal_selection_offsets(0, 0);
+                    }
                 }
             }
         }
     });
 
-    // Setup Terminal Scroll Event (Mouse Wheel and Auto-Scroll Drag)
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_terminal_scrolled(move |delta_y, anchor_byte, cursor_byte, is_pressed| {
+    app.on_request_terminal_scrolled(move |delta_y, viewport_row, viewport_column, is_pressed| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let mut b = buf.lock();
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        {
+                            let mut terminal_buffer = terminal_buffer_mutex.lock();
 
-                        // In alternate screen mode (e.g. nano, vim, less, htop),
-                        // or at the bottom of the screen (b.scroll_offset == 0 && delta_y < 0.0),
-                        // scroll up/down sends arrow keys to scroll documents/editors cleanly.
-                        if b.in_alternate_screen || (b.scroll_offset == 0 && delta_y < 0.0 && !is_pressed) {
-                            let use_app_cursor = b.application_cursor_keys || b.in_alternate_screen;
-                            drop(b);
-                            let senders = state_clone.input_senders.read();
-                            if let Some(tx) = senders.get(&sid) {
-                                let arrow_up: &[u8] = if use_app_cursor { b"\x1bOA" } else { b"\x1b[A" };
-                                let arrow_down: &[u8] = if use_app_cursor { b"\x1bOB" } else { b"\x1b[B" };
-                                let key_seq: Vec<u8> = if is_pressed {
-                                    if delta_y > 0.0 { arrow_up.to_vec() } else { arrow_down.to_vec() }
-                                } else {
-                                    if delta_y > 0.0 {
+                            if terminal_buffer.in_alternate_screen && !is_pressed {
+                                let use_application_cursor = terminal_buffer.application_cursor_keys
+                                    || terminal_buffer.in_alternate_screen;
+                                drop(terminal_buffer);
+                                let senders = state_clone.input_senders.read();
+                                if let Some(input_sender) = senders.get(&session_id) {
+                                    let arrow_up: &[u8] = if use_application_cursor {
+                                        b"\x1bOA"
+                                    } else {
+                                        b"\x1b[A"
+                                    };
+                                    let arrow_down: &[u8] = if use_application_cursor {
+                                        b"\x1bOB"
+                                    } else {
+                                        b"\x1b[B"
+                                    };
+                                    let key_sequence: Vec<u8> = if delta_y > 0.0 {
                                         [arrow_up, arrow_up, arrow_up].concat()
                                     } else {
                                         [arrow_down, arrow_down, arrow_down].concat()
-                                    }
-                                };
-                                let _ = tx.send(ssh::SshInput::Data(key_seq));
-                            }
-                            return;
-                        }
-
-                        let (old_text, _, _, _, _) = b.get_visible_text();
-
-                        let mut sel_opt = state_clone.terminal_selections.read().get(&sid).cloned();
-                        if sel_opt.is_none() && anchor_byte != cursor_byte && anchor_byte >= 0 && cursor_byte >= 0 {
-                            let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
-                            let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
-                            let new_sel = BufferSelection { start: start_pos, end: end_pos };
-                            state_clone.terminal_selections.write().insert(sid.clone(), new_sel);
-                            sel_opt = Some(new_sel);
-                        }
-
-                        let lines_delta = if delta_y > 0.0 { 3 } else { -3 };
-                        b.scroll_by(lines_delta);
-                        let (new_text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
-
-                        if let Some(mut sel) = sel_opt {
-                            if is_pressed {
-                                let (start_idx, end_idx) = b.visible_line_range();
-                                if delta_y < 0.0 {
-                                    // Scrolling down: extend selection downward into bottom visible row
-                                    let bottom_row = end_idx.saturating_sub(1);
-                                    let col = b.line_at(bottom_row).map(|l| l.chars().count()).unwrap_or(0);
-                                    let bottom_pos = (bottom_row, col);
-                                    sel.end = bottom_pos;
-                                } else {
-                                    // Scrolling up: if user was selecting upwards, extend upward;
-                                    // if user was selecting downwards, PRESERVE selection so user can fine-tune!
-                                    if sel.end < sel.start {
-                                        sel.end = (start_idx, 0);
-                                    }
+                                    };
+                                    let _ = input_sender.send(ssh::SshInput::Data(key_sequence));
                                 }
-                                state_clone.terminal_selections.write().insert(sid.clone(), sel);
+                                return;
                             }
 
-                            let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&new_text, sel.start, sel.end);
-                            drop(b);
-
-                            let has_visible_sel = vis_start != vis_end;
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_selection_anchor_offset(if has_visible_sel { vis_start as i32 } else { -1 });
-                            app.set_terminal_selection_cursor_offset(if has_visible_sel { vis_end as i32 } else { -1 });
-                            app.set_terminal_selection_active(true);
-                            app.set_terminal_full_text(new_text.into());
-                            if has_visible_sel {
-                                app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
-                            } else {
-                                app.invoke_set_terminal_selection_offsets(0, 0);
+                            let mut active_selection = state_clone
+                                .terminal_selections
+                                .read()
+                                .get(&session_id)
+                                .cloned();
+                            if active_selection.is_none() && is_pressed {
+                                let start_cell = terminal_buffer
+                                    .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
+                                let initial_selection = BufferSelection {
+                                    start: start_cell,
+                                    end: start_cell,
+                                };
+                                state_clone
+                                    .terminal_selections
+                                    .write()
+                                    .insert(session_id.clone(), initial_selection);
+                                active_selection = Some(initial_selection);
                             }
-                        } else {
-                            drop(b);
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_full_text(new_text.into());
-                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
+
+                            if !terminal_buffer.in_alternate_screen {
+                                let lines_delta = if is_pressed {
+                                    let scroll_step = (delta_y / 40.0).round() as isize;
+                                    if delta_y > 0.0 {
+                                        scroll_step.clamp(1, 8)
+                                    } else if delta_y < 0.0 {
+                                        scroll_step.clamp(-8, -1)
+                                    } else {
+                                        0
+                                    }
+                                } else if delta_y > 0.0 {
+                                    3
+                                } else if delta_y < 0.0 {
+                                    -3
+                                } else {
+                                    0
+                                };
+                                terminal_buffer.scroll_by(lines_delta);
+                            }
+
+                            if let Some(mut selection) = active_selection {
+                                if is_pressed {
+                                    selection.end = terminal_buffer
+                                        .viewport_cell_to_buffer_pos(viewport_row, viewport_column);
+                                    state_clone
+                                        .terminal_selections
+                                        .write()
+                                        .insert(session_id.clone(), selection);
+                                }
+                            }
                         }
+
+                        render_session_buffer(
+                            &app,
+                            &state_clone,
+                            &session_id,
+                            terminal_buffer_mutex,
+                            false,
+                        );
                     }
                 }
             }
         }
     });
 
-    // Setup Terminal Scrollbar Drag Event
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    app.on_request_scrollbar_dragged(move |ratio, anchor_byte, cursor_byte| {
+    app.on_request_scrollbar_dragged(move |scroll_ratio, anchor_byte, cursor_byte| {
         if let Some(app) = app_weak.upgrade() {
-            let active_idx = app.get_active_tab_index() as usize;
+            let active_tab_index = app.get_active_tab_index() as usize;
             let tabs = app.get_tabs();
-            if active_idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(active_idx) {
-                    let sid = tab.id.to_string();
+            if active_tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(active_tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let mut b = buf.lock();
-                        let (old_text, _, _, _, _) = b.get_visible_text();
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        {
+                            let mut terminal_buffer = terminal_buffer_mutex.lock();
+                            let (previous_visible_text, _, _, _, _) =
+                                terminal_buffer.get_visible_text();
 
-                        let mut sel_opt = state_clone.terminal_selections.read().get(&sid).cloned();
-                        if sel_opt.is_none() && anchor_byte != cursor_byte && anchor_byte >= 0 && cursor_byte >= 0 {
-                            let start_pos = b.screen_offset_to_buffer_pos(&old_text, anchor_byte as usize);
-                            let end_pos = b.screen_offset_to_buffer_pos(&old_text, cursor_byte as usize);
-                            let new_sel = BufferSelection { start: start_pos, end: end_pos };
-                            state_clone.terminal_selections.write().insert(sid.clone(), new_sel);
-                            sel_opt = Some(new_sel);
-                        }
-
-                        b.scroll_to_ratio(ratio);
-                        let (new_text, cur_off, total, scroll_off, vis_rows) = b.get_visible_text();
-
-                        if let Some(sel) = sel_opt {
-                            let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&new_text, sel.start, sel.end);
-                            drop(b);
-
-                            let has_visible_sel = vis_start != vis_end;
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_selection_anchor_offset(if has_visible_sel { vis_start as i32 } else { -1 });
-                            app.set_terminal_selection_cursor_offset(if has_visible_sel { vis_end as i32 } else { -1 });
-                            app.set_terminal_selection_active(true);
-                            app.set_terminal_full_text(new_text.into());
-                            if has_visible_sel {
-                                app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
-                            } else {
-                                app.invoke_set_terminal_selection_offsets(0, 0);
+                            let existing_selection = state_clone
+                                .terminal_selections
+                                .read()
+                                .get(&session_id)
+                                .cloned()
+                                .filter(|selection| selection.start != selection.end);
+                            if existing_selection.is_none()
+                                && anchor_byte != cursor_byte
+                                && anchor_byte >= 0
+                                && cursor_byte >= 0
+                            {
+                                let start_cell = terminal_buffer.screen_offset_to_buffer_pos(
+                                    &previous_visible_text,
+                                    anchor_byte as usize,
+                                );
+                                let end_cell = terminal_buffer.screen_offset_to_buffer_pos(
+                                    &previous_visible_text,
+                                    cursor_byte as usize,
+                                );
+                                let new_selection = BufferSelection {
+                                    start: start_cell,
+                                    end: end_cell,
+                                };
+                                state_clone
+                                    .terminal_selections
+                                    .write()
+                                    .insert(session_id.clone(), new_selection);
                             }
-                        } else {
-                            drop(b);
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_full_text(new_text.into());
-                            app.invoke_set_terminal_cursor_pos(cur_off as i32);
+
+                            terminal_buffer.scroll_to_ratio(scroll_ratio);
                         }
+
+                        render_session_buffer(
+                            &app,
+                            &state_clone,
+                            &session_id,
+                            terminal_buffer_mutex,
+                            false,
+                        );
                     }
                 }
             }
         }
     });
 
-    // Setup Terminal Viewport Resize Handler (fires from Slint changed-height and changed-width on viewport container)
-    // Uses a last-dimension debounce so text-content updates don't cause a re-render feedback loop.
     let state_clone = app_state.clone();
     let app_weak = app.as_weak();
-    let last_dims: Arc<std::sync::Mutex<(f32, f32)>> = Arc::new(std::sync::Mutex::new((0.0, 0.0)));
-    app.on_request_terminal_resized(move |term_h_px, term_w_px| {
-        // Only act if dimensions actually changed by more than 2px (real window resize)
+    let previous_dimensions: Arc<std::sync::Mutex<(f32, f32)>> =
+        Arc::new(std::sync::Mutex::new((0.0, 0.0)));
+    app.on_request_terminal_resized(move |viewport_height_px, viewport_width_px| {
         {
-            let mut last = last_dims.lock().unwrap();
-            if (term_h_px - last.0).abs() < 2.0 && (term_w_px - last.1).abs() < 2.0 {
+            let mut last_dimensions = previous_dimensions.lock().unwrap();
+            if (viewport_height_px - last_dimensions.0).abs() < 2.0
+                && (viewport_width_px - last_dimensions.1).abs() < 2.0
+            {
                 return;
             }
-            *last = (term_h_px, term_w_px);
+            *last_dimensions = (viewport_height_px, viewport_width_px);
         }
 
         if let Some(app) = app_weak.upgrade() {
-            update_terminal_geometry(&app, &state_clone, term_h_px, term_w_px);
+            update_terminal_geometry(&app, &state_clone, viewport_height_px, viewport_width_px);
         }
     });
 
-
-    // Setup Tab Add callback
     let app_weak = app.as_weak();
     let state_clone = app_state.clone();
     app.on_request_tab_added(move || {
         if let Some(app) = app_weak.upgrade() {
             let tabs = app.get_tabs();
-            let mut new_tabs: Vec<TabModel> = Vec::new();
-            for i in 0..tabs.row_count() {
-                if let Some(t) = tabs.row_data(i) {
-                    new_tabs.push(t);
+            let mut updated_tabs: Vec<TabModel> = Vec::new();
+            for tab_index in 0..tabs.row_count() {
+                if let Some(tab_item) = tabs.row_data(tab_index) {
+                    updated_tabs.push(tab_item);
                 }
             }
-            let new_id = format!("tab-{}", Uuid::new_v4());
-            new_tabs.push(make_tab_model(
-                &new_id,
-                &format!("Terminal {}", new_tabs.len() + 1),
+            let new_tab_id = format!("tab-{}", Uuid::new_v4());
+            updated_tabs.push(make_tab_model(
+                &new_tab_id,
+                &format!("Terminal {}", updated_tabs.len() + 1),
                 false,
                 true,
                 "",
                 Some(&state_clone),
             ));
-            let count = new_tabs.len();
-            app.set_tabs(ModelRc::new(VecModel::from(new_tabs)));
-            app.set_active_tab_index((count - 1) as i32);
+            let tab_count = updated_tabs.len();
+            app.set_tabs(ModelRc::new(VecModel::from(updated_tabs)));
+            app.set_active_tab_index((tab_count - 1) as i32);
             let empty_lines = encounter_empty();
             let empty_text = empty_lines
                 .iter()
-                .map(|s| s.as_str())
+                .map(|line_text| line_text.as_str())
                 .collect::<Vec<_>>()
                 .join("\n");
-            let len = empty_text.len() as i32;
+            let text_length = empty_text.len() as i32;
             app.set_terminal_lines(ModelRc::new(VecModel::from(empty_lines)));
             app.set_terminal_full_text(empty_text.into());
-            app.invoke_set_terminal_cursor_pos(len);
+            app.invoke_set_terminal_cursor_pos(text_length);
             app.invoke_focus_terminal();
             sync_tab_groups_ui(&app, &state_clone);
             app.set_status_text("New Terminal Tab Ready".into());
         }
     });
 
-    // Setup Tab Close callback
     let app_weak = app.as_weak();
     let state_clone = app_state.clone();
-    app.on_request_tab_closed(move |idx| {
+    app.on_request_tab_closed(move |closed_tab_index| {
         if let Some(app) = app_weak.upgrade() {
             let tabs = app.get_tabs();
-            let idx = idx as usize;
-            if idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(idx) {
-                    let sid = tab.id.to_string();
-                    state_clone.connections.write().remove(&sid);
-                    state_clone.input_senders.write().remove(&sid);
-                    state_clone.terminal_buffers.write().remove(&sid);
-                    state_clone.terminal_selections.write().remove(&sid);
-                    tunnels::TUNNEL_MANAGER.stop_session_tunnels(&sid);
-                    // Remove from any tab group
+            let closed_index = closed_tab_index as usize;
+            if closed_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(closed_index) {
+                    let session_id = tab.id.to_string();
+                    state_clone.connections.write().remove(&session_id);
+                    state_clone.input_senders.write().remove(&session_id);
+                    state_clone.terminal_buffers.write().remove(&session_id);
+                    state_clone.terminal_selections.write().remove(&session_id);
+                    tunnels::TUNNEL_MANAGER.stop_session_tunnels(&session_id);
                     let mut groups = state_clone.tab_groups.write();
-                    for g in groups.values_mut() {
-                        g.tab_ids.retain(|id| id != &sid);
+                    for group in groups.values_mut() {
+                        group.tab_ids.retain(|member_id| member_id != &session_id);
                     }
-                    groups.retain(|_, g| !g.tab_ids.is_empty());
+                    groups.retain(|_, group| !group.tab_ids.is_empty());
                 }
-                let mut new_tabs: Vec<TabModel> = Vec::new();
-                for i in 0..tabs.row_count() {
-                    if i != idx {
-                        if let Some(t) = tabs.row_data(i) {
-                            new_tabs.push(t);
+                let mut remaining_tabs: Vec<TabModel> = Vec::new();
+                for tab_index in 0..tabs.row_count() {
+                    if tab_index != closed_index {
+                        if let Some(tab_item) = tabs.row_data(tab_index) {
+                            remaining_tabs.push(tab_item);
                         }
                     }
                 }
-                if new_tabs.is_empty() {
-                    new_tabs.push(make_tab_model(
+                if remaining_tabs.is_empty() {
+                    remaining_tabs.push(make_tab_model(
                         &format!("tab-{}", Uuid::new_v4()),
                         "Terminal 1",
                         false,
@@ -2106,127 +2326,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Some(&state_clone),
                     ));
                 }
-                let new_active = if idx >= new_tabs.len() {
-                    (new_tabs.len() - 1) as i32
+                let next_active_index = if closed_index >= remaining_tabs.len() {
+                    (remaining_tabs.len() - 1) as i32
                 } else {
-                    idx as i32
+                    closed_index as i32
                 };
-                app.set_tabs(ModelRc::new(VecModel::from(new_tabs)));
-                app.set_active_tab_index(new_active);
+                app.set_tabs(ModelRc::new(VecModel::from(remaining_tabs)));
+                app.set_active_tab_index(next_active_index);
                 sync_tab_groups_ui(&app, &state_clone);
 
                 let tabs_after = app.get_tabs();
-                if let Some(t) = tabs_after.row_data(new_active as usize) {
-                    let sid = t.id.to_string();
+                if let Some(active_tab) = tabs_after.row_data(next_active_index as usize) {
+                    let session_id = active_tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf) = buffers.get(&sid) {
-                        let b = buf.lock();
-                        let (full_text, offset, total, scroll_off, vis_rows) =
-                            b.get_visible_text();
-                        let sel_opt = state_clone.terminal_selections.read().get(&sid).cloned();
-                        if let Some(sel) = sel_opt {
-                            let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&full_text, sel.start, sel.end);
-                            drop(b);
-                            let has_visible_sel = vis_start != vis_end;
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_selection_anchor_offset(if has_visible_sel { vis_start as i32 } else { -1 });
-                            app.set_terminal_selection_cursor_offset(if has_visible_sel { vis_end as i32 } else { -1 });
-                            app.set_terminal_selection_active(true);
-                            app.set_terminal_full_text(full_text.into());
-                            if has_visible_sel {
-                                app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
-                            } else {
-                                app.invoke_set_terminal_selection_offsets(0, 0);
-                            }
-                        } else {
-                            drop(b);
-                            app.set_terminal_selection_anchor_offset(-1);
-                            app.set_terminal_selection_cursor_offset(-1);
-                            app.set_terminal_selection_active(false);
-                            app.invoke_set_terminal_selection_offsets(0, 0);
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_full_text(full_text.into());
-                            app.invoke_set_terminal_cursor_pos(offset as i32);
-                        }
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        render_session_buffer(
+                            &app,
+                            &state_clone,
+                            &session_id,
+                            terminal_buffer_mutex,
+                            true,
+                        );
                     } else {
                         let empty_lines = encounter_empty();
                         let empty_text = empty_lines
                             .iter()
-                            .map(|s| s.as_str())
+                            .map(|line_text| line_text.as_str())
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let len = empty_text.len() as i32;
+                        let text_length = empty_text.len() as i32;
                         app.set_terminal_lines(ModelRc::new(VecModel::from(empty_lines)));
                         app.set_terminal_full_text(empty_text.into());
-                        app.invoke_set_terminal_cursor_pos(len);
+                        app.invoke_set_terminal_cursor_pos(text_length);
                     }
                 }
             }
         }
     });
 
-    // Setup Tab Selected callback
     let app_weak = app.as_weak();
     let state_clone = app_state.clone();
-    app.on_request_tab_selected(move |idx| {
+    app.on_request_tab_selected(move |selected_tab_index| {
         if let Some(app) = app_weak.upgrade() {
-            app.set_active_tab_index(idx);
+            app.set_active_tab_index(selected_tab_index);
             app.invoke_focus_terminal();
             let tabs = app.get_tabs();
-            let idx = idx as usize;
-            if idx < tabs.row_count() {
-                if let Some(tab) = tabs.row_data(idx) {
-                    let sid = tab.id.to_string();
+            let tab_index = selected_tab_index as usize;
+            if tab_index < tabs.row_count() {
+                if let Some(tab) = tabs.row_data(tab_index) {
+                    let session_id = tab.id.to_string();
                     let buffers = state_clone.terminal_buffers.read();
-                    if let Some(buf_arc) = buffers.get(&sid) {
-                        let b = buf_arc.lock();
-                        let (full_text, offset, total, scroll_off, vis_rows) =
-                            b.get_visible_text();
-                        let sel_opt = state_clone.terminal_selections.read().get(&sid).cloned();
-                        if let Some(sel) = sel_opt {
-                            let (vis_start, vis_end) = b.buffer_range_to_screen_offsets(&full_text, sel.start, sel.end);
-                            drop(b);
-                            let has_visible_sel = vis_start != vis_end;
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_selection_anchor_offset(if has_visible_sel { vis_start as i32 } else { -1 });
-                            app.set_terminal_selection_cursor_offset(if has_visible_sel { vis_end as i32 } else { -1 });
-                            app.set_terminal_selection_active(true);
-                            app.set_terminal_full_text(full_text.into());
-                            if has_visible_sel {
-                                app.invoke_set_terminal_selection_offsets(vis_start as i32, vis_end as i32);
-                            } else {
-                                app.invoke_set_terminal_selection_offsets(0, 0);
-                            }
-                        } else {
-                            drop(b);
-                            app.set_terminal_selection_anchor_offset(-1);
-                            app.set_terminal_selection_cursor_offset(-1);
-                            app.set_terminal_selection_active(false);
-                            app.invoke_set_terminal_selection_offsets(0, 0);
-                            app.set_terminal_scroll_total(total as i32);
-                            app.set_terminal_scroll_offset(scroll_off as i32);
-                            app.set_terminal_scroll_visible(vis_rows as i32);
-                            app.set_terminal_full_text(full_text.into());
-                            app.invoke_set_terminal_cursor_pos(offset as i32);
-                        }
+                    if let Some(terminal_buffer_mutex) = buffers.get(&session_id) {
+                        render_session_buffer(
+                            &app,
+                            &state_clone,
+                            &session_id,
+                            terminal_buffer_mutex,
+                            true,
+                        );
                         app.invoke_focus_terminal();
                     } else {
                         let empty_lines = encounter_empty();
                         let empty_text = empty_lines
                             .iter()
-                            .map(|s| s.as_str())
+                            .map(|line_text| line_text.as_str())
                             .collect::<Vec<_>>()
                             .join("\n");
-                        let len = empty_text.len() as i32;
+                        let text_length = empty_text.len() as i32;
                         app.set_terminal_lines(ModelRc::new(VecModel::from(empty_lines)));
                         app.set_terminal_full_text(empty_text.into());
-                        app.invoke_set_terminal_cursor_pos(len);
+                        app.invoke_set_terminal_cursor_pos(text_length);
                     }
                 }
             }
@@ -5280,62 +5449,63 @@ async fn connect_ssh_session(
         .write()
         .insert(session_id.clone(), buffer.clone());
 
-    // Update Tab in UI
     let app_weak_tab = app_weak.clone();
-    let sid_tab = session_id.clone();
-    let host_tab = host.clone();
-    let (init_text, init_offset, total, scroll_off, vis_rows) = buffer.lock().get_visible_text();
+    let tab_session_id = session_id.clone();
+    let tab_host = host.clone();
+    let (initial_text, initial_offset, total_lines, scroll_offset, visible_rows) =
+        buffer.lock().get_visible_text();
 
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(app) = app_weak_tab.upgrade() {
             let tabs = app.get_tabs();
-            let mut new_tabs: Vec<TabModel> = Vec::new();
-            for i in 0..tabs.row_count() {
-                if let Some(t) = tabs.row_data(i) {
-                    new_tabs.push(t);
+            let mut updated_tabs: Vec<TabModel> = Vec::new();
+            for tab_index in 0..tabs.row_count() {
+                if let Some(tab_item) = tabs.row_data(tab_index) {
+                    updated_tabs.push(tab_item);
                 }
             }
 
-            // If only 1 initial disconnected placeholder tab exists, replace it
-            let target_idx =
-                if new_tabs.len() == 1 && !new_tabs[0].connected && new_tabs[0].host.is_empty() {
-                    new_tabs[0] = make_tab_model(
-                        &sid_tab,
-                        &format!("{}:{}", host_tab, port),
-                        true,
-                        true,
-                        &host_tab,
-                        None,
-                    );
-                    0
-                } else {
-                    new_tabs.push(make_tab_model(
-                        &sid_tab,
-                        &format!("{}:{}", host_tab, port),
-                        true,
-                        true,
-                        &host_tab,
-                        None,
-                    ));
-                    (new_tabs.len() - 1) as i32
-                };
+            let target_tab_index = if updated_tabs.len() == 1
+                && !updated_tabs[0].connected
+                && updated_tabs[0].host.is_empty()
+            {
+                updated_tabs[0] = make_tab_model(
+                    &tab_session_id,
+                    &format!("{}:{}", tab_host, port),
+                    true,
+                    true,
+                    &tab_host,
+                    None,
+                );
+                0
+            } else {
+                updated_tabs.push(make_tab_model(
+                    &tab_session_id,
+                    &format!("{}:{}", tab_host, port),
+                    true,
+                    true,
+                    &tab_host,
+                    None,
+                ));
+                (updated_tabs.len() - 1) as i32
+            };
 
-            app.set_tabs(ModelRc::new(VecModel::from(new_tabs)));
-            app.set_active_tab_index(target_idx);
-            app.set_terminal_scroll_total(total as i32);
-            app.set_terminal_scroll_offset(scroll_off as i32);
-            app.set_terminal_scroll_visible(vis_rows as i32);
-            app.set_terminal_full_text(init_text.into());
-            app.invoke_set_terminal_cursor_pos(init_offset as i32);
+            app.set_tabs(ModelRc::new(VecModel::from(updated_tabs)));
+            app.set_active_tab_index(target_tab_index);
+            app.set_terminal_scroll_total(total_lines as i32);
+            app.set_terminal_scroll_offset(scroll_offset as i32);
+            app.set_terminal_scroll_visible(visible_rows as i32);
+            app.set_terminal_full_text(initial_text.into());
+            app.invoke_set_terminal_cursor_pos(initial_offset as i32);
             app.invoke_focus_terminal();
-            app.set_status_text(format!("Connecting to {}:{}...", host_tab, port).into());
+            app.set_status_text(format!("Connecting to {}:{}...", tab_host, port).into());
         }
     });
 
-    // Spawn async output reader task
-    let app_weak_out = app_weak.clone();
-    let buf_for_out = buffer.clone();
-    let sid_out = session_id.clone();
+    let app_weak_output = app_weak.clone();
+    let output_buffer = buffer.clone();
+    let output_session_id = session_id.clone();
+    let output_state = state.clone();
     tokio::spawn(async move {
         let mut buffer_dirty = false;
         let mut in_burst = false;
@@ -5347,87 +5517,150 @@ async fn connect_ssh_session(
             -1i32,
             false,
         )));
-        let last_rend_clone = last_rendered.clone();
+        let last_rendered_clone = last_rendered.clone();
 
         let render_term = {
-            let app_weak = app_weak_out.clone();
-            let sid_chk = sid_out.clone();
-            let buf_clone = buf_for_out.clone();
-            let last_rend = last_rend_clone.clone();
+            let app_weak = app_weak_output.clone();
+            let session_id_check = output_session_id.clone();
+            let buffer_handle = output_buffer.clone();
+            let last_rendered_state = last_rendered_clone.clone();
+            let selection_state = output_state.clone();
 
             move || {
-                // Compute visible text, scroll dimensions, and cursor offset on the tokio background thread!
-                let (full_text, offset, total, scroll_off, vis_rows) = {
-                    let b = buf_clone.lock();
-                    b.get_visible_text()
+                let (
+                    visible_text,
+                    cursor_offset,
+                    total_lines,
+                    scroll_offset,
+                    visible_rows,
+                    selection_offsets,
+                ) = {
+                    let terminal_buffer = buffer_handle.lock();
+                    let (visible_text, cursor_offset, total_lines, scroll_offset, visible_rows) =
+                        terminal_buffer.get_visible_text();
+                    let selection_offsets = selection_state
+                        .terminal_selections
+                        .read()
+                        .get(&session_id_check)
+                        .filter(|selection| selection.start != selection.end)
+                        .map(|selection| {
+                            terminal_buffer.buffer_range_to_screen_offsets(
+                                &visible_text,
+                                selection.start,
+                                selection.end,
+                            )
+                        });
+                    (
+                        visible_text,
+                        cursor_offset,
+                        total_lines,
+                        scroll_offset,
+                        visible_rows,
+                        selection_offsets,
+                    )
                 };
 
-                let total_i32 = total as i32;
-                let scroll_off_i32 = scroll_off as i32;
-                let vis_rows_i32 = vis_rows as i32;
-                let offset_i32 = offset as i32;
+                let total_lines_i32 = total_lines as i32;
+                let scroll_offset_i32 = scroll_offset as i32;
+                let visible_rows_i32 = visible_rows as i32;
+                let cursor_offset_i32 = cursor_offset as i32;
 
-                // Check if anything actually changed before scheduling UI thread invocation
-                let mut state = last_rend.lock();
-                let text_changed = full_text != state.0;
-                let total_changed = total_i32 != state.1;
-                let scroll_changed = scroll_off_i32 != state.2;
-                let vis_changed = vis_rows_i32 != state.3;
-                let offset_changed = offset_i32 != state.4;
-                let needs_init = !state.5;
+                let mut cached_state = last_rendered_state.lock();
+                let text_changed = visible_text != cached_state.0;
+                let total_changed = total_lines_i32 != cached_state.1;
+                let scroll_changed = scroll_offset_i32 != cached_state.2;
+                let visible_changed = visible_rows_i32 != cached_state.3;
+                let offset_changed = cursor_offset_i32 != cached_state.4;
+                let needs_init = !cached_state.5;
 
-                if !text_changed && !total_changed && !scroll_changed && !vis_changed && !offset_changed && !needs_init {
+                if !text_changed
+                    && !total_changed
+                    && !scroll_changed
+                    && !visible_changed
+                    && !offset_changed
+                    && !needs_init
+                {
                     return;
                 }
 
                 if text_changed {
-                    state.0 = full_text.clone();
+                    cached_state.0 = visible_text.clone();
                 }
                 if total_changed {
-                    state.1 = total_i32;
+                    cached_state.1 = total_lines_i32;
                 }
                 if scroll_changed {
-                    state.2 = scroll_off_i32;
+                    cached_state.2 = scroll_offset_i32;
                 }
-                if vis_changed {
-                    state.3 = vis_rows_i32;
+                if visible_changed {
+                    cached_state.3 = visible_rows_i32;
                 }
                 if offset_changed {
-                    state.4 = offset_i32;
+                    cached_state.4 = cursor_offset_i32;
                 }
                 if needs_init {
-                    state.5 = true;
+                    cached_state.5 = true;
                 }
-                drop(state);
+                drop(cached_state);
 
-                let shared_text: slint::SharedString = full_text.into();
+                let shared_text: slint::SharedString = visible_text.into();
                 let app_weak = app_weak.clone();
-                let sid_chk = sid_chk.clone();
+                let session_id_check = session_id_check.clone();
 
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(app) = app_weak.upgrade() {
-                        let active_idx = app.get_active_tab_index() as usize;
+                        let active_tab_index = app.get_active_tab_index() as usize;
                         let tabs = app.get_tabs();
-                        if active_idx < tabs.row_count() {
-                            if let Some(t) = tabs.row_data(active_idx) {
-                                if t.id == sid_chk {
+                        if active_tab_index < tabs.row_count() {
+                            if let Some(active_tab) = tabs.row_data(active_tab_index) {
+                                if active_tab.id == session_id_check {
                                     if needs_init {
                                         app.invoke_focus_terminal();
                                     }
                                     if total_changed {
-                                        app.set_terminal_scroll_total(total_i32);
+                                        app.set_terminal_scroll_total(total_lines_i32);
                                     }
                                     if scroll_changed {
-                                        app.set_terminal_scroll_offset(scroll_off_i32);
+                                        app.set_terminal_scroll_offset(scroll_offset_i32);
                                     }
-                                    if vis_changed {
-                                        app.set_terminal_scroll_visible(vis_rows_i32);
+                                    if visible_changed {
+                                        app.set_terminal_scroll_visible(visible_rows_i32);
                                     }
                                     if text_changed {
                                         app.set_terminal_full_text(shared_text);
                                     }
-                                    if offset_changed {
-                                        app.invoke_set_terminal_cursor_pos(offset_i32);
+                                    if let Some((visible_start_offset, visible_end_offset)) =
+                                        selection_offsets
+                                    {
+                                        if text_changed || scroll_changed || visible_changed {
+                                            let has_visible_selection =
+                                                visible_start_offset != visible_end_offset;
+                                            app.set_terminal_selection_anchor_offset(
+                                                if has_visible_selection {
+                                                    visible_start_offset as i32
+                                                } else {
+                                                    -1
+                                                },
+                                            );
+                                            app.set_terminal_selection_cursor_offset(
+                                                if has_visible_selection {
+                                                    visible_end_offset as i32
+                                                } else {
+                                                    -1
+                                                },
+                                            );
+                                            app.set_terminal_selection_active(true);
+                                            if has_visible_selection {
+                                                app.invoke_set_terminal_selection_offsets(
+                                                    visible_start_offset as i32,
+                                                    visible_end_offset as i32,
+                                                );
+                                            } else {
+                                                app.invoke_set_terminal_selection_offsets(0, 0);
+                                            }
+                                        }
+                                    } else if offset_changed || text_changed {
+                                        app.invoke_set_terminal_cursor_pos(cursor_offset_i32);
                                     }
                                 }
                             }
@@ -5444,22 +5677,20 @@ async fn connect_ssh_session(
             tokio::select! {
                 maybe_data = output_rx.recv() => {
                     match maybe_data {
-                        Some(data) => {
-                            let mut all_data = data;
-                            // Batch up to 64KB per parse chunk to avoid lock monopolization during massive floods
-                            while all_data.len() < 65536 {
-                                if let Ok(more) = output_rx.try_recv() {
-                                    all_data.extend_from_slice(&more);
+                        Some(chunk) => {
+                            let mut combined_bytes = chunk;
+                            while combined_bytes.len() < 65536 {
+                                if let Ok(more_bytes) = output_rx.try_recv() {
+                                    combined_bytes.extend_from_slice(&more_bytes);
                                 } else {
                                     break;
                                 }
                             }
-                            buf_for_out.lock().process_bytes(&all_data);
+                            output_buffer.lock().process_bytes(&combined_bytes);
 
                             if !in_burst {
-                                // Interactive keystrokes and small responses render immediately with 0ms latency!
                                 render_term();
-                                if all_data.len() > 2048 {
+                                if combined_bytes.len() > 2048 {
                                     in_burst = true;
                                 }
                             } else {

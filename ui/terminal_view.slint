@@ -63,19 +63,35 @@ export component TerminalView inherits Rectangle {
     in-out property <bool> is-drag-selecting: false;
     in-out property <bool> auto-scroll-active: false;
     in-out property <length> auto-scroll-delta: 0px;
+    in-out property <length> press-mouse-x: 0px;
+    in-out property <length> press-mouse-y: 0px;
+    property <length> cell-width: font-probe.width > 10px ? (font-probe.width / 10.0) : (root.terminal-font-size * 0.6);
+    property <length> cell-height: font-probe.height > 20px ? (font-probe.height / 10.0) : (root.terminal-font-size * 1.35);
+
+    function mouse-to-row(mouse-y: length) -> int {
+        return floor((mouse-y - 4px) / root.cell-height);
+    }
+
+    function mouse-to-col(mouse-x: length) -> int {
+        return max(0, round((mouse-x - 8px) / root.cell-width));
+    }
+
+    function mouse-to-char-col(mouse-x: length) -> int {
+        return max(0, floor((mouse-x - 8px) / root.cell-width));
+    }
 
     callback tab-selected(int);
     callback tab-closed(int);
     callback tab-added();
     callback terminal-key-pressed(KeyEvent);
-    callback cursor-clicked(int);
+    callback cursor-clicked(int, int);
     callback terminal-scrolled(length, int, int, bool);
     callback scrollbar-dragged(float, int, int);
     callback copy-selection(string);
     callback request-copy-selected-range(int, int);
     callback terminal-selection-changed(int, int);
-    callback request-select-word(int);
-    callback request-extend-selection(int);
+    callback request-select-word(int, int);
+    callback request-extend-selection(int, int);
     callback request-middle-click-paste();
     callback request-clipboard-copy();
     callback request-clipboard-paste();
@@ -125,21 +141,26 @@ export component TerminalView inherits Rectangle {
     in-out property <string> create-group-name: "";
     in-out property <int> create-group-tab-idx: -1;
 
-    public function set-cursor-pos(pos: int) {
-        root.terminal-cursor-pos = pos;
-        term-input.set-selection-offsets(pos, pos);
+    public function set-cursor-pos(cursor-offset: int) {
+        root.terminal-cursor-pos = cursor-offset;
+        term-input.set-selection-offsets(cursor-offset, cursor-offset);
     }
 
-    public function set-selection-offsets(start: int, end: int) {
-        term-input.set-selection-offsets(start, end);
+    public function set-selection-offsets(start-offset: int, end-offset: int) {
+        term-input.set-selection-offsets(start-offset, end-offset);
+    }
+
+    public function copy-to-native-clipboard(clipboard-text: string) {
+        clipboard-helper.text = clipboard-text;
+        clipboard-helper.select-all();
+        clipboard-helper.copy();
     }
 
     public function copy-selection-or-all() {
         if root.selection-active || term-input.anchor-position-byte-offset != term-input.cursor-position-byte-offset {
-            let start = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
-            let end = max(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
-            term-input.copy();
-            root.request-copy-selected-range(start, end);
+            let start-offset = min(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
+            let end-offset = max(term-input.anchor-position-byte-offset, term-input.cursor-position-byte-offset);
+            root.request-copy-selected-range(start-offset, end-offset);
         } else {
             root.request-clipboard-copy();
         }
@@ -162,14 +183,14 @@ export component TerminalView inherits Rectangle {
     }
 
     auto-scroll-timer := Timer {
-        interval: 60ms;
+        interval: 50ms;
         running: root.auto-scroll-active && term-touch.pressed;
         triggered => {
             if root.auto-scroll-active && term-touch.pressed {
                 root.terminal-scrolled(
                     root.auto-scroll-delta,
-                    term-input.anchor-position-byte-offset,
-                    term-input.cursor-position-byte-offset,
+                    root.mouse-to-row(term-touch.mouse-y),
+                    root.mouse-to-col(term-touch.mouse-x),
                     true
                 );
             }
@@ -474,96 +495,35 @@ export component TerminalView inherits Rectangle {
                 spacing: 0px;
                 padding: 0px;
 
-                term-touch := TouchArea {
+                Rectangle {
                     horizontal-stretch: 1;
                     vertical-stretch: 1;
-                    pointer-event(event) => {
-                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                            root.active-tab-context-idx = root.active-tab-index;
-                            root.term-context-menu-x = min(self.mouse-x, root.width - 200px);
-                            root.term-context-menu-y = min(self.mouse-y + Theme.tab-height, root.height - 280px);
-                            root.term-context-menu-open = true;
-                            root.tab-context-menu-open = false;
-                        }
-                        if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down {
-                            term-input.focus();
-                            root.request-middle-click-paste();
-                        }
-                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                            term-input.focus();
-                            root.is-drag-selecting = false;
-                            if !event.modifiers.shift {
-                                root.selection-active = false;
-                                root.selection-anchor-offset = -1;
-                                root.selection-cursor-offset = -1;
-                                term-input.set-selection-offsets(term-input.cursor-position-byte-offset, term-input.cursor-position-byte-offset);
-                                root.cursor-clicked(term-input.cursor-position-byte-offset);
-                            } else {
-                                root.request-extend-selection(term-input.cursor-position-byte-offset);
-                            }
-                        }
-                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
-                            root.auto-scroll-active = false;
-                            if root.is-drag-selecting && root.selection-active {
-                                root.copy-selection-or-all();
-                            }
-                            root.is-drag-selecting = false;
-                        }
-                        if event.kind == PointerEventKind.cancel {
-                            root.auto-scroll-active = false;
-                            root.is-drag-selecting = false;
-                        }
-                    }
-                    moved => {
-                        if self.pressed {
-                            root.is-drag-selecting = true;
-                            let term-h = term-viewport-container.height;
-                            if self.mouse-y >= term-h - 28px {
-                                root.auto-scroll-active = true;
-                                root.auto-scroll-delta = -40px;
-                            } else if self.mouse-y <= 24px {
-                                root.auto-scroll-active = true;
-                                root.auto-scroll-delta = 40px;
-                            } else {
-                                root.auto-scroll-active = false;
-                            }
-                        }
-                    }
-                    scroll-event(event) => {
-                        term-input.focus();
-                        root.terminal-scrolled(
-                            event.delta-y,
-                            term-input.anchor-position-byte-offset,
-                            term-input.cursor-position-byte-offset,
-                            self.pressed
-                        );
-                        accept
-                    }
-                    clicked => {
-                        root.tab-context-menu-open = false;
-                        root.term-context-menu-open = false;
-                        root.auto-scroll-active = false;
-                        root.selection-active = false;
-                        root.selection-anchor-offset = -1;
-                        root.selection-cursor-offset = -1;
-                        term-input.set-selection-offsets(term-input.cursor-position-byte-offset, term-input.cursor-position-byte-offset);
-                        term-input.focus();
-                        root.terminal-selection-changed(-1, -1);
-                    }
-                    double-clicked => {
-                        term-input.focus();
-                        root.request-select-word(term-input.cursor-position-byte-offset);
+                    clip: true;
+
+                    font-probe := Text {
+                        x: -10000px;
+                        y: -10000px;
+                        opacity: 0;
+                        font-family: root.terminal-font-family;
+                        font-size: root.terminal-font-size;
+                        text: "MMMMMMMMMM\nM\nM\nM\nM\nM\nM\nM\nM\nM";
                     }
 
-                    Rectangle {
-                        clip: true;
+                    clipboard-helper := TextInput {
+                        x: -10000px;
+                        y: -10000px;
+                        width: 1px;
+                        height: 1px;
+                        opacity: 0;
+                        read-only: true;
+                    }
 
-                        VerticalLayout {
-                            padding-left: 8px;
-                            padding-right: 4px;
-                            padding-top: 4px;
-                            padding-bottom: 4px;
-                            alignment: start;
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-right: 4px;
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        alignment: start;
 
                         term-input := TextInput {
                             text: root.terminal-full-text;
@@ -576,19 +536,10 @@ export component TerminalView inherits Rectangle {
                             selection-background-color: #264f78;
                             selection-foreground-color: #ffffff;
 
-                            cursor-position-changed(pos) => {
-                                let has-sel = self.anchor-position-byte-offset != self.cursor-position-byte-offset;
-                                if term-touch.pressed && !root.auto-scroll-active {
-                                    root.selection-active = has-sel;
-                                    if has-sel {
-                                        root.terminal-selection-changed(self.anchor-position-byte-offset, self.cursor-position-byte-offset);
-                                    }
-                                }
-                            }
-
                             key-pressed(event) => {
-                                let is-ctrl-c = event.modifiers.control && (event.text == "c" || event.text == "C");
-                                let is-copy = (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "c" || event.text == "C");
+                                let is-c-key = event.text == "c" || event.text == "C" || event.text == "\u{0003}";
+                                let is-ctrl-c = event.modifiers.control && is-c-key;
+                                let is-copy = (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && is-c-key;
 
                                 if is-copy || (is-ctrl-c && root.selection-active) {
                                     root.copy-selection-or-all();
@@ -596,6 +547,7 @@ export component TerminalView inherits Rectangle {
                                     root.selection-anchor-offset = -1;
                                     root.selection-cursor-offset = -1;
                                     self.set-selection-offsets(self.cursor-position-byte-offset, self.cursor-position-byte-offset);
+                                    root.cursor-clicked(0, 0);
                                     accept
                                 } else {
                                     // Clear selection immediately upon typing any terminal keystroke
@@ -629,7 +581,114 @@ export component TerminalView inherits Rectangle {
                             }
                         }
                     }
-                }
+
+                    term-touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: text;
+
+                        pointer-event(event) => {
+                            if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                root.active-tab-context-idx = root.active-tab-index;
+                                root.term-context-menu-x = min(self.mouse-x, root.width - 200px);
+                                root.term-context-menu-y = min(self.mouse-y + Theme.tab-height, root.height - 280px);
+                                root.term-context-menu-open = true;
+                                root.tab-context-menu-open = false;
+                            }
+                            if event.button == PointerEventButton.middle && event.kind == PointerEventKind.down {
+                                term-input.focus();
+                                root.request-middle-click-paste();
+                            }
+                            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                root.tab-context-menu-open = false;
+                                root.term-context-menu-open = false;
+                                term-input.focus();
+                                root.press-mouse-x = self.mouse-x;
+                                root.press-mouse-y = self.mouse-y;
+                                root.is-drag-selecting = false;
+                                root.auto-scroll-active = false;
+                                let target-row = root.mouse-to-row(self.mouse-y);
+                                let target-column = root.mouse-to-col(self.mouse-x);
+                                if !event.modifiers.shift {
+                                    root.selection-active = false;
+                                    root.selection-anchor-offset = -1;
+                                    root.selection-cursor-offset = -1;
+                                    root.cursor-clicked(target-row, target-column);
+                                } else {
+                                    root.request-extend-selection(target-row, target-column);
+                                }
+                            }
+                            if event.button == PointerEventButton.left && event.kind == PointerEventKind.up {
+                                root.auto-scroll-active = false;
+                                if root.is-drag-selecting && root.selection-active {
+                                    root.copy-selection-or-all();
+                                }
+                                root.is-drag-selecting = false;
+                            }
+                            if event.kind == PointerEventKind.cancel {
+                                root.auto-scroll-active = false;
+                                root.is-drag-selecting = false;
+                            }
+                        }
+                        moved => {
+                            if self.pressed {
+                                let drag-distance-x = abs(self.mouse-x - root.press-mouse-x);
+                                let drag-distance-y = abs(self.mouse-y - root.press-mouse-y);
+                                if drag-distance-x > 3px || drag-distance-y > 3px {
+                                    root.is-drag-selecting = true;
+                                }
+                                if root.is-drag-selecting {
+                                    let target-row = root.mouse-to-row(self.mouse-y);
+                                    let target-column = root.mouse-to-col(self.mouse-x);
+                                    root.terminal-selection-changed(target-row, target-column);
+
+                                    let viewport-height = term-viewport-container.height;
+                                    if self.mouse-y >= viewport-height - 28px {
+                                        root.auto-scroll-active = true;
+                                        if self.mouse-y > viewport-height + 60px {
+                                            root.auto-scroll-delta = -160px;
+                                        } else if self.mouse-y > viewport-height {
+                                            root.auto-scroll-delta = -80px;
+                                        } else {
+                                            root.auto-scroll-delta = -40px;
+                                        }
+                                    } else if self.mouse-y <= 28px {
+                                        root.auto-scroll-active = true;
+                                        if self.mouse-y < -60px {
+                                            root.auto-scroll-delta = 160px;
+                                        } else if self.mouse-y < 0px {
+                                            root.auto-scroll-delta = 80px;
+                                        } else {
+                                            root.auto-scroll-delta = 40px;
+                                        }
+                                    } else {
+                                        root.auto-scroll-active = false;
+                                        root.auto-scroll-delta = 0px;
+                                    }
+                                }
+                            }
+                        }
+                        scroll-event(event) => {
+                            term-input.focus();
+                            if self.pressed {
+                                root.is-drag-selecting = true;
+                            }
+                            root.terminal-scrolled(
+                                event.delta-y,
+                                root.mouse-to-row(self.mouse-y),
+                                root.mouse-to-col(self.mouse-x),
+                                self.pressed
+                            );
+                            accept
+                        }
+                        double-clicked => {
+                            term-input.focus();
+                            root.request-select-word(
+                                root.mouse-to-row(self.mouse-y),
+                                root.mouse-to-char-col(self.mouse-x)
+                            );
+                        }
+                    }
                 }
 
                 // Native Right-Edge Scrollbar
@@ -643,12 +702,12 @@ export component TerminalView inherits Rectangle {
                         property <float> progress: root.scrollback-total > root.scrollback-visible 
                             ? (root.scrollback-offset * 1.0) / ((root.scrollback-total - root.scrollback-visible) * 1.0) 
                             : 1.0;
-                        property <float> thumb-h: root.scrollback-total > root.scrollback-visible
+                        property <float> thumb-height: root.scrollback-total > root.scrollback-visible
                             ? max(24.0, (root.scrollback-visible * 1.0 / root.scrollback-total * 1.0) * (parent.height / 1px))
                             : (parent.height / 1px);
                         
-                        y: (1.0 - progress) * ((parent.height / 1px) - thumb-h) * 1px;
-                        height: thumb-h * 1px;
+                        y: (1.0 - progress) * ((parent.height / 1px) - thumb-height) * 1px;
+                        height: thumb-height * 1px;
                         border-radius: 4px;
                         background: scroll-touch.has-hover ? #586074 : #323846;
 
@@ -664,12 +723,12 @@ export component TerminalView inherits Rectangle {
                             }
                             moved => {
                                 if self.pressed {
-                                    let track-avail = (parent.height / 1px) - parent.thumb-h;
-                                    if track-avail > 0.0 {
-                                        let curr-y = (self.mouse-y + parent.y) / 1px;
-                                        let ratio = 1.0 - (curr-y / track-avail);
+                                    let available-track-height = (parent.height / 1px) - parent.thumb-height;
+                                    if available-track-height > 0.0 {
+                                        let current-thumb-y = (self.mouse-y + parent.y) / 1px;
+                                        let scroll-ratio = 1.0 - (current-thumb-y / available-track-height);
                                         root.scrollbar-dragged(
-                                            max(0.0, min(1.0, ratio)),
+                                            max(0.0, min(1.0, scroll-ratio)),
                                             term-input.anchor-position-byte-offset,
                                             term-input.cursor-position-byte-offset
                                         );
