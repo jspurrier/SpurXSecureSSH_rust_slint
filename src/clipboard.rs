@@ -2,6 +2,70 @@ use std::error::Error;
 
 type ClipResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+/// In-process fallback cache for copied text across platforms.
+static LAST_COPIED_TEXT: parking_lot::RwLock<Option<String>> = parking_lot::RwLock::new(None);
+
+/// Copies text to both the default clipboard and primary selection via Slint's native window platform,
+/// and asynchronously triggers external clipboard providers.
+pub fn set_clipboard_via_window(window: &slint::Window, text: &str) {
+    *LAST_COPIED_TEXT.write() = Some(text.to_string());
+    let window_inner = slint::private_unstable_api::re_exports::WindowInner::from_pub(window);
+    let platform = window_inner.context().platform();
+    platform.set_clipboard_text(text, slint::platform::Clipboard::DefaultClipboard);
+    platform.set_clipboard_text(text, slint::platform::Clipboard::SelectionClipboard);
+    let _ = set_text(text);
+}
+
+/// Retrieves text from the system clipboard via Slint's native window platform,
+/// checking both DefaultClipboard and SelectionClipboard, falling back to external tools and internal cache.
+pub fn get_clipboard_via_window(window: &slint::Window) -> Option<String> {
+    let window_inner = slint::private_unstable_api::re_exports::WindowInner::from_pub(window);
+    let platform = window_inner.context().platform();
+    if let Some(text) = platform
+        .clipboard_text(slint::platform::Clipboard::DefaultClipboard)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(text);
+    }
+    if let Some(text) = platform
+        .clipboard_text(slint::platform::Clipboard::SelectionClipboard)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(text);
+    }
+    if let Ok(text) = get_text() {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    LAST_COPIED_TEXT.read().clone()
+}
+
+/// Retrieves text from the primary selection via Slint's native window platform,
+/// checking SelectionClipboard then DefaultClipboard, falling back to external tools and internal cache.
+pub fn get_primary_clipboard_via_window(window: &slint::Window) -> Option<String> {
+    let window_inner = slint::private_unstable_api::re_exports::WindowInner::from_pub(window);
+    let platform = window_inner.context().platform();
+    if let Some(text) = platform
+        .clipboard_text(slint::platform::Clipboard::SelectionClipboard)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(text);
+    }
+    if let Some(text) = platform
+        .clipboard_text(slint::platform::Clipboard::DefaultClipboard)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(text);
+    }
+    if let Ok(text) = get_primary_text() {
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    LAST_COPIED_TEXT.read().clone()
+}
+
 /// Represents a single command line to be pasted into the terminal session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PasteCommand {
@@ -15,6 +79,7 @@ pub struct PasteCommand {
 /// Runs in a background thread to prevent blocking the UI event loop.
 pub fn set_text(text: impl AsRef<str>) -> ClipResult<()> {
     let content = text.as_ref().to_string();
+    *LAST_COPIED_TEXT.write() = Some(content.clone());
     std::thread::spawn(move || {
         let _ = set_text_internal(&content);
     });
@@ -194,6 +259,7 @@ fn set_text_internal(content: &str) -> ClipResult<()> {
 /// Runs in a background thread so the UI thread never hitches or lags.
 pub fn set_primary_text(text: impl AsRef<str>) -> ClipResult<()> {
     let content = text.as_ref().to_string();
+    *LAST_COPIED_TEXT.write() = Some(content.clone());
     std::thread::spawn(move || {
         let _ = set_primary_text_internal(&content);
         let _ = set_text_internal(&content);
@@ -364,6 +430,12 @@ pub fn get_text() -> ClipResult<String> {
         if let Ok(out) = std::process::Command::new("wl-paste").output() {
             if out.status.success() {
                 return Ok(String::from_utf8_lossy(&out.stdout).to_string());
+            }
+        }
+
+        if let Some(cached) = LAST_COPIED_TEXT.read().clone() {
+            if !cached.is_empty() {
+                return Ok(cached);
             }
         }
 

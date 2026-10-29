@@ -540,8 +540,9 @@ export component TerminalView inherits Rectangle {
                                 let is-c-key = event.text == "c" || event.text == "C" || event.text == "\u{0003}";
                                 let is-ctrl-c = event.modifiers.control && is-c-key;
                                 let is-copy = (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && is-c-key;
+                                let is-ctrl-insert = event.modifiers.control && event.text == Key.Insert;
 
-                                if is-copy || (is-ctrl-c && root.selection-active) {
+                                if is-copy || is-ctrl-insert || (is-ctrl-c && root.selection-active) {
                                     root.copy-selection-or-all();
                                     root.selection-active = false;
                                     root.selection-anchor-offset = -1;
@@ -558,19 +559,18 @@ export component TerminalView inherits Rectangle {
                                         self.set-selection-offsets(self.cursor-position-byte-offset, self.cursor-position-byte-offset);
                                     }
 
+                                    let is-v-key = event.text == "v" || event.text == "V" || event.text == "\u{0016}";
+                                    let is-paste = (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && is-v-key;
+                                    let is-ctrl-v = event.modifiers.control && is-v-key;
+                                    let is-shift-insert = event.modifiers.shift && event.text == Key.Insert;
+
                                     if root.ai-autocomplete-visible && event.text == Key.Escape {
                                         root.dismiss-ai-autocomplete();
                                         accept
                                     } else if event.modifiers.control && (event.text == " " || event.text == "\u{0000}" || event.text == "@") {
                                         root.trigger-ai-autocomplete();
                                         accept
-                                    } else if (event.modifiers.meta || (event.modifiers.control && event.modifiers.shift)) && (event.text == "v" || event.text == "V") {
-                                        root.request-clipboard-paste();
-                                        accept
-                                    } else if event.modifiers.control && (event.text == "v" || event.text == "V") {
-                                        root.request-clipboard-paste();
-                                        accept
-                                    } else if event.modifiers.shift && event.text == Key.Insert {
+                                    } else if is-paste || is-ctrl-v || is-shift-insert {
                                         root.request-clipboard-paste();
                                         accept
                                     } else {

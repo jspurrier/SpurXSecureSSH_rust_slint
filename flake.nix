@@ -22,7 +22,7 @@
           mkdir -p $out/bin
           cp spurx-secure-ssh $out/bin/
 
-          # Bake the runtime libraries directly into the binary wrapper
+          # Bake the runtime libraries and clipboard utilities directly into the binary wrapper
           wrapProgram $out/bin/spurx-secure-ssh \
             --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [
               pkgs.wayland
@@ -32,6 +32,11 @@
               pkgs.fontconfig
               pkgs.freetype
               pkgs.openssl
+            ]}" \
+            --prefix PATH : "${pkgs.lib.makeBinPath [
+              pkgs.wl-clipboard
+              pkgs.xclip
+              pkgs.xsel
             ]}"
         '';
       };

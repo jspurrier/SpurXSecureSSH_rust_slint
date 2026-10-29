@@ -1481,10 +1481,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let text = selected_text.to_string();
         if !text.is_empty() {
             let formatted = clipboard::format_text_for_system_clipboard(&text);
-            let _ = clipboard::set_text(&formatted);
             if let Some(app) = app_weak.upgrade() {
+                clipboard::set_clipboard_via_window(app.window(), &formatted);
                 app.invoke_copy_to_native_clipboard(formatted.into());
                 app.set_status_text("Copied selection to clipboard".into());
+            } else {
+                let _ = clipboard::set_text(&formatted);
             }
         }
     });
@@ -1539,17 +1541,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     drop(buffers);
                     if !copied_text.is_empty() {
                         let formatted = clipboard::format_text_for_system_clipboard(&copied_text);
+                        clipboard::set_clipboard_via_window(app.window(), &formatted);
                         app.invoke_copy_to_native_clipboard(formatted.clone().into());
-                        if let Ok(()) = clipboard::set_primary_text(&formatted) {
-                            let line_count = formatted.lines().count();
-                            if line_count > 1 {
-                                app.set_status_text(
-                                    format!("Copied selection to clipboard ({} lines)", line_count)
-                                        .into(),
-                                );
-                            } else {
-                                app.set_status_text("Copied selection to clipboard".into());
-                            }
+                        let _ = clipboard::set_primary_text(&formatted);
+                        let line_count = formatted.lines().count();
+                        if line_count > 1 {
+                            app.set_status_text(
+                                format!("Copied selection to clipboard ({} lines)", line_count)
+                                    .into(),
+                            );
+                        } else {
+                            app.set_status_text("Copied selection to clipboard".into());
                         }
                     }
                 }
@@ -1604,6 +1606,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if !copied_word.is_empty() {
                                 let formatted =
                                     clipboard::format_text_for_system_clipboard(&copied_word);
+                                clipboard::set_clipboard_via_window(app.window(), &formatted);
                                 app.invoke_copy_to_native_clipboard(formatted.clone().into());
                                 let _ = clipboard::set_primary_text(&formatted);
                             }
@@ -1759,6 +1762,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if !copied_text.is_empty() {
                             let formatted =
                                 clipboard::format_text_for_system_clipboard(&copied_text);
+                            clipboard::set_clipboard_via_window(app.window(), &formatted);
                             app.invoke_copy_to_native_clipboard(formatted.clone().into());
                             let _ = clipboard::set_primary_text(&formatted);
                         }
@@ -1772,8 +1776,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak = app.as_weak();
     let rt_handle_middle = rt.handle().clone();
     app.on_request_middle_click_paste(move || {
-        let clipboard_result = clipboard::get_primary_text().or_else(|_| clipboard::get_text());
-        if let Ok(raw_text) = clipboard_result {
+        let raw_text = if let Some(app) = app_weak.upgrade() {
+            clipboard::get_primary_clipboard_via_window(app.window())
+        } else {
+            clipboard::get_primary_text().or_else(|_| clipboard::get_text()).ok()
+        };
+        if let Some(raw_text) = raw_text {
             if raw_text.is_empty() {
                 return;
             }
@@ -1845,10 +1853,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         drop(terminal_buffer);
                         let formatted =
                             clipboard::format_text_for_system_clipboard(&full_buffer_text);
+                        clipboard::set_clipboard_via_window(app.window(), &formatted);
                         app.invoke_copy_to_native_clipboard(formatted.clone().into());
-                        if let Ok(()) = clipboard::set_primary_text(&formatted) {
-                            app.set_status_text("Copied terminal lines to clipboard".into());
-                        }
+                        let _ = clipboard::set_primary_text(&formatted);
+                        app.set_status_text("Copied terminal lines to clipboard".into());
                         app.invoke_set_terminal_cursor_pos(cursor_offset as i32);
                     }
                 }
@@ -1860,7 +1868,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak = app.as_weak();
     let rt_handle_paste = rt.handle().clone();
     app.on_request_clipboard_paste(move || {
-        if let Ok(raw_text) = clipboard::get_text() {
+        let raw_text = if let Some(app) = app_weak.upgrade() {
+            clipboard::get_clipboard_via_window(app.window())
+        } else {
+            clipboard::get_text().ok()
+        };
+        if let Some(raw_text) = raw_text {
             if raw_text.is_empty() {
                 return;
             }
